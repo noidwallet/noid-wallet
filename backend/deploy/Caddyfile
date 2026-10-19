@@ -1,0 +1,10 @@
+# HTTPS in front of the wallet API. Replace the domain with yours and point
+# its DNS A record at the server. Caddy gets the certificate automatically.
+api.yourdomain.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8787
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

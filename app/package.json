@@ -1,0 +1,48 @@
+{
+  "name": "noid-wallet",
+  "version": "0.1.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "expo": "~57.0.30",
+    "expo-camera": "~57.0.6",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.22",
+    "expo-crypto": "~57.0.4",
+    "expo-dev-client": "~57.0.20",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
+    "expo-linking": "~57.0.13",
+    "expo-local-authentication": "~57.0.3",
+    "expo-router": "~57.0.28",
+    "expo-screen-capture": "~57.0.4",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "react": "19.2.3",
+    "react-dom": "^19.2.3",
+    "react-native": "0.86.3",
+    "react-native-qrcode-svg": "^6.3.15",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "core:android": "cd ../core && cargo ndk -t arm64-v8a -t x86_64 -o ../app/modules/noid-core/android/src/main/jniLibs build --release",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "test": "tsx --test src/lib/amount.test.ts src/lib/send.test.ts"
+  },
+  "private": true
+}

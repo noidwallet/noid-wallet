@@ -1,0 +1,48 @@
+[package]
+name = "noid_mobile_core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "On-device wallet core for the NOID mobile wallet: keys, Photo Key, fee planning, transaction building and the Parano1d authorization proof."
+publish = false
+
+# Standalone workspace (not part of the app's JS tooling).
+[workspace]
+resolver = "2"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Official Parano1d crates, pinned to the audited v2.0.4-era commit we tested.
+noid_core = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
+noid_poseidon2b = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
+noid_tx = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
+noid_gkr = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
+
+# Photo Key must decode pixels exactly like the official GUI, so the image
+# stack is pinned to the same versions and features as noid_gui.
+image = { version = "=0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
+zune-jpeg = "=0.5.15"
+zune-core = "=0.5.1"
+png = "=0.18.1"
+gif = "=0.14.2"
+tiff = "=0.11.3"
+image-webp = "=0.2.4"
+blake3 = { version = "=1.8.5", features = ["pure"] }  # pure Rust: same hashes, no C toolchain needed
+
+hex = "0.4"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = { version = "1.8", features = ["zeroize_derive", "serde"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = true

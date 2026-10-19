@@ -1,0 +1,19 @@
+# Rust
+core/target/
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+app/android/
+app/ios/
+# Built native library (rebuild with: npm run core:android)
+app/modules/noid-core/android/src/main/jniLibs/
+# Backend data
+backend/data/
+*.sqlite
+*.sqlite-*
+# Secrets and local env
+.env
+*.keystore
+*.jks

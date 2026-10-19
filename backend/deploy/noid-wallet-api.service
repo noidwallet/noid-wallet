@@ -1,0 +1,25 @@
+[Unit]
+Description=NOID mobile wallet API (proxy + history indexer)
+After=parano1d.service
+Requires=parano1d.service
+
+[Service]
+User=noid
+Group=noid
+WorkingDirectory=/opt/noid-wallet-backend
+Environment=NODE_ENV=production
+Environment=NOID_RPC_URL=http://127.0.0.1:9601
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=DB_PATH=/var/lib/noid-wallet/wallet-index.sqlite
+Environment=TRUST_PROXY=1
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/noid-wallet
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
