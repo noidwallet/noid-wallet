@@ -1,4 +1,5 @@
-import { useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AccessibilityInfo, Animated, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, RadialGradient, Rect, Stop, Text as SvgText } from 'react-native-svg';
 
 import type { GiftTheme } from '@/lib/links';
@@ -178,5 +179,23 @@ export function GiftCard({
         ) : null}
       </Svg>
     </View>
+  );
+}
+
+/** The card springs in with a small tilt: for "gift ready" and "you received a gift". */
+export function RevealGiftCard(props: Parameters<typeof GiftCard>[0]) {
+  const [v] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
+      if (reduce) v.setValue(1);
+      else Animated.spring(v, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 10 }).start();
+    });
+  }, [v]);
+  const scale = v.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] });
+  const rotate = v.interpolate({ inputRange: [0, 1], outputRange: ['-3deg', '0deg'] });
+  return (
+    <Animated.View style={{ opacity: v, transform: [{ scale }, { rotate }] }}>
+      <GiftCard {...props} />
+    </Animated.View>
   );
 }

@@ -21,7 +21,8 @@ test('look-alikes beyond exact 4+4: partial ends, long prefix, poisoned contacts
   // 'tseu9y' -> 'tsxuxy' (4 of 6 kept) and 'qyfj6z' -> 'qxfxxz' (3 of 6 kept), middle all different.
   const partial = 'o1tsxuxy' + 'x'.repeat(REAL.length - 14) + 'qxfxxz';
   assert.equal(checkAddress(partial, [], [REAL]).kind, 'lookalike');
-  // Only the start matches, but for 5+ characters.
+  // Only the start matches, but for 4+ characters.
+  assert.equal(checkAddress('o1tseu' + 'z'.repeat(REAL.length - 6), [], [REAL]).kind, 'lookalike');
   const prefix = 'o1tseu9zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
   assert.equal(checkAddress(prefix, [], [REAL]).kind, 'lookalike');
   // A saved contact that imitates another contact is still flagged.

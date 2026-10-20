@@ -89,6 +89,26 @@ export const GIFT_STATUS: Record<GiftState, { text: string; color: string }> = {
   takenBack: { text: 'Taken back', color: colors.muted },
 };
 
+/** Badge colour for each state. */
+export const GIFT_TONE: Record<GiftState, 'neutral' | 'warn' | 'success'> = {
+  draft: 'neutral',
+  waiting: 'warn',
+  funded: 'warn',
+  takingBack: 'warn',
+  claimed: 'success',
+  takenBack: 'neutral',
+};
+
+/** Short badge text. */
+export const GIFT_BADGE: Record<GiftState, string> = {
+  draft: 'Not sent',
+  waiting: 'Sending',
+  funded: 'Unclaimed',
+  takingBack: 'Taking back',
+  claimed: 'Claimed',
+  takenBack: 'Taken back',
+};
+
 /**
  * Work out where a gift stands from the chain, every time (a saved status is
  * never trusted over what the chain shows):

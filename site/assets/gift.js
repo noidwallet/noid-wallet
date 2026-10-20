@@ -7,6 +7,11 @@
     NOID.show("invalid", true);
     return;
   }
+  // The key is now in memory (and in the button below). Drop it from the
+  // address bar so it doesn't linger in browser history or synced tabs.
+  try {
+    history.replaceState(null, "", location.pathname);
+  } catch (e) {}
   var themes = ["vault", "celebrate", "thanks", "birthday"];
   var theme = themes.indexOf(p.get("t")) >= 0 ? p.get("t") : "vault";
   var amount = NOID.amount(p.get("a"));

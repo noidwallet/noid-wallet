@@ -97,13 +97,20 @@ test("notifications: validated tokens, once per tx, no dust, no old blocks, owne
   await n.drain();
   assert.equal(sent.length, 1, "no repeat for a re-stored block, none for old blocks");
 
-  // An attacker filling an address with tokens only evicts older ones.
+  // New phones per address are rate limited...
+  const burst = [];
+  for (let i = 0; i < 4; i++) burst.push((await n.subscribe(A, `burst_token_${i}_abcdefghijklmnopq`)).ok);
+  // The owner's phone already used one of this hour's 3 slots.
+  assert.deepEqual(burst, [true, true, false, false]);
+  // ...and even a slow attacker filling the slots only evicts older ones,
+  // while the owner renewing an existing phone is always allowed.
   for (let i = 0; i < 12; i++) {
-    clock += 1;
+    clock += 1300;
     await n.subscribe(A, `attacker_token_${i}_abcdefghijklmnop`);
   }
-  clock += 1;
-  await n.subscribe(A, TOKEN);
+  // Even if evicted, the owner's phone gets back in within the hour.
+  clock += 3600;
+  assert.deepEqual(await n.subscribe(A, TOKEN), { ok: true });
   const mine = db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE token = ?").get(TOKEN) as { n: number };
   const count = db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE address = ?").get(A) as { n: number };
   assert.equal(mine.n, 1);

@@ -34,7 +34,11 @@ export function parseNodeJson(text: string): unknown {
 }
 
 export class RpcError extends Error {
-  constructor(message: string, readonly rpcCode?: number) {
+  /**
+   * @param transport true when the node answered with an HTTP error instead of
+   *   a JSON-RPC error: it may have acted on the request anyway.
+   */
+  constructor(message: string, readonly rpcCode?: number, readonly transport = false) {
     super(message);
   }
 }
@@ -49,7 +53,7 @@ export async function rpc<T>(method: RpcMethod, params: unknown[] = [], timeoutM
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: `paranoid_${method}`, params }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) throw new RpcError(`node HTTP ${res.status}`);
+  if (!res.ok) throw new RpcError(`node HTTP ${res.status}`, undefined, true);
   const body = parseNodeJson(await res.text()) as { result?: T; error?: { code: number; message: string } };
   if (body.error) throw new RpcError(body.error.message, body.error.code);
   return body.result as T;

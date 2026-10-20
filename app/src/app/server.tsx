@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Body, Button, Field, Notice, Screen, Title } from '@/components/ui';
+import { Banner, Body, Button, Field, Screen } from '@/components/ui';
 import { createApi, isAllowedServerUrl } from '@/lib/api';
 import { goBack } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
@@ -46,11 +46,18 @@ export default function Server() {
   }
 
   return (
-    <Screen>
-      <Title>Wallet server</Title>
+    <Screen
+      header={{ title: 'Wallet server' }}
+      footer={
+        <>
+          <Button title="Test and save" busy={busy} disabled={!url.trim()} onPress={save} />
+          {saved ? <Button title="Done" kind="secondary" onPress={() => goBack()} /> : null}
+        </>
+      }
+    >
       <Body muted>
-        The server reads public chain data and relays your finished transactions. It never sees your secret, and it
-        cannot change where your NOID goes.
+        The server reads public chain data and relays your finished payments. It never sees your secret and can’t change where
+        your NOID goes.
       </Body>
       <Field
         label="Server address"
@@ -63,12 +70,10 @@ export default function Server() {
         keyboardType="url"
         returnKeyType="go"
         onSubmitEditing={() => void save()}
-        placeholder="https://wallet.example.com"
+        placeholder="https://api.noidusa.com"
+        hint="Testing at home? Use your PC’s Wi-Fi address with http, e.g. http://192.168.1.20:8787"
       />
-      <Body muted style={{ fontSize: 14 }}>Testing at home? Use your PC’s Wi-Fi address with http, e.g. http://192.168.1.20:8787.</Body>
-      <Button title="Test and save" busy={busy} disabled={!url.trim()} onPress={save} />
-      {note ? <Notice tone={note.tone}>{note.text}</Notice> : null}
-      <Button title={saved ? 'Done' : 'Back'} kind={saved ? 'secondary' : 'ghost'} onPress={() => goBack()} />
+      {note ? <Banner tone={note.tone === 'danger' ? 'danger' : 'success'}>{note.text}</Banner> : null}
     </Screen>
   );
 }

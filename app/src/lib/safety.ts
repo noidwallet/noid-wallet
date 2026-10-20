@@ -15,7 +15,7 @@ export type AddressCheck =
 
 /**
  * Two different addresses look alike when their ends are close: at least 3
- * of the first 6 and 3 of the last 6 characters match by position, or 5+
+ * of the first 6 and 3 of the last 6 characters match by position, or 4+
  * leading or trailing characters match exactly. For random addresses that
  * happens by chance less than once in a million pairs; an attacker who
  * mines a look-alike has to beat it.
@@ -35,7 +35,8 @@ export function looksAlike(a: string, b: string): boolean {
   while (prefix < Math.min(x.length, y.length) && x[prefix] === y[prefix]) prefix++;
   let suffix = 0;
   while (suffix < Math.min(x.length, y.length) && x[x.length - 1 - suffix] === y[y.length - 1 - suffix]) suffix++;
-  return (head >= 3 && tail >= 3) || prefix >= 5 || suffix >= 5;
+  // 4 leading or trailing characters is what a short "o1ab…wxyz" display shows.
+  return (head >= 3 && tail >= 3) || prefix >= 4 || suffix >= 4;
 }
 
 /**

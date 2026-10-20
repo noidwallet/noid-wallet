@@ -72,7 +72,7 @@ function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
   return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
-export function createApi(baseUrl: string, installId = '') {
+export function createApi(baseUrl: string, _installId = '') {
   const base = baseUrl.replace(/\/+$/, '');
 
   async function request<T>(path: string, init?: RequestInit, timeoutMs = 20_000): Promise<T> {
@@ -81,7 +81,8 @@ export function createApi(baseUrl: string, installId = '') {
     try {
       res = await fetch(base + path, {
         ...init,
-        headers: { 'content-type': 'application/json', 'x-install-id': installId, ...(init?.headers ?? {}) },
+        // No device identifier is sent: the server limits by IP address only.
+        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
         signal: t.signal,
       });
     } catch {
@@ -132,15 +133,15 @@ export type Api = ReturnType<typeof createApi>;
 
 /** https everywhere, plain http only for a server on your own Wi-Fi during testing. */
 export function isAllowedServerUrl(url: string): boolean {
-  const m = /^(https?):\/\/([^/:]+)(:\d+)?(\/.*)?$/i.exec(url.trim());
+  // No user:pass@ part, a plain host, an optional port and path.
+  const m = /^(https?):\/\/([a-z0-9.-]+)(:\d{1,5})?(\/[^\s]*)?$/i.exec(url.trim());
   if (!m) return false;
   if (m[1]!.toLowerCase() === 'https') return true;
-  const host = m[2]!;
-  return (
-    host === 'localhost' ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  );
+  const host = m[2]!.toLowerCase();
+  if (host === 'localhost') return true;
+  // Plain http only to a private IP address written as numbers.
+  const ip = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ip || ip.slice(1).some((p) => Number(p) > 255)) return false;
+  const [a, b] = [Number(ip[1]), Number(ip[2])];
+  return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
 }

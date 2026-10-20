@@ -4,37 +4,47 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
-import { ActionNotice, Button, Notice } from '@/components/ui';
-import { HistoryRow, PendingRow } from '@/components/TxRow';
+import { Icon } from '@/components/Icon';
+import { HistoryRow, makeNameOf, PendingRow } from '@/components/TxRow';
+import { Banner, Button, EmptyState, IconAction, IconButton, Link, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
+import { LINK_HOSTS } from '@/lib/config';
 import { inbox } from '@/lib/inbox';
-import { nextRoute } from '@/lib/scan';
-import { ago, go, useNow } from '@/lib/nav';
+import { parseLink } from '@/lib/links';
+import { ago, go, goHandoff, useNow } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
+import { nextRoute, scanResult } from '@/lib/scan';
 import { useWallet } from '@/state/wallet';
-import { colors, fonts, radius, space } from '@/theme';
+import { colors, fonts, radius, space, type } from '@/theme';
 
 /** Suggest merging once a wallet holds this many separate coins. */
 const MERGE_HINT_AT = 20;
+const ACTIVITY_ON_HOME = 10;
 
 export default function Home() {
-  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price, lastUpdated } =
-    useWallet();
-  const [copied, setCopied] = useState(false);
+  const w = useWallet();
+  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price, lastUpdated } = w;
+  const [showAllBanners, setShowAllBanners] = useState(false);
   const now = useNow();
 
-  // A gift or payment link opened the app: take the user straight to it.
+  // A gift or payment link (or a code scanned from here) takes the user straight to it.
   const handleInbox = useCallback(() => {
-    const route = nextRoute.take();
-    if (route === '/backup') {
-      go('/backup');
+    if (nextRoute.take() === '/backup') {
+      goHandoff('/backup');
       return;
+    }
+    const scanned = scanResult.take();
+    if (scanned) {
+      const p = parseLink(scanned, LINK_HOSTS);
+      if (p) inbox.set(p);
+      else toast('That is not a NOID code');
     }
     const link = inbox.peek();
     if (!link) return;
-    if (link.kind === 'gift') go('/claim');
-    else go('/send');
+    if (link.kind === 'gift') goHandoff('/claim');
+    else goHandoff('/send');
   }, []);
   // Only while home is on screen: a link never jumps over a send in progress.
   useFocusEffect(
@@ -45,6 +55,8 @@ export default function Home() {
   );
 
   if (!meta) return null;
+  const nameOf = makeNameOf(w.contacts);
+  const hidden = !!settings.hideBalance;
 
   // Only count a pending transaction while its coins are still in the live
   // set: once a block spends them, `balance` already reflects it.
@@ -53,188 +65,232 @@ export default function Home() {
   const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount : 0) + p.fee, 0);
   // Gift claims coming in (their coins are not ours yet, so not in `balance`).
   const claimIn = pending.filter((p) => p.kind === 'claim').reduce((s, p) => s + p.amount, 0);
-  const balanceValue = fiat(Math.max(0, balance - pendingOut), price, settings.currency ?? 'none');
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));
   const lockedValue = utxos.filter((u) => lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
-  const available = balance - lockedValue;
-  // What the user will hold once pending sends confirm; change comes back then.
+  const ready = balance - lockedValue;
   const shownBalance = Math.max(0, balance - pendingOut);
-  const changeIn = Math.max(0, lockedValue - pendingOut);
   const hasServer = !!settings.apiUrl;
   const online = hasServer && !!status && !error;
-  const sendBlocker = !hasServer
-    ? 'Add a wallet server to send.'
+  const loaded = lastUpdated !== null || online;
+  const value = loaded ? fiat(shownBalance, price, settings.currency ?? 'none') : null;
+
+  const statusText = !hasServer
+    ? 'No server'
     : !online
-      ? 'Sending needs a connection to your wallet server.'
-      : available === 0 && pendingOut > 0
-        ? 'Your coins are in a pending transaction. Send again once it confirms.'
-        : available === 0
-          ? 'Receive some NOID first, then you can send.'
-          : null;
+      ? lastUpdated
+        ? `Offline · ${ago(lastUpdated, now)}`
+        : 'Offline'
+      : status?.synced
+        ? `Live · #${status.height.toLocaleString()}`
+        : 'Syncing';
+  const statusColor = !online ? colors.danger : status?.synced ? colors.accent : colors.warn;
+
+  // Most serious first; at most two unless the user asks for more.
+  const banners: { key: string; node: React.ReactNode }[] = [];
+  if (lockState === 'no-screen-lock') {
+    banners.push({
+      key: 'lock',
+      node: (
+        <Banner tone="danger">
+          This phone has no screen lock, so anyone holding it can open your wallet. Set a PIN, pattern or fingerprint.
+        </Banner>
+      ),
+    });
+  }
+  if (!hasServer) {
+    banners.push({
+      key: 'server',
+      node: (
+        <Banner tone="warn" icon="server" onPress={() => go('/server')}>
+          NOID isn’t connected to a wallet server yet. Tap to add one.
+        </Banner>
+      ),
+    });
+  } else if (error) {
+    banners.push({
+      key: 'server',
+      node: (
+        <Banner tone="danger" icon="server" onPress={() => go('/server')}>
+          {lastUpdated ? 'Showing your last known balance. ' : ''}Can’t reach your wallet server. Tap to check it.
+        </Banner>
+      ),
+    });
+  }
+  if (!meta.backedUp) {
+    banners.push({
+      key: 'backup',
+      node: (
+        <Banner tone="warn" icon="key" onPress={() => go('/backup')}>
+          Back up your secret, or you could lose this wallet. Tap to do it now.
+        </Banner>
+      ),
+    });
+  }
+  if (utxos.length >= MERGE_HINT_AT && pending.length === 0) {
+    banners.push({
+      key: 'merge',
+      node: (
+        <Banner tone="info" icon="merge" onPress={() => go('/consolidate')}>
+          Your balance is spread over {utxos.length} coins. Merge them to make sends cheaper and faster.
+        </Banner>
+      ),
+    });
+  }
+  const shownBanners = showAllBanners ? banners : banners.slice(0, 2);
+
+  const activity = [
+    ...pending.map((p) => ({ key: `p-${p.txid}`, node: <PendingRow item={p} nameOf={nameOf} /> })),
+    ...history.map((h) => ({ key: h.txid, node: <HistoryRow item={h} nameOf={nameOf} /> })),
+  ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={{ padding: space.lg, gap: space.xl }}
+        contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: space.xxl, gap: space.xl }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-            <View
-              style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: online ? (status?.synced ? colors.ok : colors.warn) : colors.danger }}
+        {/* Header: wordmark, connection status, settings */}
+        <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+            <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18, letterSpacing: 2 }}>NOID</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Connection: ${statusText}`}
+              onPress={() => go('/server')}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.s1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 }}
+            >
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: statusColor }} />
+              <Text style={{ color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 12 }}>{statusText}</Text>
+            </Pressable>
+          </View>
+          <IconButton icon="settings" label="Settings" onPress={() => go('/settings')} />
+        </View>
+
+        {/* Balance card */}
+        <View style={{ borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: colors.lineStrong }}>
+          <Svg style={{ position: 'absolute', width: '100%', height: '100%' }} preserveAspectRatio="none">
+            <Defs>
+              <LinearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor="#0F2A22" />
+                <Stop offset="1" stopColor="#08120F" />
+              </LinearGradient>
+              <RadialGradient id="glow" cx="90%" cy="0%" r="70%">
+                <Stop offset="0" stopColor={colors.accent} stopOpacity={0.22} />
+                <Stop offset="1" stopColor={colors.accent} stopOpacity={0} />
+              </RadialGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill="url(#hero)" />
+            <Rect width="100%" height="100%" fill="url(#glow)" />
+          </Svg>
+          <View style={{ padding: space.xl, gap: space.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={type.caption}>Total balance</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={hidden ? 'Show balance' : 'Hide balance'}
+                hitSlop={12}
+                onPress={() => void w.updateSettings({ hideBalance: !hidden })}
+              >
+                <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '600' }}>{hidden ? 'Show' : 'Hide'}</Text>
+              </Pressable>
+            </View>
+            {loaded ? (
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
+                <Text adjustsFontSizeToFit numberOfLines={1} style={[type.display, { flexShrink: 1 }]}>
+                  {hidden ? '••••' : formatNoid(shownBalance)}
+                </Text>
+                <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 16 }}>NOID</Text>
+              </View>
+            ) : (
+              <Skeleton width={180} height={44} />
+            )}
+            {value && !hidden ? <Text style={{ color: colors.textSecondary, fontSize: 15 }}>{value}</Text> : null}
+            {pendingOut > 0 && !hidden ? (
+              <View style={{ alignSelf: 'flex-start', backgroundColor: colors.warnTint, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 }}>
+                <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+                  −{formatNoid(pendingOut)} pending{ready > 0 ? ` · ${formatNoid(ready)} ready` : ''}
+                </Text>
+              </View>
+            ) : null}
+            {claimIn > 0 && !hidden ? (
+              <Text style={{ color: colors.accent, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Copy your address"
+              onPress={async () => {
+                await Clipboard.setStringAsync(meta.address);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                toast('Address copied');
+              }}
+              style={({ pressed }) => ({
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.sm,
+                backgroundColor: 'rgba(0,0,0,0.25)',
+                borderRadius: radius.pill,
+                paddingHorizontal: space.md,
+                paddingVertical: 7,
+                marginTop: space.xs,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Text style={{ color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 13 }}>{shortAddress(meta.address, 8)}</Text>
+              <Icon name="copy" size={16} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Main actions */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: space.xs }}>
+          <IconAction icon="send" label="Send" onPress={() => go('/send')} highlight />
+          <IconAction icon="receive" label="Receive" onPress={() => go('/receive')} />
+          <IconAction icon="scan" label="Scan" onPress={() => go('/scan')} />
+          <IconAction icon="gift" label="Gift" onPress={() => go('/gifts')} />
+        </View>
+
+        {banners.length > 0 ? (
+          <View style={{ gap: space.sm }}>
+            {shownBanners.map((b) => (
+              <View key={b.key}>{b.node}</View>
+            ))}
+            {banners.length > 2 && !showAllBanners ? (
+              <Link title={`+${banners.length - 2} more`} onPress={() => setShowAllBanners(true)} />
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Activity */}
+        <View style={{ gap: space.xs }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={type.h2}>Activity</Text>
+            {activity.length > ACTIVITY_ON_HOME ? <Link title="See all" onPress={() => go('/activity')} /> : null}
+          </View>
+          {!loaded ? (
+            <View style={{ gap: space.md, paddingTop: space.sm }}>
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: space.md, alignItems: 'center' }}>
+                  <Skeleton width={40} height={40} style={{ borderRadius: 20 }} />
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Skeleton width="60%" height={14} />
+                    <Skeleton width="35%" height={12} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : activity.length === 0 ? (
+            <EmptyState
+              icon="receive"
+              title="No activity yet"
+              body="Share your address to receive your first NOID."
+              action={<Button title="Receive NOID" kind="secondary" icon="receive" onPress={() => go('/receive')} />}
             />
-            <Text style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 12 }}>
-              {!hasServer
-                ? 'no server'
-                : !online
-                  ? lastUpdated
-                    ? `offline · updated ${ago(lastUpdated, now)}`
-                    : 'offline'
-                  : status?.synced
-                    ? `block ${status.height.toLocaleString()}`
-                    : `syncing · ${status?.syncStage}`}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-            onPress={() => go('/settings')}
-            hitSlop={12}
-            style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: space.sm, opacity: pressed ? 0.6 : 1 })}
-          >
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>Settings</Text>
-          </Pressable>
-        </View>
-
-        <View style={{ gap: space.sm }}>
-          <Text style={{ color: colors.muted, fontSize: 13, letterSpacing: 0.8, textTransform: 'uppercase' }}>Balance</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
-            <Text adjustsFontSizeToFit numberOfLines={1} style={{ color: colors.text, fontFamily: fonts.monoBold, fontSize: 44, flexShrink: 1 }}>
-              {lastUpdated === null && !online ? '—' : formatNoid(shownBalance, { maxDecimals: 4 })}
-            </Text>
-            <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18 }}>NOID</Text>
-          </View>
-          {balanceValue ? <Text style={{ color: colors.muted, fontSize: 15 }}>{balanceValue}</Text> : null}
-          {claimIn > 0 ? (
-            <Text style={{ color: colors.accent, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
-          ) : null}
-          {pendingOut > 0 ? (
-            <Text style={{ color: colors.muted, fontSize: 14 }}>
-              {formatNoid(pendingOut)} on its way out
-              {changeIn > 0 ? ` · ${formatNoid(changeIn)} change returns with the next block` : ''}
-              {available > 0 ? ` · ${formatNoid(available)} ready to send` : ''}
-            </Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Copy your address"
-            onPress={async () => {
-              await Clipboard.setStringAsync(meta.address);
-              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-            style={{
-              alignSelf: 'flex-start',
-              backgroundColor: colors.surface,
-              borderColor: colors.line,
-              borderWidth: 1,
-              borderRadius: radius.sm,
-              paddingHorizontal: space.md,
-              paddingVertical: 6,
-              marginTop: space.xs,
-            }}
-          >
-            <Text style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 13 }}>
-              {copied ? 'Address copied' : shortAddress(meta.address, 8)}
-            </Text>
-          </Pressable>
-        </View>
-
-        <View style={{ flexDirection: 'row', gap: space.md }}>
-          <View style={{ flex: 1 }}>
-            <Button title="Send" onPress={() => go('/send')} disabled={!!sendBlocker} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Button title="Receive" kind="secondary" onPress={() => go('/receive')} />
-          </View>
-        </View>
-        {sendBlocker && hasServer && online ? (
-          <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.md }}>{sendBlocker}</Text>
-        ) : null}
-
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          <Tile title="Gift card" hint="Send NOID as a link" onPress={() => go('/gifts')} highlight />
-          <Tile title="Request" hint="Ask for an amount" onPress={() => go('/request')} />
-          <Tile title="Contacts" hint="People you pay" onPress={() => go('/contacts')} />
-        </View>
-
-        {lockState === 'no-screen-lock' ? (
-          <Notice tone="danger">
-            This phone has no screen lock, so anyone holding it can open your wallet. Set a PIN, pattern or fingerprint in
-            your phone’s settings.
-          </Notice>
-        ) : null}
-        {!meta.backedUp ? (
-          <ActionNotice tone="warn" onPress={() => go('/backup')}>
-            You have not confirmed a backup of your secret yet. Tap to back it up now.
-          </ActionNotice>
-        ) : null}
-        {!hasServer ? (
-          <ActionNotice tone="warn" onPress={() => go('/server')}>
-            NOID isn’t connected to a wallet server yet, so your balance can’t load. Tap to add one.
-          </ActionNotice>
-        ) : error ? (
-          <ActionNotice tone="danger" onPress={() => go('/server')}>
-            {lastUpdated ? 'Showing your last known balance. ' : ''}Cannot reach your wallet server. Tap to check it.
-          </ActionNotice>
-        ) : null}
-        {utxos.length >= MERGE_HINT_AT && pending.length === 0 ? (
-          <ActionNotice onPress={() => go('/consolidate')}>
-            Your balance is spread over {utxos.length} coins. Merging them makes future sends cheaper and faster. Tap to
-            merge.
-          </ActionNotice>
-        ) : null}
-
-        <View>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: space.xs }}>Activity</Text>
-          {pending.map((p) => (
-            <PendingRow key={p.txid} item={p} />
-          ))}
-          {history.map((h) => (
-            <HistoryRow key={h.txid} item={h} />
-          ))}
-          {pending.length === 0 && history.length === 0 ? (
-            <Text style={{ color: colors.muted, fontSize: 15, paddingVertical: space.lg }}>
-              No activity yet. Share your address from Receive to get your first NOID.
-            </Text>
-          ) : null}
+          ) : (
+            activity.slice(0, ACTIVITY_ON_HOME).map((a) => <View key={a.key}>{a.node}</View>)
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function Tile({ title, hint, onPress, highlight }: { title: string; hint: string; onPress: () => void; highlight?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${title}. ${hint}`}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 72,
-        padding: space.md,
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: highlight ? colors.accent : colors.line,
-        backgroundColor: colors.surface,
-        justifyContent: 'space-between',
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Text style={{ color: highlight ? colors.accent : colors.text, fontSize: 15, fontWeight: '700' }}>{title}</Text>
-      <Text style={{ color: colors.muted, fontSize: 12 }}>{hint}</Text>
-    </Pressable>
   );
 }

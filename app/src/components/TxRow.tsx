@@ -1,10 +1,10 @@
-import { Pressable, Text, View } from 'react-native';
-
+import { Avatar, ListRow } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
-import { go } from '@/lib/nav';
 import type { HistoryItem } from '@/lib/api';
+import { go } from '@/lib/nav';
 import type { PendingTx } from '@/lib/storage';
-import { colors, fonts, space } from '@/theme';
+import { colors } from '@/theme';
+import type { IconName } from '@/components/Icon';
 
 export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
@@ -14,57 +14,37 @@ export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   contract: 'Contract',
 };
 
-function when(unixSeconds: number) {
+const TX_ICON: Record<HistoryItem['direction'], IconName> = {
+  sent: 'send',
+  received: 'receive',
+  self: 'merge',
+  mined: 'mined',
+  contract: 'shield',
+};
+
+export function when(unixSeconds: number) {
   const d = new Date(unixSeconds * 1000);
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export function HistoryRow({ item }: { item: HistoryItem }) {
+/** Contact name for an address, or its short form. */
+export type NameOf = (address: string) => string;
+
+export function HistoryRow({ item, nameOf }: { item: HistoryItem; nameOf: NameOf }) {
   const outgoing = item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract';
   const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee : 0);
+  const who = item.counterparty && item.direction !== 'self' ? nameOf(item.counterparty) : null;
+  const sign = item.direction === 'contract' ? '' : outgoing ? '−' : '+';
   return (
-    <Pressable
-      accessibilityRole="button"
+    <ListRow
+      leading={<Avatar icon={TX_ICON[item.direction]} tone={outgoing ? 'neutral' : 'success'} />}
+      title={who && item.direction !== 'mined' ? `${TX_LABEL[item.direction]} · ${who}` : TX_LABEL[item.direction]}
+      subtitle={when(item.time)}
+      value={`${sign}${formatNoid(shown)}`}
+      valueColor={outgoing ? colors.text : colors.accent}
       onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
-      style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
-    >
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{TX_LABEL[item.direction]}</Text>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>
-          {item.counterparty && item.direction !== 'self' ? `${shortAddress(item.counterparty, 4)} · ` : ''}
-          {when(item.time)}
-        </Text>
-      </View>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 15, color: outgoing ? colors.text : colors.accent }}>
-        {item.direction === 'contract' ? '' : outgoing ? '−' : '+'}
-        {formatNoid(shown)}
-      </Text>
-    </Pressable>
-  );
-}
-
-export function PendingRow({ item }: { item: PendingTx }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
-      style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
-    >
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.warn, fontSize: 16, fontWeight: '600' }}>
-          {PENDING_LABEL[item.kind]} ·{' '}
-          {item.state === 'submitting' ? 'checking with the network' : 'waiting for a block'}
-        </Text>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>
-          {item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? shortAddress(item.to, 4) : 'To yourself'}
-        </Text>
-      </View>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 15, color: item.kind === 'claim' ? colors.accent : colors.text }}>
-        {item.kind === 'claim'
-          ? `+${formatNoid(item.amount)}`
-          : `−${formatNoid(item.kind === 'consolidate' ? item.fee : item.amount + item.fee)}`}
-      </Text>
-    </Pressable>
+      accessibilityLabel={`${TX_LABEL[item.direction]} ${formatNoid(shown)} NOID${who ? `, ${who}` : ''}, ${when(item.time)}`}
+    />
   );
 }
 
@@ -75,11 +55,27 @@ const PENDING_LABEL: Record<PendingTx['kind'], string> = {
   claim: 'Claiming gift',
 };
 
-const row = {
-  flexDirection: 'row' as const,
-  alignItems: 'center' as const,
-  gap: space.md,
-  paddingVertical: space.md,
-  borderBottomWidth: 1,
-  borderBottomColor: colors.line,
-};
+export function PendingRow({ item, nameOf }: { item: PendingTx; nameOf: NameOf }) {
+  const incoming = item.kind === 'claim';
+  const value = incoming
+    ? `+${formatNoid(item.amount)}`
+    : `−${formatNoid(item.kind === 'consolidate' ? item.fee : item.amount + item.fee)}`;
+  const where =
+    item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? nameOf(item.to) : 'To yourself';
+  const state = item.state === 'submitting' ? 'Checking with the network' : 'Waiting for a block';
+  return (
+    <ListRow
+      leading={<Avatar icon="clock" tone="warn" />}
+      title={`${PENDING_LABEL[item.kind]} · ${where}`}
+      subtitle={state}
+      value={value}
+      valueColor={incoming ? colors.accent : colors.text}
+      onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
+    />
+  );
+}
+
+export function makeNameOf(contacts: { name: string; address: string }[]): NameOf {
+  const map = new Map(contacts.map((c) => [c.address, c.name]));
+  return (address) => map.get(address) ?? shortAddress(address, 4);
+}

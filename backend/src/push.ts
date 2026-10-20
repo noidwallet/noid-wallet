@@ -6,7 +6,8 @@
 //
 // Abuse limits: tokens are checked with FCM (validate_only) before they are
 // stored, a token watches at most 5 addresses, an address keeps its 10 most
-// recent tokens (older ones are evicted, so nobody can lock an owner out),
+// recent tokens (older ones are evicted) and gains at most 3 new phones an
+// hour, while renewing an existing phone is always allowed,
 // rows expire unless the app renews them, and the table has a global cap.
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -145,6 +146,8 @@ function formatNoid(micro: number): string {
 
 export class Notifier {
   private queue: { token: string; title: string; body: string; txid: string }[] = [];
+  /** When new phones were added per address, to slow down token churn. */
+  private recentNew = new Map<string, number[]>();
   private active = 0;
 
   constructor(
@@ -169,6 +172,18 @@ export class Notifier {
     if (total.n >= MAX_ROWS) return { ok: false, status: 503, message: "Notifications are full on this server right now." };
 
     const now = this.now();
+    const known = this.db.prepare("SELECT 1 FROM push_subs WHERE address = ? AND token = ?").get(address, token);
+    if (!known) {
+      // At most 3 new phones per address per hour: renewing an existing phone
+      // is always allowed, so an owner who opens the app keeps their slot.
+      const recent = (this.recentNew.get(address) ?? []).filter((t) => t > now - 3600);
+      if (recent.length >= 3) {
+        return { ok: false, status: 429, message: "Too many new phones for this address. Try again in an hour." };
+      }
+      recent.push(now);
+      this.recentNew.set(address, recent);
+      if (this.recentNew.size > 50_000) this.recentNew.clear();
+    }
     this.db.transaction(() => {
       this.db.prepare("INSERT OR REPLACE INTO push_subs (address, token, created_at) VALUES (?, ?, ?)").run(address, token, now);
       // Keep only the newest tokens for an address: an owner is never locked out.

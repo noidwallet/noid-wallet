@@ -246,7 +246,10 @@ export async function buildServer(
         if (accepted !== txid) req.log.warn({ accepted, txid }, "node txid differs from client txid");
         return { txid: accepted };
       } catch (e) {
-        if (e instanceof RpcError) {
+        // Only a JSON-RPC error body is a real answer about this transaction.
+        // An HTTP-level failure (overload, restart) may come after the node
+        // accepted it, so it is handled like a timeout below.
+        if (e instanceof RpcError && !e.transport) {
           const outcome = classifySubmitError(e.message);
           if (outcome.kind === "accepted") return { txid, already: true };
           // A spent-input rejection can also mean our own earlier submit already confirmed.

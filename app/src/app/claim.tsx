@@ -3,31 +3,25 @@ import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
-import { GiftCard } from '@/components/GiftCard';
-import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { RevealGiftCard } from '@/components/GiftCard';
+import { SendProgress } from '@/components/Progress';
+import { Banner, Body, Button, Card, Field, IconButton, KeyValue, Pill, Screen, SuccessMark, Title } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import { LINK_HOSTS } from '@/lib/config';
 import { core, type SendPlan } from '@/lib/core';
 import { inbox } from '@/lib/inbox';
 import { parseLink, type ParsedLink } from '@/lib/links';
-import { go, goBack, goHome, useHardwareBack } from '@/lib/nav';
+import { go, goHome, useHardwareBack } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { scanResult } from '@/lib/scan';
 import { executeSweep, hasUnresolvedSend, planSweep, SubmitUnknown, type Stage } from '@/lib/send';
 import { useWallet } from '@/state/wallet';
-import { colors, fonts, space } from '@/theme';
+import { colors, space } from '@/theme';
 
 type Gift = Extract<ParsedLink, { kind: 'gift' }>;
 type View_ = 'enter' | 'loading' | 'ready' | 'empty' | 'failed' | 'claiming' | 'done';
-
-const STAGE_TEXT: Record<Stage, string> = {
-  preparing: 'Opening the gift…',
-  forging: 'Securing the transfer on this phone…',
-  submitting: 'Moving the NOID into your wallet…',
-  retrying: 'A new block arrived. Trying again…',
-};
 
 export default function Claim() {
   // The gift secret is on this screen: no screenshots or app-switcher previews.
@@ -55,6 +49,7 @@ export default function Claim() {
         const { plan } = await planSweep(w.api, info.address, w.pending);
         setPlan(plan);
         setView('ready');
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (e) {
         const code = (e as { code?: string }).code;
         if (code === 'empty') setView('empty');
@@ -144,76 +139,102 @@ export default function Claim() {
     }
   }
 
-  if (view === 'claiming') {
+  if (view === 'claiming' && plan) {
     return (
       <Screen>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Body style={{ textAlign: 'center' }}>{STAGE_TEXT[stage]}</Body>
-          <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Keep the app open until this finishes.</Body>
-        </View>
+        <SendProgress stage={stage} title={`Claiming ${formatNoid(plan.amount)} NOID`} />
       </Screen>
     );
   }
 
   if (view === 'done' && plan && gift) {
     return (
-      <Screen>
-        <View style={{ flex: 1, justifyContent: 'center', gap: space.lg }}>
-          <Text style={{ color: unknown ? colors.warn : colors.accent, fontFamily: fonts.monoBold, fontSize: 14, letterSpacing: 1.5 }}>
-            {unknown ? 'CHECKING' : 'CLAIMED'}
-          </Text>
-          <GiftCard theme={gift.theme} amount={formatNoid(plan.amount)} from={gift.from || undefined} />
-          <Title>{formatNoid(plan.amount)} NOID is on its way to your wallet</Title>
-          <Body muted>
+      <Screen footer={<Button title="Done" onPress={goHome} />}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
+          <SuccessMark tone={unknown ? 'warn' : 'success'} />
+          <Title style={{ textAlign: 'center' }}>
+            {unknown ? 'Still checking with the network' : `${formatNoid(plan.amount)} NOID is yours`}
+          </Title>
+          <Body muted style={{ textAlign: 'center' }}>
             {unknown
               ? 'We lost contact while claiming. Your wallet keeps checking and finishes the claim; it shows in Activity.'
-              : 'It lands with the next block, usually within a minute.'}
+              : 'It lands in your wallet with the next block, usually within a minute.'}
           </Body>
         </View>
-        <Button title="Done" onPress={goHome} />
       </Screen>
     );
   }
 
   if ((view === 'ready' || view === 'empty' || view === 'loading' || view === 'failed') && gift) {
+    const empty = view === 'empty';
     const amount = plan ? formatNoid(plan.amount) : gift.amount ?? '…';
+    const value = plan ? fiat(plan.amount, w.price, w.settings.currency ?? 'none') : null;
     return (
-      <Screen>
-        <Title>{mine ? 'One of your gift cards' : 'You received a gift'}</Title>
-        <GiftCard theme={gift.theme} amount={amount} from={gift.from || undefined} />
+      <Screen
+        header={{ title: '' }}
+        footer={
+          view === 'ready' ? (
+            <>
+              <Button
+                title={`Claim ${formatNoid(plan?.amount ?? 0)} NOID`}
+                icon="receive"
+                disabled={hasUnresolvedSend(w.pending)}
+                onPress={claim}
+              />
+              {hasUnresolvedSend(w.pending) ? (
+                <Body muted style={{ fontSize: 14, textAlign: 'center' }}>Your last transaction is still being checked. Claim once it shows as sent.</Body>
+              ) : null}
+            </>
+          ) : view === 'failed' ? (
+            <Button title="Try again" onPress={() => open(gift)} />
+          ) : undefined
+        }
+      >
+        <Title style={{ textAlign: 'center' }}>
+          {mine ? 'One of your gift cards' : gift.from ? `${gift.from} sent you a gift` : 'You received a gift'}
+        </Title>
+        <View style={{ opacity: empty ? 0.4 : 1 }}>
+          <RevealGiftCard theme={gift.theme} amount={empty ? '0' : amount} from={gift.from || undefined} />
+        </View>
+        {empty ? (
+          <View style={{ alignItems: 'center' }}>
+            <Pill text="Already claimed" tone="neutral" />
+          </View>
+        ) : null}
         {gift.message ? <Body style={{ fontStyle: 'italic', textAlign: 'center' }}>“{gift.message}”</Body> : null}
         {view === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {view === 'empty' ? (
-          <Notice tone="warn">This gift has already been claimed, or taken back by the sender. There is nothing left in it.</Notice>
+        {empty ? (
+          <Banner tone="neutral">This gift has already been claimed, or the sender took it back. There is nothing left in it.</Banner>
         ) : null}
         {view === 'ready' && plan ? (
           <Card>
             <KeyValue label="You receive" value={`${formatNoid(plan.amount)} NOID`} />
-            {fiat(plan.amount, w.price, w.settings.currency ?? 'none') ? (
-              <KeyValue label="Worth" value={fiat(plan.amount, w.price, w.settings.currency ?? 'none')!} />
-            ) : null}
-            <KeyValue label="Claim fee" value={`${formatNoid(plan.fee)} NOID (inside the gift)`} />
+            {value ? <KeyValue label="Worth" value={value} /> : null}
+            <KeyValue label="Claim fee" value={`${formatNoid(plan.fee)} NOID (paid from the gift)`} />
           </Card>
         ) : null}
-        {mine && view === 'ready' ? <Notice>Claiming your own gift moves it back into your wallet, like Take it back.</Notice> : null}
-        {error ? <Notice tone="danger">{error}</Notice> : null}
-        <View style={{ flex: 1 }} />
-        {view === 'ready' ? (
-          <Button title={`Claim ${formatNoid(plan?.amount ?? 0)} NOID`} disabled={hasUnresolvedSend(w.pending)} onPress={claim} />
-        ) : null}
-        {view === 'failed' ? <Button title="Try again" onPress={() => open(gift)} /> : null}
-        {view === 'ready' && hasUnresolvedSend(w.pending) ? (
-          <Body muted style={{ fontSize: 14 }}>Your last transaction is still being checked. Claim once it shows as sent.</Body>
-        ) : null}
-        <Button title="Back" kind="ghost" onPress={() => goBack()} />
+        {mine && view === 'ready' ? <Banner tone="info">Claiming your own gift moves it back into your wallet, like Take it back.</Banner> : null}
+        {error ? <Banner tone="danger">{error}</Banner> : null}
       </Screen>
     );
   }
 
   return (
-    <Screen>
-      <Title>Claim a gift card</Title>
+    <Screen
+      header={{ title: 'Claim a gift card' }}
+      footer={
+        <Button
+          title="Open gift"
+          icon="gift"
+          disabled={!text.trim()}
+          onPress={() => {
+            const p = parseLink(text, LINK_HOSTS);
+            if (p?.kind === 'gift') return open(p);
+            setError('That is not a NOID gift link. It should start with https://noidusa.com/g#');
+          }}
+        />
+      }
+    >
       <Body muted>Paste the gift link someone sent you, or scan the gift card’s QR code.</Body>
       <Field
         label="Gift link"
@@ -227,36 +248,25 @@ export default function Claim() {
         placeholder="https://noidusa.com/g#…"
         autoComplete="off"
         importantForAutofill="no"
+        keyboardType="visible-password"
         style={{ minHeight: 80, textAlignVertical: 'top' }}
+        right={
+          <View style={{ alignSelf: 'flex-start', paddingTop: 4 }}>
+            <IconButton
+              icon="paste"
+              label="Paste gift link"
+              size={40}
+              onPress={async () => {
+                const t = (await Clipboard.getStringAsync()).trim();
+                if (!t) setError('Nothing to paste. Copy the gift link first.');
+                else setText(t);
+              }}
+            />
+            <IconButton icon="scan" label="Scan gift QR code" size={40} onPress={() => go('/scan')} />
+          </View>
+        }
       />
-      <View style={{ flexDirection: 'row', gap: space.md }}>
-        <View style={{ flex: 1 }}>
-          <Button
-            title="Paste"
-            kind="secondary"
-            onPress={async () => {
-              const t = (await Clipboard.getStringAsync()).trim();
-              if (!t) setError('Nothing to paste. Copy the gift link first.');
-              else setText(t);
-            }}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Button title="Scan QR" kind="secondary" onPress={() => go('/scan')} />
-        </View>
-      </View>
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-      <View style={{ flex: 1 }} />
-      <Button
-        title="Open gift"
-        disabled={!text.trim()}
-        onPress={() => {
-          const p = parseLink(text, LINK_HOSTS);
-          if (p?.kind === 'gift') return open(p);
-          setError('That is not a NOID gift link. It should start with https://noidusa.com/g#');
-        }}
-      />
-      <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      {error ? <Banner tone="danger">{error}</Banner> : null}
     </Screen>
   );
 }

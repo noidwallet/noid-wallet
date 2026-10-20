@@ -50,6 +50,8 @@ export interface Settings {
   currency?: Currency;
   /** Push token registered with the wallet server, when notifications are on. */
   pushToken?: string | null;
+  /** Hide amounts on the home screen (for using the app in public). */
+  hideBalance?: boolean;
 }
 
 export interface Contact {

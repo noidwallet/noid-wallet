@@ -52,3 +52,10 @@ test("history pages by (height, txid) without skipping rows in the same block", 
   assert.equal(bad.statusCode, 400);
   await app.close();
 });
+
+test("node HTTP errors on submit are never reported as a definite refusal", async () => {
+  const { RpcError } = await import("../src/rpc.js");
+  const e = new RpcError("node HTTP 503", undefined, true);
+  assert.equal(e.transport, true);
+  assert.equal(new RpcError("consensus: BadStateRoot").transport, false);
+});

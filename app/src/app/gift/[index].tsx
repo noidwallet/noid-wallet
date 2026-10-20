@@ -1,24 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import * as Clipboard from 'expo-clipboard';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import * as Sharing from 'expo-sharing';
 import { ActivityIndicator, Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { captureRef } from 'react-native-view-shot';
 
-import { GiftCard } from '@/components/GiftCard';
-import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { GiftCard, RevealGiftCard } from '@/components/GiftCard';
+import { Banner, Body, Button, Card, IconAction, KeyValue, Pill, Screen, SuccessMark } from '@/components/ui';
+import { copySensitive } from '@/lib/clip';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { LINK_BASE } from '@/lib/config';
 import { core } from '@/lib/core';
-import { GIFT_STATUS, giftState, sweepFeeTooHigh, type GiftState } from '@/lib/gifts';
+import { GIFT_BADGE, GIFT_STATUS, GIFT_TONE, giftState, sweepFeeTooHigh, type GiftState } from '@/lib/gifts';
 import { giftLink, type GiftTheme } from '@/lib/links';
 import { goBack, goHome } from '@/lib/nav';
 import { executeSweep, FeeChanged, planSweep, SubmitUnknown } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { colors, radius, space } from '@/theme';
+import { File } from 'expo-file-system';
+
+import { colors, radius, space, type } from '@/theme';
 
 export default function GiftDetail() {
   // The gift link is money: keep it out of screenshots and the app switcher.
@@ -29,10 +31,15 @@ export default function GiftDetail() {
   const gift = w.gifts.find((g) => g.index === index);
   const [link, setLink] = useState<string | null>(null);
   const [state, setState] = useState<GiftState | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [takingBack, setTakingBack] = useState(false);
   const shot = useRef<View>(null);
+  // Shared card images hold the claim QR. The share sheet can return before
+  // the receiving app has read the file, so they are removed a little later
+  // and, at the latest, when this screen closes.
+  const [sharedFiles] = useState(() => new Set<string>());
+  useEffect(() => () => sharedFiles.forEach(removeFile), [sharedFiles]);
   const fresh = !!params.fresh;
 
   // The gift's secret is derived again from your wallet secret, never stored.
@@ -85,10 +92,8 @@ export default function GiftDetail() {
 
   if (!gift) {
     return (
-      <Screen>
-        <Title>Gift card</Title>
-        <Notice>This gift card is not on this phone.</Notice>
-        <Button title="Back" kind="ghost" onPress={() => goBack('/gifts')} />
+      <Screen header={{ title: 'Gift card', back: () => goBack('/gifts') }}>
+        <Banner tone="neutral">This gift card is not on this phone.</Banner>
       </Screen>
     );
   }
@@ -102,11 +107,21 @@ export default function GiftDetail() {
 
   async function shareImage() {
     if (!shot.current) return;
+    let uri: string | null = null;
     try {
-      const uri = await captureRef(shot, { format: 'png', quality: 1, result: 'tmpfile' });
+      uri = await captureRef(shot, { format: 'png', quality: 1, result: 'tmpfile' });
       await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share gift card' });
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      if (uri) {
+        const u = uri;
+        sharedFiles.add(u);
+        setTimeout(() => {
+          removeFile(u);
+          sharedFiles.delete(u);
+        }, 5 * 60_000);
+      }
     }
   }
 
@@ -153,75 +168,94 @@ export default function GiftDetail() {
   }
 
   const status = GIFT_STATUS[shown];
+  const Card_ = fresh ? RevealGiftCard : GiftCard;
 
   return (
-    <Screen>
-      <Title>{fresh ? 'Your gift card is ready' : 'Gift card'}</Title>
+    <Screen
+      header={{ title: fresh ? '' : 'Gift card', back: () => (fresh ? goHome() : goBack('/gifts')) }}
+      footer={
+        fresh ? (
+          <>
+            <Button title="Done" onPress={goHome} />
+            {shown === 'funded' ? <Button title="Take it back" kind="tertiary" busy={takingBack} onPress={takeBack} /> : null}
+          </>
+        ) : shown === 'funded' ? (
+          <Button title="Take it back" kind="danger" busy={takingBack} onPress={takeBack} />
+        ) : shown === 'claimed' || shown === 'takenBack' || shown === 'draft' ? (
+          <Button
+            title="Remove from list"
+            kind="tertiary"
+            onPress={() => {
+              // Hidden, not deleted: a gift number must never be used twice.
+              w.saveGift({ ...g, hidden: true });
+              goBack('/gifts');
+            }}
+          />
+        ) : undefined
+      }
+    >
+      {fresh ? (
+        <View style={{ alignItems: 'center', gap: space.sm }}>
+          <SuccessMark />
+          <Text style={type.h1}>Your gift card is ready</Text>
+          <Body muted style={{ textAlign: 'center' }}>Share it with the person it’s for. They claim it into their own NOID wallet.</Body>
+        </View>
+      ) : (
+        <Pill text={GIFT_BADGE[shown]} tone={GIFT_TONE[shown]} />
+      )}
       {/* Captured as the shareable image: card, message and the claim QR. */}
       <View ref={shot} collapsable={false} style={{ backgroundColor: colors.bg, gap: space.md, paddingVertical: space.sm }}>
-        <GiftCard theme={g.theme as GiftTheme} amount={amount} from={g.from || undefined} />
+        <Card_ theme={g.theme as GiftTheme} amount={amount} from={g.from || undefined} />
         {g.message ? <Body style={{ fontStyle: 'italic', textAlign: 'center' }}>“{g.message}”</Body> : null}
         {link && canShare ? (
           <View style={{ alignItems: 'center', gap: space.sm }}>
             <View style={{ padding: space.md, backgroundColor: '#fff', borderRadius: radius.lg }}>
               <QRCode value={link} size={180} backgroundColor="#fff" color="#000" />
             </View>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Scan with the NOID wallet to claim</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Scan with the NOID wallet to claim</Text>
           </View>
         ) : null}
       </View>
 
-      <Text style={{ color: status.color, fontSize: 16, fontWeight: '600' }} accessibilityLiveRegion="polite">
-        {status.text}
-      </Text>
+      {!fresh ? (
+        <Text style={{ color: status.color, fontSize: 15, fontWeight: '600', textAlign: 'center' }} accessibilityLiveRegion="polite">
+          {status.text}
+        </Text>
+      ) : null}
 
       {canShare && link ? (
         <>
-          <Button title="Share gift link" onPress={() => Share.share({ message: shareText }).catch(() => {})} />
-          <View style={{ flexDirection: 'row', gap: space.md }}>
-            <View style={{ flex: 1 }}>
-              <Button
-                title={copied ? 'Copied' : 'Copy link'}
-                kind="secondary"
-                onPress={async () => {
-                  await Clipboard.setStringAsync(link);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                }}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button title="Share card with QR" kind="secondary" onPress={shareImage} />
-            </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-evenly' }}>
+            <IconAction icon="share" label="Share link" highlight onPress={() => Share.share({ message: shareText }).catch(() => {})} />
+            <IconAction icon="copy" label="Copy link" onPress={() => void copySensitive(link, 'Gift link')} />
+            <IconAction icon="image" label="Share image" onPress={() => void shareImage()} />
           </View>
-          <Notice tone="warn">The link, the QR code and the card image are the gift. Anyone who gets them can claim it.</Notice>
+          <Banner tone="warn">The link, the QR code and the card image are the gift. Anyone who gets them can claim it.</Banner>
         </>
       ) : canShare && !link ? (
-        <Button title="Show gift link and QR" kind="secondary" onPress={reveal} />
+        <Button title="Show gift link and QR" kind="secondary" icon="shield" onPress={reveal} />
       ) : null}
       {state === null && !error ? <ActivityIndicator color={colors.accent} /> : null}
 
-      <Card>
-        <KeyValue label="Amount" value={`${amount} NOID`} />
-        <KeyValue label="Gift address" value={shortAddress(g.address)} />
-        <KeyValue label="Created" value={new Date(g.createdAt).toLocaleDateString()} mono={false} />
-      </Card>
+      {showDetails ? (
+        <Card>
+          <KeyValue label="Amount" value={`${amount} NOID`} />
+          <KeyValue label="Gift address" value={shortAddress(g.address)} />
+          <KeyValue label="Created" value={new Date(g.createdAt).toLocaleDateString()} mono={false} />
+        </Card>
+      ) : (
+        <Button title="Show details" kind="tertiary" onPress={() => setShowDetails(true)} />
+      )}
 
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-
-      {shown === 'funded' ? <Button title="Take it back" kind="danger" busy={takingBack} onPress={takeBack} /> : null}
-      {shown === 'claimed' || shown === 'takenBack' || shown === 'draft' ? (
-        <Button
-          title="Remove from list"
-          kind="ghost"
-          onPress={() => {
-            // Hidden, not deleted: a gift number must never be used twice.
-            w.saveGift({ ...g, hidden: true });
-            goBack('/gifts');
-          }}
-        />
-      ) : null}
-      <Button title={fresh ? 'Done' : 'Back'} kind="ghost" onPress={() => (fresh ? goHome() : goBack('/gifts'))} />
+      {error ? <Banner tone="danger">{error}</Banner> : null}
     </Screen>
   );
+}
+
+function removeFile(uri: string) {
+  try {
+    new File(uri).delete();
+  } catch {
+    // already gone
+  }
 }

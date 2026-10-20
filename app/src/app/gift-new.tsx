@@ -1,28 +1,22 @@
 import { useCallback, useState } from 'react';
 import { router } from 'expo-router';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { GiftCard, THEME_LABEL } from '@/components/GiftCard';
-import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { SendProgress } from '@/components/Progress';
+import { Banner, Body, Button, Card, Field, KeyValue, Screen } from '@/components/ui';
 import { formatNoid, parseNoid } from '@/lib/amount';
 import { core, type SendPlan } from '@/lib/core';
 import { claimFee, freshGiftIndex, newGiftRecord, pickGiftIndex } from '@/lib/gifts';
 import { GIFT_THEMES, MAX_GIFT_FROM, MAX_GIFT_MESSAGE, type GiftTheme } from '@/lib/links';
-import { goBack, useHardwareBack } from '@/lib/nav';
+import { useHardwareBack } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage, type GiftRecord } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { colors, radius, space } from '@/theme';
+import { colors, space } from '@/theme';
 
 type Step = 'form' | 'review' | 'sending';
-
-const STAGE_TEXT: Record<Stage, string> = {
-  preparing: 'Getting the latest network state…',
-  forging: 'Securing your payment on this phone… This can take up to a minute.',
-  submitting: 'Sending your gift to the network…',
-  retrying: 'A new block arrived. Rebuilding with fresh data…',
-};
 
 export default function NewGift() {
   const w = useWallet();
@@ -41,6 +35,7 @@ export default function NewGift() {
     useCallback(() => {
       if (step === 'sending') return true;
       if (step === 'review') {
+        setError(null);
         setStep('form');
         return true;
       }
@@ -133,107 +128,117 @@ export default function NewGift() {
     }
   }
 
-  if (step === 'sending') {
+  if (step === 'sending' && amount) {
     return (
       <Screen>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Body style={{ textAlign: 'center' }}>{STAGE_TEXT[stage]}</Body>
-          <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Keep the app open until this finishes.</Body>
-        </View>
+        <SendProgress stage={stage} title={`Creating a ${formatNoid(amount)} NOID gift`} />
       </Screen>
     );
   }
 
   if (step === 'review' && plan && amount) {
     const shownAmount = formatNoid(amount);
+    const value = fiat(amount, w.price, currency);
     return (
-      <Screen>
-        <Title>Review gift card</Title>
+      <Screen
+        header={{
+          title: 'Review gift',
+          back: () => {
+            setError(null);
+            setStep('form');
+          },
+        }}
+        footer={<Button title="Create gift card" icon="gift" onPress={create} />}
+      >
         <GiftCard theme={theme} amount={shownAmount} from={from.trim() || undefined} />
         {message.trim() ? <Body style={{ fontStyle: 'italic', textAlign: 'center' }}>“{message.trim()}”</Body> : null}
         <Card>
           <KeyValue label="They receive" value={`${shownAmount} NOID`} />
-          {fiat(amount, w.price, currency) ? <KeyValue label="Worth" value={fiat(amount, w.price, currency)!} /> : null}
+          {value ? <KeyValue label="Worth" value={value} /> : null}
           <KeyValue label="Their claim fee (you cover it)" value={`${formatNoid(fee)} NOID`} />
           <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           <KeyValue label="Total from your wallet" value={`${formatNoid(plan.totalSpend)} NOID`} />
         </Card>
         {fee > 20_000 ? (
-          <Notice tone="danger">
+          <Banner tone="danger">
             The claim fee is unusually high ({formatNoid(fee)} NOID). If the network is not busy, check your wallet server in
-            Settings before you create this gift.
-          </Notice>
+            Settings first.
+          </Banner>
         ) : null}
-        <Notice tone="warn">
-          Anyone who has the gift link can claim it, so send it only to the person it is for. Until they claim it, you can
-          take it back from Gift cards.
-        </Notice>
-        {error ? <Notice tone="danger">{error}</Notice> : null}
-        <View style={{ flex: 1 }} />
-        <Button title="Create gift card" onPress={create} />
-        <Button
-          title="Edit"
-          kind="ghost"
-          onPress={() => {
-            setError(null);
-            setStep('form');
-          }}
-        />
+        <Banner tone="warn" icon="gift">
+          Anyone who has the gift link can claim it, so send it only to the person it is for. Until they claim it, you can take it
+          back.
+        </Banner>
+        {error ? <Banner tone="danger">{error}</Banner> : null}
       </Screen>
     );
   }
 
   if (hasUnresolvedSend(w.pending)) {
     return (
-      <Screen>
-        <Title>New gift card</Title>
-        <Notice tone="warn">Your last send is still being checked with the network. Try again once it shows as sent.</Notice>
-        <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      <Screen header={{ title: 'New gift card' }}>
+        <Banner tone="warn" icon="clock">Your last payment is still being checked with the network. Try again once it shows as sent.</Banner>
       </Screen>
     );
   }
 
+  const QUICK = ['1', '5', '10', '50'];
   return (
-    <Screen>
-      <Title>New gift card</Title>
+    <Screen
+      header={{ title: 'New gift card' }}
+      footer={<Button title="Review" busy={busy} disabled={!amountText || (!!amount && amount > available)} onPress={review} />}
+    >
       <GiftCard theme={theme} amount={amount ? formatNoid(amount) : '0'} from={from.trim() || undefined} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
         {GIFT_THEMES.map((t) => (
           <Pressable
             key={t}
             accessibilityRole="radio"
+            accessibilityLabel={`${THEME_LABEL[t]} design`}
             accessibilityState={{ selected: t === theme }}
             onPress={() => setTheme(t)}
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              paddingHorizontal: space.md,
-              paddingVertical: space.sm,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: t === theme ? colors.accent : colors.line,
-              backgroundColor: t === theme ? colors.surfaceRaised : colors.surface,
-            }}
+            style={{ alignItems: 'center', gap: 6 }}
           >
-            <Text style={{ color: t === theme ? colors.text : colors.muted, fontWeight: '600' }}>{THEME_LABEL[t]}</Text>
+            <View style={{ borderRadius: 12, borderWidth: 2, borderColor: t === theme ? colors.accent : 'transparent', padding: 2 }}>
+              <GiftCard theme={t} amount="" width={96} />
+            </View>
+            <Text style={{ color: t === theme ? colors.text : colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{THEME_LABEL[t]}</Text>
           </Pressable>
         ))}
       </ScrollView>
       <Field
-        label="Amount (NOID)"
-        mono
+        label="Amount"
+        big
         value={amountText}
         onChangeText={(t) => {
           setAmountText(t);
           setError(null);
         }}
         keyboardType="decimal-pad"
-        placeholder="0.0"
+        placeholder="0"
+        error={amount && amount > available ? `More than you have (${formatNoid(available)} NOID available).` : null}
+        hint={`${amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: ${formatNoid(available)} NOID`}
       />
-      <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.sm }}>
-        {amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: {formatNoid(available)} NOID
-      </Text>
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        {QUICK.map((q) => (
+          <Pressable
+            key={q}
+            accessibilityRole="button"
+            accessibilityLabel={`${q} NOID`}
+            onPress={() => setAmountText(q)}
+            style={({ pressed }) => ({
+              flex: 1,
+              minHeight: 40,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 999,
+              backgroundColor: amountText === q ? colors.accentTint : pressed ? colors.s3 : colors.s2,
+            })}
+          >
+            <Text style={{ color: amountText === q ? colors.accent : colors.text, fontWeight: '700' }}>{q}</Text>
+          </Pressable>
+        ))}
+      </View>
       <Field
         label={`Message (optional) · ${message.length}/${MAX_GIFT_MESSAGE}`}
         value={message}
@@ -245,9 +250,7 @@ export default function NewGift() {
       />
       <Field label="From (optional)" value={from} onChangeText={setFrom} maxLength={MAX_GIFT_FROM} placeholder="Your name" autoCapitalize="words" />
       <Body muted style={{ fontSize: 13 }}>The message and name travel inside the gift link. Anyone with the link can read them.</Body>
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-      <Button title="Review" busy={busy} disabled={!amountText} onPress={review} />
-      <Button title="Cancel" kind="ghost" onPress={() => goBack()} />
+      {error ? <Banner tone="danger">{error}</Banner> : null}
     </Screen>
   );
 }

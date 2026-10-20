@@ -1,76 +1,121 @@
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { Text } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Text, View } from 'react-native';
 
-import { Button, Card, KeyValue, Screen, Title } from '@/components/ui';
-import { TX_LABEL } from '@/components/TxRow';
-import { formatNoid, shortAddress } from '@/lib/amount';
-import { goBack } from '@/lib/nav';
+import { makeNameOf, TX_LABEL, when } from '@/components/TxRow';
+import { Avatar, Banner, Card, IconButton, KeyValue, Pill, Screen, Skeleton, toast } from '@/components/ui';
+import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
+import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
-import { colors, fonts } from '@/theme';
+import { colors, fonts, space, type } from '@/theme';
+
+async function copy(text: string, what: string) {
+  await Clipboard.setStringAsync(text);
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  toast(`${what} copied`);
+}
 
 export default function TxDetail() {
   const { txid } = useLocalSearchParams<{ txid: string }>();
-  const { api, history, pending } = useWallet();
+  const { api, history, pending, contacts } = useWallet();
   const [status, setStatus] = useState<TxStatus | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [lookupDone, setLookupDone] = useState(false);
   const item = history.find((h) => h.txid === txid);
   const pend = pending.find((p) => p.txid === txid);
+  const nameOf = makeNameOf(contacts);
 
   useEffect(() => {
-    if (txid) api.tx(txid).then(setStatus, () => {});
+    if (!txid) return;
+    api
+      .tx(txid)
+      .then(setStatus, () => {})
+      .finally(() => setLookupDone(true));
   }, [api, txid]);
 
-  const statusText =
-    status?.status === 'confirmed'
-      ? `Confirmed · ${status.confirmations} confirmation${status.confirmations === 1 ? '' : 's'}`
-      : status?.status === 'pending'
-        ? 'Waiting for a block'
-        : pend
-          ? 'Submitted'
-          : item
-            ? 'Confirmed'
-            : 'Checking…';
+  const confirmed = status?.status === 'confirmed' || (!!item && !pend);
+  const pill = confirmed
+    ? { text: status?.status === 'confirmed' ? `Confirmed · ${status.confirmations}` : 'Confirmed', tone: 'success' as const }
+    : pend || status?.status === 'pending'
+      ? { text: 'Pending', tone: 'warn' as const }
+      : { text: 'Checking…', tone: 'neutral' as const };
+
+  const outgoing = item ? item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract' : pend?.kind !== 'claim';
+  const amount = item
+    ? item.direction === 'self'
+      ? item.fee
+      : item.amount
+    : pend
+      ? pend.kind === 'consolidate'
+        ? pend.fee
+        : pend.amount
+      : null;
+  const label = item ? TX_LABEL[item.direction] : pend
+      ? pend.kind === 'claim'
+        ? 'Gift claim'
+        : pend.kind === 'gift'
+          ? 'Gift card'
+          : pend.kind === 'consolidate'
+            ? 'Merging coins'
+            : 'Sending'
+      : 'Transaction';
+  const counterparty = item?.counterparty && item.direction !== 'self' ? item.counterparty : pend?.to ?? null;
+  const partyLabel = item?.direction === 'received' || pend?.kind === 'claim' ? 'From' : 'To';
 
   return (
-    <Screen>
-      <Title>Transaction</Title>
-      <Text style={{ color: status?.status === 'confirmed' || item ? colors.accent : colors.warn, fontSize: 16, fontWeight: '600' }}>
-        {statusText}
-      </Text>
-      <Card>
-        {item ? (
-          <>
-            <KeyValue label="Type" value={TX_LABEL[item.direction]} mono={false} />
-            <KeyValue label="Amount" value={`${formatNoid(item.amount)} NOID`} />
-            {item.fee ? <KeyValue label="Fee" value={`${formatNoid(item.fee)} NOID`} /> : null}
-            {item.counterparty ? <KeyValue label="Other party" value={shortAddress(item.counterparty)} /> : null}
-            <KeyValue label="Block" value={item.height.toLocaleString()} />
-          </>
-        ) : pend ? (
-          <>
-            <KeyValue label="Amount" value={`${formatNoid(pend.amount)} NOID`} />
-            <KeyValue label="Fee" value={`${formatNoid(pend.fee)} NOID`} />
-            {pend.to ? <KeyValue label="To" value={shortAddress(pend.to)} /> : null}
-          </>
+    <Screen header={{ title: 'Transaction' }}>
+      <View style={{ alignItems: 'center', gap: space.sm, paddingVertical: space.md }}>
+        <Avatar icon={outgoing ? 'send' : 'receive'} tone={outgoing ? 'neutral' : 'success'} size={56} />
+        <Text style={type.title}>{label}</Text>
+        {amount !== null ? (
+          <Text style={[type.display, { color: outgoing ? colors.text : colors.accent }]}>
+            {outgoing ? '−' : '+'}
+            {formatNoid(amount)}
+          </Text>
+        ) : !lookupDone ? (
+          <Skeleton width={160} height={40} />
         ) : null}
+        {amount !== null ? <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>NOID</Text> : null}
+        <Pill text={pill.text} tone={pill.tone} />
+      </View>
+
+      {!item && !pend && lookupDone && status?.status !== 'confirmed' && status?.status !== 'pending' ? (
+        <Banner tone="neutral">This transaction isn’t on this wallet’s server yet. It may still be on its way.</Banner>
+      ) : null}
+
+      {counterparty ? (
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={type.caption}>{partyLabel}</Text>
+            <IconButton icon="copy" label="Copy address" size={36} onPress={() => void copy(counterparty, 'Address')} />
+          </View>
+          <Text style={type.title}>{nameOf(counterparty)}</Text>
+          <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
+            {groupAddress(counterparty)}
+          </Text>
+        </Card>
+      ) : null}
+
+      {item || pend?.fee || status?.status === 'confirmed' ? (
+      <Card>
+        {item ? <KeyValue label="Date" value={when(item.time)} mono={false} /> : null}
+        {(item?.fee || pend?.fee) ? <KeyValue label="Network fee" value={`${formatNoid(item?.fee || pend?.fee || 0)} NOID`} /> : null}
+        {item ? <KeyValue label="Block" value={item.height.toLocaleString()} /> : null}
+        {status?.status === 'confirmed' ? <KeyValue label="Confirmations" value={String(status.confirmations)} /> : null}
       </Card>
-      <Text selectable style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 13 }}>
-        {txid}
-      </Text>
-      <Button
-        title={copied ? 'Copied' : 'Copy transaction ID'}
-        kind="secondary"
-        onPress={async () => {
-          if (!txid) return;
-          await Clipboard.setStringAsync(txid);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-      />
-      <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      ) : null}
+
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={type.caption}>Transaction ID</Text>
+          {txid ? <IconButton icon="copy" label="Copy transaction ID" size={36} onPress={() => void copy(txid, 'Transaction ID')} /> : null}
+        </View>
+        <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
+          {txid}
+        </Text>
+      </Card>
     </Screen>
   );
 }

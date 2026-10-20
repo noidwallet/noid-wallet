@@ -1,170 +1,165 @@
-import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Pressable, Switch, Text, View } from 'react-native';
 
-import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { Avatar, Banner, ListRow, Pill, Screen } from '@/components/ui';
 import { core } from '@/lib/core';
-import { go, goBack, goRoot } from '@/lib/nav';
+import { go } from '@/lib/nav';
 import { disablePush, enablePush } from '@/lib/push';
 import type { Currency } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
-import { colors, radius, space } from '@/theme';
+import { colors, radius, space, type } from '@/theme';
 
+const ORIGIN = { generated: 'Created on this phone', imported: 'Restored from secret', photo: 'Photo Key' } as const;
 const CURRENCIES: { id: Currency; label: string }[] = [
   { id: 'none', label: 'NOID only' },
   { id: 'usd', label: 'US dollar' },
   { id: 'ngn', label: 'Naira' },
 ];
 
-const ORIGIN = { generated: 'Created on this phone', imported: 'Restored from secret', photo: 'Photo Key' } as const;
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={{ gap: space.xs }}>
+      <Text style={[type.caption, { paddingHorizontal: space.xs }]}>{title}</Text>
+      <View style={{ backgroundColor: colors.s1, borderRadius: radius.lg, paddingHorizontal: space.sm, borderWidth: 1, borderColor: colors.line }}>
+        {children}
+      </View>
+    </View>
+  );
+}
 
 export default function Settings() {
   const w = useWallet();
   const [version, setVersion] = useState('');
-  const [confirmRemove, setConfirmRemove] = useState('');
-  const [pushNote, setPushNote] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null);
+  const [pushNote, setPushNote] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
 
   useEffect(() => {
     core.version().then((v) => setVersion(`core ${v.core} · parano1d ${v.parano1dRev.slice(0, 7)}`), () => {});
   }, []);
 
   if (!w.meta) return null;
-  const server = w.settings.apiUrl ? w.settings.apiUrl.replace(/^https?:\/\//, '') : 'not set';
   const meta = w.meta;
+  const server = w.settings.apiUrl ? w.settings.apiUrl.replace(/^https?:\/\//, '') : 'Not set';
+  const online = !!w.settings.apiUrl && !!w.status && !w.error;
   const currency = w.settings.currency ?? 'none';
   const pushOn = !!w.settings.pushToken;
   const pushAvailable = w.status?.features?.push === true;
   const priceAvailable = w.status?.features?.price !== false;
-  const openGifts = w.gifts.filter((g) => !g.hidden && g.status === 'funded').length;
 
-  async function togglePush() {
+  async function togglePush(on: boolean) {
     setPushNote(null);
+    setPushBusy(true);
     try {
-      if (pushOn) {
-        await disablePush(w.api, meta.address, w.settings.pushToken!);
+      if (!on && w.settings.pushToken) {
+        await disablePush(w.api, meta.address, w.settings.pushToken);
         await w.updateSettings({ pushToken: null });
-        setPushNote({ tone: 'info', text: 'Notifications are off.' });
-      } else {
+      } else if (on) {
         const token = await enablePush(w.api, meta.address);
         await w.updateSettings({ pushToken: token });
-        setPushNote({ tone: 'info', text: 'You will get a notification when NOID arrives.' });
+        setPushNote({ tone: 'success', text: 'You’ll get a notification when NOID arrives.' });
       }
     } catch (e) {
       setPushNote({ tone: 'danger', text: (e as Error).message });
+    } finally {
+      setPushBusy(false);
     }
   }
 
   return (
-    <Screen>
-      <Title>Settings</Title>
-
-      <Card>
-        <KeyValue label="Wallet" value={ORIGIN[w.meta.origin]} mono={false} />
-        <KeyValue label="Wallet ID" value={w.meta.keyId} />
-        <KeyValue label="Backup" value={w.meta.backedUp ? 'Confirmed' : 'Not confirmed'} mono={false} />
-      </Card>
-      <Button title={w.meta.backedUp ? 'Show my secret' : 'Back up my secret'} kind="secondary" onPress={() => go('/backup')} />
-
-      <Button title={`Wallet server · ${server}`} kind="secondary" onPress={() => go('/server')} />
-      <Body muted style={{ fontSize: 14 }}>
-        The server only sees your public address and finished transactions. Your secret never leaves this phone.
-      </Body>
-
-      <View style={{ gap: space.sm }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>Show values in</Text>
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          {CURRENCIES.map((c) => (
-            <Pressable
-              key={c.id}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: currency === c.id }}
-              onPress={() => void w.updateSettings({ currency: c.id })}
-              style={{
-                flex: 1,
-                paddingVertical: space.md,
-                alignItems: 'center',
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: currency === c.id ? colors.accent : colors.line,
-                backgroundColor: currency === c.id ? colors.surfaceRaised : colors.surface,
-              }}
-            >
-              <Text style={{ color: currency === c.id ? colors.text : colors.muted, fontWeight: '600' }}>{c.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-        {currency !== 'none' ? (
-          <Body muted style={{ fontSize: 13 }}>
-            {priceAvailable
-              ? 'Prices come from SafeTrade through your wallet server and are a guide only.'
-              : 'Your wallet server does not provide prices, so only NOID amounts are shown.'}
-          </Body>
-        ) : null}
-      </View>
-
-      <View style={{ gap: space.sm }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>Notifications</Text>
-        <Body muted style={{ fontSize: 13 }}>
-          Get a notification when NOID arrives, even with the app closed. Your wallet server learns which phone to notify for
-          your address; it never sees your secret.
-        </Body>
-        <Button
-          title={pushOn ? 'Turn off notifications' : 'Turn on notifications'}
-          kind="secondary"
-          disabled={!pushOn && !pushAvailable}
-          onPress={togglePush}
+    <Screen header={{ title: 'Settings' }}>
+      <Section title="Security">
+        <ListRow
+          leading={<Avatar icon="key" tone={meta.backedUp ? 'success' : 'warn'} />}
+          title={meta.backedUp ? 'Show my secret' : 'Back up my secret'}
+          subtitle={meta.backedUp ? 'Backup confirmed' : 'Not backed up yet'}
+          chevron
+          onPress={() => go('/backup')}
         />
-        {!pushOn && !pushAvailable ? <Body muted style={{ fontSize: 13 }}>Your wallet server does not send notifications yet.</Body> : null}
-        {pushNote ? <Notice tone={pushNote.tone}>{pushNote.text}</Notice> : null}
-      </View>
+        <ListRow leading={<Avatar icon="shield" />} title="Wallet ID" subtitle={`${ORIGIN[meta.origin]} · ${meta.keyId}`} />
+      </Section>
 
-      <View style={{ flexDirection: 'row', gap: space.md }}>
-        <View style={{ flex: 1 }}>
-          <Button title="Contacts" kind="secondary" onPress={() => go('/contacts')} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Button title="Gift cards" kind="secondary" onPress={() => go('/gifts')} />
-        </View>
-      </View>
-
-      <Card style={{ borderColor: colors.danger }}>
-        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 16 }}>Remove wallet from this phone</Text>
-        {w.meta.backedUp ? (
-          <Body muted style={{ fontSize: 14 }}>
-            Your NOID stays on the network, but you can only get back in with your secret. Type REMOVE to confirm.
-          </Body>
-        ) : (
-          <Notice tone="danger">
-            You have not confirmed a backup of this wallet’s secret. Removing it now would lose your NOID for good. Back it
-            up first with Show my secret.
-          </Notice>
-        )}
-        {openGifts > 0 ? (
-          <Notice tone="warn">
-            {openGifts} gift card{openGifts === 1 ? ' is' : 's are'} still waiting to be claimed. After you restore this wallet,
-            Gift cards → Find gifts brings them back so you can take them back.
-          </Notice>
-        ) : null}
-        <Field
-          value={confirmRemove}
-          onChangeText={(t) => setConfirmRemove(t.toUpperCase())}
-          placeholder="Type REMOVE"
-          autoCapitalize="characters"
-          editable={w.meta.backedUp}
+      <Section title="Network">
+        <ListRow
+          leading={<Avatar icon="server" tone={online ? 'success' : 'danger'} />}
+          title="Wallet server"
+          subtitle={`${server} · ${online ? 'connected' : 'not reachable'}`}
+          chevron
+          onPress={() => go('/server')}
         />
-        <Button
-          title="Remove wallet"
-          kind="danger"
-          disabled={confirmRemove !== 'REMOVE' || !w.meta.backedUp}
-          onPress={async () => {
-            if (!(await w.confirmUser('Remove this wallet'))) return;
-            await w.removeWallet();
-            goRoot();
-          }}
-        />
-      </Card>
+      </Section>
 
-      <Text style={{ color: colors.faint, fontSize: 12, marginTop: space.md }}>{version}</Text>
-      <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      <Section title="Preferences">
+        <View style={{ paddingVertical: space.md, paddingHorizontal: space.xs, gap: space.sm }}>
+          <Text style={[type.title, { fontSize: 16 }]}>Show values in</Text>
+          <View style={{ flexDirection: 'row', backgroundColor: colors.s2, borderRadius: radius.md, padding: 4 }}>
+            {CURRENCIES.map((c) => (
+              <Pressable
+                key={c.id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: currency === c.id }}
+                onPress={() => void w.updateSettings({ currency: c.id })}
+                style={{
+                  flex: 1,
+                  minHeight: 40,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: radius.sm,
+                  backgroundColor: currency === c.id ? colors.s3 : 'transparent',
+                }}
+              >
+                <Text style={{ color: currency === c.id ? colors.text : colors.textSecondary, fontWeight: '600' }}>{c.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {currency !== 'none' ? (
+            <Text style={type.bodySm}>
+              {priceAvailable ? 'Prices come from SafeTrade via your wallet server and are a guide only.' : 'Your wallet server doesn’t provide prices.'}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ height: 1, backgroundColor: colors.line }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.xs }}>
+          <Avatar icon="bell" />
+          <View style={{ flex: 1 }}>
+            <Text style={[type.title, { fontSize: 16 }]}>Payment notifications</Text>
+            <Text style={[type.bodySm, { fontSize: 13 }]}>
+              {pushAvailable || pushOn ? 'Get notified when NOID arrives' : 'Your wallet server doesn’t send notifications yet'}
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Payment notifications"
+            value={pushOn}
+            disabled={pushBusy || (!pushOn && !pushAvailable)}
+            onValueChange={(v) => void togglePush(v)}
+            trackColor={{ true: colors.accent, false: colors.s3 }}
+            thumbColor={colors.text}
+          />
+        </View>
+      </Section>
+      {pushNote ? <Banner tone={pushNote.tone}>{pushNote.text}</Banner> : null}
+      {pushOn ? (
+        <Text style={[type.bodySm, { fontSize: 13 }]}>Your wallet server learns which phone to notify for your address. It never sees your secret.</Text>
+      ) : null}
+
+      <Section title="More">
+        <ListRow leading={<Avatar icon="contacts" />} title="Contacts" subtitle={`${w.contacts.length} saved`} chevron onPress={() => go('/contacts')} />
+        <ListRow leading={<Avatar icon="gift" />} title="Gift cards" chevron onPress={() => go('/gifts')} />
+        <ListRow leading={<Avatar icon="merge" />} title="Merge coins" subtitle={`${w.utxos.length} coins`} chevron onPress={() => go('/consolidate')} />
+      </Section>
+
+      <Section title="Danger zone">
+        <ListRow
+          leading={<Avatar icon="warning" tone="danger" />}
+          title="Remove wallet from this phone"
+          chevron
+          onPress={() => go('/remove-wallet')}
+        />
+      </Section>
+
+      <View style={{ alignItems: 'center', gap: space.xs, paddingVertical: space.md }}>
+        <Pill text="NOID 0.1" />
+        <Text style={{ color: colors.faint, fontSize: 12 }}>{version}</Text>
+      </View>
     </Screen>
   );
 }

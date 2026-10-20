@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { usePreventScreenCapture } from 'expo-screen-capture';
+import { Text, View } from 'react-native';
 
-import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { Icon, type IconName } from '@/components/Icon';
+import { Banner, Body, Button, Card, KeyValue, Pill, Screen, Title } from '@/components/ui';
 import { shortAddress } from '@/lib/amount';
 import { core, type NewKey } from '@/lib/core';
-import { goBack, goRoot } from '@/lib/nav';
+import { goRoot } from '@/lib/nav';
 import { nextRoute } from '@/lib/scan';
 import { useWallet } from '@/state/wallet';
+import { colors, space, type } from '@/theme';
 
 export default function Photo() {
   usePreventScreenCapture();
@@ -16,6 +19,7 @@ export default function Photo() {
   const [key, setKey] = useState<(NewKey & { width: number; height: number; name: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
   // null = checking, true = this phone derives the same keys as the desktop wallet.
   const [supported, setSupported] = useState<boolean | null>(null);
 
@@ -51,54 +55,69 @@ export default function Photo() {
     }
   }
 
+  const POINTS: { icon: IconName; text: string }[] = [
+    { icon: 'image', text: 'Use a private photo you have never shared. Anyone with the same file can spend your NOID.' },
+    { icon: 'warning', text: 'Editing, cropping or losing the photo loses the wallet. Keep an untouched copy offline.' },
+    { icon: 'key', text: 'You will also write down the 64-character secret, the safest backup.' },
+  ];
+
+  async function useWallet_() {
+    if (!key) return;
+    setCreating(true);
+    try {
+      await createWallet(key.secretHex, 'photo');
+      // The written backup is the safe one: ask for it right away.
+      nextRoute.set('/backup');
+      goRoot();
+    } catch (e) {
+      setError((e as Error).message);
+      setCreating(false);
+    }
+  }
+
   return (
-    <Screen>
+    <Screen
+      header={{ title: 'Photo Key' }}
+      footer={
+        supported === false ? undefined : key ? (
+          <>
+            <Button title="Use this wallet" busy={creating} disabled={busy} onPress={useWallet_} />
+            <Button title="Pick a different photo" kind="tertiary" busy={busy} disabled={creating} onPress={pick} />
+          </>
+        ) : (
+          <Button title={supported === null ? 'Checking this phone…' : 'Choose photo'} icon="image" busy={busy} disabled={!supported} onPress={pick} />
+        )
+      }
+    >
+      <Pill text="Advanced" tone="warn" />
       <Title>Use a photo as your key</Title>
       <Body muted>
-        Pick a private photo. Its pixels become your wallet secret, exactly like Photo Key in the desktop wallet. The
-        photo is read on this phone and never uploaded.
+        A photo’s pixels become your wallet secret, exactly like Photo Key in the desktop wallet. The photo is read on this phone and
+        never uploaded.
       </Body>
-      <Notice tone="warn">
-        After this you will also write down the wallet’s 64-character secret. The photo is your wallet. Anyone with the same file can spend your NOID, and if you edit, crop, or lose it, the
-        wallet is gone. Use a photo you have never shared, and keep an untouched copy offline.
-      </Notice>
+      <View style={{ gap: space.md }}>
+        {POINTS.map((pt) => (
+          <View key={pt.text} style={{ flexDirection: 'row', gap: space.md }}>
+            <Icon name={pt.icon} size={20} color={colors.warn} />
+            <Text style={[type.bodySm, { flex: 1, color: colors.text }]}>{pt.text}</Text>
+          </View>
+        ))}
+      </View>
       {supported === false ? (
-        <Notice tone="danger">
-          This phone does not reproduce the desktop wallet’s Photo Key test exactly, so a photo would not give the same
-          wallet everywhere. Create a wallet with a written secret instead.
-        </Notice>
+        <Banner tone="danger">
+          This phone doesn’t reproduce the desktop wallet’s Photo Key test exactly, so a photo wouldn’t give the same wallet
+          everywhere. Create a wallet with a written secret instead.
+        </Banner>
       ) : null}
-      {supported === false ? null : key ? (
-        <>
-          <Card>
-            <KeyValue label="Photo" value={key.name} mono={false} />
-            <KeyValue label="Size" value={`${key.width} × ${key.height}`} />
-            <KeyValue label="Wallet ID" value={key.keyId} />
-            <KeyValue label="First address" value={shortAddress(key.address)} />
-          </Card>
-          <Button
-            title="Use this wallet"
-            busy={busy}
-            onPress={async () => {
-              setBusy(true);
-              try {
-                await createWallet(key.secretHex, 'photo');
-                // The written backup is the safe one: ask for it right away.
-                nextRoute.set('/backup');
-                goRoot();
-              } catch (e) {
-                setError((e as Error).message);
-                setBusy(false);
-              }
-            }}
-          />
-          <Button title="Pick a different photo" kind="ghost" onPress={pick} />
-        </>
-      ) : (
-        <Button title={supported === null ? 'Checking this phone…' : 'Choose photo'} busy={busy} disabled={!supported} onPress={pick} />
-      )}
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-      <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      {supported !== false && key ? (
+        <Card>
+          <KeyValue label="Photo" value={key.name} mono={false} />
+          <KeyValue label="Size" value={`${key.width} × ${key.height}`} />
+          <KeyValue label="Wallet ID" value={key.keyId} />
+          <KeyValue label="First address" value={shortAddress(key.address)} />
+        </Card>
+      ) : null}
+      {error ? <Banner tone="danger">{error}</Banner> : null}
     </Screen>
   );
 }

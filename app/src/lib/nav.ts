@@ -27,6 +27,16 @@ export function go(href: Href) {
   guarded(() => router.push(href));
 }
 
+/**
+ * Navigate on the app's own behalf (a scanned code or link being handed on),
+ * not because of a tap. Skips the double-tap guard: this usually runs right
+ * after a goBack() from the scanner, inside the guard window.
+ */
+export function goHandoff(href: Href) {
+  lastNav = Date.now();
+  router.push(href);
+}
+
 export function goBack(fallback: Href = '/') {
   guarded(() => {
     if (router.canGoBack()) router.back();

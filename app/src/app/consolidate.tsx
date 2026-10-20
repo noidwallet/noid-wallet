@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { Icon } from '@/components/Icon';
+import { Banner, Body, Button, Card, KeyValue, Screen, Skeleton } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import type { ConsolidationPlan } from '@/lib/core';
-import { goBack, goHome, useHardwareBack } from '@/lib/nav';
+import { goHome, useHardwareBack } from '@/lib/nav';
 import { executeConsolidation, FeeChanged, planConsolidation, SubmitUnknown } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { colors, space } from '@/theme';
+import { colors, space, type } from '@/theme';
 
 export default function Consolidate() {
   const w = useWallet();
@@ -65,34 +66,49 @@ export default function Consolidate() {
   }
 
   return (
-    <Screen>
-      <Title>Merge coins</Title>
+    <Screen
+      header={sending ? undefined : { title: 'Merge coins' }}
+      footer={
+        done ? (
+          <Button title="Done" onPress={goHome} />
+        ) : (
+          <Button title="Merge coins" icon="merge" busy={sending} disabled={!plan || hasPending} onPress={run} />
+        )
+      }
+    >
       <Body muted>
-        Your balance is held as separate coins. Merging your smallest coins into one makes later sends cheaper and the
-        proof smaller. Your balance only goes down by the network fee.
+        Your balance is held as separate coins. Merging the smallest ones into one makes later sends cheaper and faster. Your
+        balance only goes down by the network fee.
       </Body>
       {plan ? (
-        <Card>
-          <KeyValue label="Coins merged" value={String(plan.inputCount)} />
-          {plan.untouchedCount > 0 ? <KeyValue label="Coins left as they are" value={String(plan.untouchedCount)} /> : null}
-          <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
-          <KeyValue label="Balance after" value={`${formatNoid(plan.balanceAfter)} NOID`} />
-        </Card>
-      ) : !shownError ? (
-        <ActivityIndicator color={colors.accent} />
-      ) : null}
-      {shownError ? <Notice tone="danger">{shownError}</Notice> : null}
-      {done ? <Notice>Merging. It confirms with the next block.</Notice> : null}
-      <View style={{ flex: 1, minHeight: space.lg }} />
-      {sending ? <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Securing the merge on this phone. Keep the app open.</Body> : null}
-      {done ? (
-        <Button title="Done" onPress={goHome} />
-      ) : (
         <>
-          <Button title="Merge coins" busy={sending} disabled={!plan || hasPending} onPress={run} />
-          {!sending ? <Button title="Back" kind="ghost" onPress={() => goBack()} /> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingVertical: space.md }}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={type.display}>{plan.inputCount}</Text>
+              <Text style={type.bodySm}>coins</Text>
+            </View>
+            <Icon name="chevron" size={28} color={colors.accent} />
+            <View style={{ alignItems: 'center' }}>
+              <Text style={[type.display, { color: colors.accent }]}>1</Text>
+              <Text style={type.bodySm}>coin</Text>
+            </View>
+          </View>
+          <Card>
+            {plan.untouchedCount > 0 ? <KeyValue label="Coins left as they are" value={String(plan.untouchedCount)} /> : null}
+            <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
+            <KeyValue label="Balance after" value={`${formatNoid(plan.balanceAfter)} NOID`} />
+          </Card>
         </>
-      )}
+      ) : !shownError ? (
+        <View style={{ gap: space.sm }}>
+          <Skeleton width="100%" height={80} />
+          <Skeleton width="100%" height={110} />
+        </View>
+      ) : null}
+      {sending ? <Banner tone="info" icon="clock">Securing the merge on this phone. Keep the app open.</Banner> : null}
+      {done && !error ? <Banner tone="success">Merging. It confirms with the next block.</Banner> : null}
+      {done && error ? <Banner tone="warn" icon="clock">{error}</Banner> : null}
+      {!done && shownError ? <Banner tone="danger">{shownError}</Banner> : null}
     </Screen>
   );
 }

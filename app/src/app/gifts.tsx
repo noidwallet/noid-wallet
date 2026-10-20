@@ -2,16 +2,17 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 
+
 import { GiftCard } from '@/components/GiftCard';
-import { Body, Button, Notice, Screen, Title } from '@/components/ui';
+import { Avatar, Banner, Body, Button, EmptyState, IconButton, ListRow, Pill, Screen } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import { core } from '@/lib/core';
-import { findLostGifts, GIFT_STATUS, GIFTS_PER_DAY, giftState, newGiftRecord, type GiftState } from '@/lib/gifts';
+import { findLostGifts, GIFT_BADGE, GIFT_TONE, GIFTS_PER_DAY, giftState, newGiftRecord, type GiftState } from '@/lib/gifts';
 import type { GiftTheme } from '@/lib/links';
-import { go, goBack } from '@/lib/nav';
+import { go } from '@/lib/nav';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { colors, space } from '@/theme';
+import { colors, space, type } from '@/theme';
 
 /** "Find gifts" checks the first few gifts of each recent day. */
 const SCAN_DAYS = 120;
@@ -73,43 +74,64 @@ export default function Gifts() {
   }
 
   return (
-    <Screen>
-      <Title>Gift cards</Title>
-      <Body muted>
-        Send NOID as a gift card anyone can open with a link or QR code. They claim it into their own NOID wallet. Until
-        then, you can take it back.
-      </Body>
-      <Button title="Create a gift card" onPress={() => go('/gift-new')} />
-      <Button title="Claim a gift someone sent me" kind="secondary" onPress={() => go('/claim')} />
+    <Screen
+      header={{ title: 'Gift cards', right: <IconButton icon="plus" label="Create a gift card" onPress={() => go('/gift-new')} /> }}
+      footer={<Button title="Create a gift card" icon="gift" onPress={() => go('/gift-new')} />}
+    >
+      {visible.length === 0 ? (
+        <EmptyState
+          icon="gift"
+          title="Send NOID as a gift"
+          body="Make a gift card anyone can open with a link or QR code. They claim it into their own NOID wallet, and until then you can take it back."
+        />
+      ) : null}
+
+      <ListRow
+        leading={<Avatar icon="receive" tone="success" />}
+        title="Claim a gift"
+        subtitle="Someone sent you a gift link or QR"
+        chevron
+        onPress={() => go('/claim')}
+      />
 
       {visible.length > 0 ? (
-        <View style={{ gap: space.lg }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>Gifts you sent</Text>
+        <View style={{ gap: space.xs }}>
+          <Text style={type.h2}>Gifts you sent</Text>
           {visible.map((g) => {
             const state: GiftState = live[g.index] ?? (g.status === 'funded' ? 'funded' : g.status);
-            const s = GIFT_STATUS[state];
             return (
               <Pressable
                 key={g.index}
                 accessibilityRole="button"
-                accessibilityLabel={`Gift card of ${formatNoid(g.amount)} NOID, ${s.text}`}
+                accessibilityLabel={`Gift card of ${formatNoid(g.amount)} NOID, ${GIFT_BADGE[state]}`}
                 onPress={() => go({ pathname: '/gift/[index]', params: { index: String(g.index) } })}
-                style={({ pressed }) => ({ gap: space.sm, opacity: pressed ? 0.7 : 1 })}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.md,
+                  paddingVertical: space.sm,
+                  paddingHorizontal: space.xs,
+                  borderRadius: 14,
+                  backgroundColor: pressed ? colors.s2 : 'transparent',
+                })}
               >
-                <GiftCard theme={g.theme as GiftTheme} amount={formatNoid(g.amount)} from={g.from || undefined} />
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ color: s.color, fontWeight: '600', flex: 1 }}>{s.text}</Text>
-                  <Text style={{ color: colors.muted }}>{new Date(g.createdAt).toLocaleDateString()}</Text>
+                <GiftCard theme={g.theme as GiftTheme} amount={formatNoid(g.amount)} width={88} />
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={[type.mono, { fontSize: 16 }]}>{formatNoid(g.amount)} NOID</Text>
+                  <Text style={[type.bodySm, { fontSize: 13 }]} numberOfLines={1}>
+                    {g.message ? `“${g.message}”` : new Date(g.createdAt).toLocaleDateString()}
+                  </Text>
                 </View>
+                <Pill text={GIFT_BADGE[state]} tone={GIFT_TONE[state]} />
               </Pressable>
             );
           })}
         </View>
       ) : null}
 
-      <Button title={scanning ?? 'Find gifts from a restored wallet'} kind="ghost" disabled={!!scanning} onPress={findGifts} />
-      {note ? <Notice tone={note.tone}>{note.text}</Notice> : null}
-      <Button title="Back" kind="ghost" onPress={() => goBack()} />
+      <Button title={scanning ?? 'Find gifts from a restored wallet'} kind="tertiary" disabled={!!scanning} onPress={findGifts} />
+      {note ? <Banner tone={note.tone === 'danger' ? 'danger' : 'neutral'}>{note.text}</Banner> : null}
+      <Body muted style={{ fontSize: 13, textAlign: 'center' }}>Gift links are like cash: anyone who has one can claim it.</Body>
     </Screen>
   );
 }

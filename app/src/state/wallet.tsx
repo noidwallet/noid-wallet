@@ -81,7 +81,12 @@ export async function screenLockState(): Promise<LockState> {
  */
 export async function authenticate(reason: string): Promise<boolean> {
   if ((await screenLockState()) === 'no-screen-lock') return true;
-  const res = await LocalAuthentication.authenticateAsync({ promptMessage: reason, disableDeviceFallback: false });
+  // Strong (class 3) biometrics only; weaker face unlock falls back to the PIN.
+  const res = await LocalAuthentication.authenticateAsync({
+    promptMessage: reason,
+    disableDeviceFallback: false,
+    biometricsSecurityLevel: 'strong',
+  });
   return res.success;
 }
 
@@ -190,9 +195,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       for (const p of pendingRef.current) {
         const next = await reconcileOne(api, p).catch(() => p);
         if (next === p) continue;
-        updatePending((prev) =>
-          next === null ? prev.filter((x) => x.txid !== p.txid) : prev.map((x) => (x.txid === p.txid ? next : x)),
-        );
+        updatePending((prev) => {
+          if (next === null) return prev.filter((x) => x.txid !== p.txid);
+          // If a send screen dropped this record meanwhile but the network has
+          // it after all, track it again so its coins are never reused.
+          return prev.some((x) => x.txid === p.txid) ? prev.map((x) => (x.txid === p.txid ? next : x)) : [...prev, next];
+        });
       }
       setError(null);
     } catch (e) {
