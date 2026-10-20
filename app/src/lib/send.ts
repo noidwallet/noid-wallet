@@ -274,13 +274,15 @@ const DEAD = new Set(['inputs_spent', 'stale_anchor', 'fee_too_low', 'rejected',
 /**
  * Decide what to do with one saved transaction. Pure apart from the API calls,
  * so the logic is easy to test.
- * - confirmed -> drop
+ * - confirmed -> marked confirmedAt (the wallet drops it once history lists it)
  * - pending in mempool -> keep as submitted
  * - unknown -> re-send the identical intent; drop only if the node definitely refuses it
  */
 export async function reconcileOne(api: Api, p: PendingTx, walletAddress?: string): Promise<PendingTx | null> {
+  // Already confirmed: only waiting for the history to list it (see confirmedAt).
+  if (p.confirmedAt) return p;
   const status = await api.tx(p.txid);
-  if (status.status === 'confirmed') return null;
+  if (status.status === 'confirmed') return { ...p, state: 'submitted', confirmedAt: Date.now() };
   if (status.status === 'pending') return p.state === 'submitted' ? p : { ...p, state: 'submitted' };
   try {
     await api.submit(p.intentHex, p.txid);

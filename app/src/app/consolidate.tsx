@@ -21,7 +21,7 @@ export default function Consolidate() {
   // While the proof is being forged, stay on this screen so the result is seen.
   useHardwareBack(useCallback(() => sending, [sending]));
 
-  const hasPending = w.pending.length > 0;
+  const hasPending = w.pending.some((p) => !p.confirmedAt);
   useEffect(() => {
     if (!w.meta || hasPending) return;
     planConsolidation(w.api, w.meta.address, w.pending).then(setPlan, (e: Error) => setError(e.message));

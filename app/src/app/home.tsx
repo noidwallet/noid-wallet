@@ -70,7 +70,7 @@ export default function Home() {
   const inFlight = pending.filter((p) => p.inputSlots.length > 0 && p.inputSlots.every((s) => live.has(s)));
   const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount : 0) + p.fee, 0);
   // Gift claims coming in (their coins are not ours yet, so not in `balance`).
-  const claimIn = pending.filter((p) => p.kind === 'claim').reduce((s, p) => s + p.amount, 0);
+  const claimIn = pending.filter((p) => p.kind === 'claim' && !p.confirmedAt).reduce((s, p) => s + p.amount, 0);
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));
   const lockedValue = utxos.filter((u) => lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
   const ready = balance - lockedValue;
@@ -149,7 +149,7 @@ export default function Home() {
   const shownBanners = showAllBanners ? banners : banners.slice(0, 2);
 
   const activity = [
-    ...pending.map((p) => ({
+    ...pending.filter((p) => !history.some((h) => h.txid === p.txid)).map((p) => ({
       key: `p-${p.txid}`,
       node: <PendingRow item={p} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} />,
     })),

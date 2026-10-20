@@ -23,7 +23,8 @@ export default function Activity() {
   const seen = new Set(w.history.map((h) => h.txid));
   const all = [...w.history, ...older.filter((h) => !seen.has(h.txid))];
   const items = [
-    ...w.pending.map((p) => ({ key: `p-${p.txid}`, pending: p })),
+    // A just-confirmed payment shows once: as soon as history has it, that row wins.
+    ...w.pending.filter((p) => !seen.has(p.txid)).map((p) => ({ key: `p-${p.txid}`, pending: p })),
     ...all.map((h) => ({ key: h.txid, history: h })),
   ];
 

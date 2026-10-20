@@ -101,6 +101,12 @@ export interface PendingTx {
   inputSlots: number[];
   outputSlots: number[];
   createdAt: number;
+  /**
+   * Set once the network confirms it. The record is kept until the server's
+   * history lists the transaction too (its index lags the node by a few
+   * seconds), so the payment never vanishes from Activity in between.
+   */
+  confirmedAt?: number;
 }
 
 // Empty until you deploy a production server and set extra.defaultApiUrl in app.json.

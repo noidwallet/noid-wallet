@@ -55,8 +55,12 @@ export default function TxDetail() {
         : pend.kind === 'gift'
           ? 'Gift card'
           : pend.kind === 'consolidate'
-            ? 'Combining pieces'
-            : 'Sending'
+            ? pend.confirmedAt
+              ? 'Combined pieces'
+              : 'Combining pieces'
+            : pend.confirmedAt
+              ? 'Sent'
+              : 'Sending'
       : 'Transaction';
   const counterparty = item?.counterparty && item.direction !== 'self' ? item.counterparty : pend?.to ?? null;
   const partyLabel = item?.direction === 'received' || pend?.kind === 'claim' ? 'From' : 'To';

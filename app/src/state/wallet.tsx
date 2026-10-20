@@ -207,8 +207,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setLastUpdated(storage.saveSnapshot({ address: meta.address, utxos: coins.utxos, history: hist?.items ?? [] }));
 
       // Check every saved transaction; re-send the identical one if the network lost it.
+      const listed = new Set((hist?.items ?? []).map((h) => h.txid));
       for (const p of pendingRef.current) {
-        const next = await reconcileOne(api, p, meta.address).catch(() => p);
+        let next = await reconcileOne(api, p, meta.address).catch(() => p);
+        // A confirmed payment stays listed until the history shows it (or for two
+        // minutes at most), so it never disappears from Activity in between.
+        if (next?.confirmedAt && (listed.has(next.txid) || Date.now() - next.confirmedAt > 120_000)) next = null;
         if (next === p) continue;
         updatePending((prev) => {
           if (next === null) return prev.filter((x) => x.txid !== p.txid);

@@ -116,7 +116,13 @@ test('reconcile: resend the identical intent, drop only on definite refusal', as
       },
     }) as unknown as Api;
 
-  assert.equal(await reconcileOne(mk('confirmed', async () => ({})), saved), null);
+  // Confirmed: kept (marked) until the history lists it, so it never vanishes from Activity.
+  const confirmed = await reconcileOne(mk('confirmed', async () => ({})), saved);
+  assert.equal(confirmed?.state, 'submitted');
+  assert.ok(confirmed?.confirmedAt);
+  // Once marked, no more network calls and no re-sends.
+  const noCalls = { tx: async () => assert.fail('no status check'), submit: async () => assert.fail('no re-send') } as unknown as Api;
+  assert.equal(await reconcileOne(noCalls, confirmed!), confirmed);
   assert.equal((await reconcileOne(mk('pending', async () => ({})), saved))?.state, 'submitted');
   assert.equal((await reconcileOne(mk('unknown', async () => ({ txid: 'abc' })), saved))?.state, 'submitted');
   assert.deepEqual(sent, ['a3ff']);

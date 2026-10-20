@@ -72,17 +72,25 @@ const PENDING_LABEL: Record<PendingTx['kind'], string> = {
   claim: 'Claiming gift',
 };
 
+/** Shown for the few seconds between "confirmed" and the history row arriving. */
+const CONFIRMED_LABEL: Record<PendingTx['kind'], string> = {
+  send: 'Sent',
+  consolidate: 'Combined pieces',
+  gift: 'Gift card',
+  claim: 'Gift claimed',
+};
+
 export function PendingRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: PendingTx }) {
   const incoming = item.kind === 'claim';
   const micro = incoming ? item.amount : item.kind === 'consolidate' ? item.fee : item.amount + item.fee;
   const value = `${incoming ? '+' : '−'}${formatNoid(micro)}`;
   const where =
     item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? nameOf(item.to) : 'To yourself';
-  const state = item.state === 'submitting' ? 'Checking with the network' : 'Waiting for a block';
+  const state = item.confirmedAt ? 'Confirmed' : item.state === 'submitting' ? 'Checking with the network' : 'Waiting for a block';
   return (
     <ListRow
-      leading={<Avatar icon="clock" tone="warn" />}
-      title={`${PENDING_LABEL[item.kind]} · ${where}`}
+      leading={<Avatar icon={item.confirmedAt ? 'check' : 'clock'} tone={item.confirmedAt ? 'success' : 'warn'} />}
+      title={`${(item.confirmedAt ? CONFIRMED_LABEL : PENDING_LABEL)[item.kind]} · ${where}`}
       subtitle={state}
       value={hidden ? HIDDEN : value}
       valueSub={hidden ? null : fiatOf?.(micro)}
