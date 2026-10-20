@@ -172,9 +172,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         address,
         keyIndex,
         origin,
-        // Only a restored secret is already backed up. Photo wallets still need
-        // the hex backup: the photo alone is too easy to edit or lose.
-        backedUp: origin === 'imported',
+        // A restored secret is already backed up, and a new one is only created
+        // after the user typed two groups back from their paper copy. Photo
+        // wallets still need the hex backup: the photo alone is too easy to edit or lose.
+        backedUp: origin === 'imported' || origin === 'generated',
         createdAt: Date.now(),
       };
       await storage.saveMeta(m);
