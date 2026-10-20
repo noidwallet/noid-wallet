@@ -8,7 +8,7 @@ export default function Welcome() {
   return (
     <Screen>
       <View style={{ flex: 1, justifyContent: 'center', gap: space.lg }}>
-        <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 15, letterSpacing: 2 }}>NOID ①</Text>
+        <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 15, letterSpacing: 1 }}>Noidly</Text>
         <Text style={{ color: colors.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.8, lineHeight: 40 }}>
           Your Parano1d wallet, in your pocket.
         </Text>
