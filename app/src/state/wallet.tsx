@@ -4,6 +4,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 
 import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
+import { createDirectPrice } from '@/lib/directPrice';
 import { emitRelock } from '@/lib/lockEvents';
 import { onPushTokenChange } from '@/lib/push';
 import { reconcileOne } from '@/lib/send';
@@ -18,6 +19,8 @@ import {
 } from '@/lib/storage';
 
 const REFRESH_MS = 15_000;
+/** Used when the wallet server can't get the NOID price itself (see lib/directPrice). */
+const directPrice = createDirectPrice();
 const RELOCK_AFTER_MS = 60_000;
 
 export type LockState = 'secure' | 'no-screen-lock';
@@ -198,7 +201,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         api.status(),
         api.utxos(meta.address),
         api.history(meta.address).catch(() => null),
-        wantPrice ? api.price().catch(() => null) : Promise.resolve(null),
+        wantPrice
+          ? api
+              .price()
+              .catch(() => directPrice.get(() => api.fx()))
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       setStatus(st);
       // A failed price check keeps the last good price (it carries its own age),

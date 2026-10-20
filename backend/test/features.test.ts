@@ -231,7 +231,32 @@ test("push and price endpoints validate input and report when off", async () => 
   assert.equal(body.ngn, 750);
   assert.deepEqual(body.rates, { EUR: 0.9, NGN: 1500 });
   assert.ok(body.ageMs >= 0 && body.ageMs < 5_000);
+  const fx = await priced.inject({ url: "/v1/fx" });
+  assert.equal(fx.statusCode, 200);
+  assert.deepEqual((fx.json() as { rates: Record<string, number> }).rates, { EUR: 0.9, NGN: 1500 });
   await priced.close();
+
+  // Every NOID price source blocked (as from a data centre): no price, but the rates still come.
+  const blocked = new PriceFeed({
+    bases: ["https://x"],
+    paprikaUrl: "https://x/paprika",
+    log: () => {},
+    fetchJson: async (url) => {
+      if (url.includes("open.er-api")) return { result: "success", rates: { EUR: 0.9, NGN: 1500 } };
+      throw new Error("HTTP 403");
+    },
+  });
+  const half = await buildServer(db, indexer, { trustProxy: false, price: blocked });
+  assert.equal((await half.inject({ url: "/v1/price" })).statusCode, 503);
+  const fx2 = await half.inject({ url: "/v1/fx" });
+  assert.equal(fx2.statusCode, 200);
+  const fxBody = fx2.json() as { rates: Record<string, number>; ageMs: number };
+  assert.equal(fxBody.rates.NGN, 1500);
+  assert.ok(fxBody.ageMs >= 0);
+  await half.close();
+  const none = await buildServer(db, indexer, { trustProxy: false });
+  assert.equal((await none.inject({ url: "/v1/fx" })).statusCode, 503);
+  await none.close();
 
   const sender: PushSender = { send: async () => "ok", validate: async () => "ok" };
   const on = await buildServer(db, indexer, { trustProxy: false, notifier: new Notifier(db, sender, () => {}) });

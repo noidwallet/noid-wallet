@@ -136,8 +136,11 @@ Wait until its height matches your desktop wallet's height.
 curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh && bash /tmp/nodesource_setup.sh
 apt install -y nodejs && node -v          # v22.x
 cd /opt/noid-wallet-backend && npm ci && npm run build
-npm run price-check                       # last lines: the price and "Other currencies"
+npm run price-check                       # shows each price source and the exchange rates
 ```
+Price sites often refuse data-centre servers (`HTTP 403`). That's fine: the
+exchange rates must work (`fx` lines), and phones then fetch the NOID price
+themselves.
 
 **Keep your Activity history (recommended).** The node only keeps the last 42
 blocks (about 17 minutes), so the new server's history starts when its API
@@ -205,8 +208,10 @@ retries by itself, so it also fixes itself once DNS is right).
 **PC**:
 ```powershell
 curl.exe -s https://api.noidusa.com/v1/status
-curl.exe -s https://api.noidusa.com/v1/price
+curl.exe -s https://api.noidusa.com/v1/fx
 ```
+(`/v1/price` may answer `price_unavailable` when price sites block the
+server; the app then gets the NOID price on the phone.)
 Open `https://noidusa.com` in a browser. In the app: **Settings → Wallet server**
 → `https://api.noidusa.com` → Test and save. Then send yourself a small payment.
 

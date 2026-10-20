@@ -162,6 +162,19 @@ export async function buildServer(
     return { ...p, ageMs: Math.max(0, Date.now() - p.updatedAt) };
   });
 
+  /**
+   * Exchange rates only (units per 1 USD). Price sources often refuse requests
+   * from data centres; the app then gets the NOID price itself and the rates here.
+   */
+  app.get("/v1/fx", async (_req, reply) => {
+    const fx = opts.price ? await opts.price.fxRates() : null;
+    if (!fx) {
+      reply.code(503);
+      return { error: { code: "fx_unavailable", message: "Exchange rates are not available right now." } };
+    }
+    return { ...fx, ageMs: Math.max(0, Date.now() - fx.updatedAt) };
+  });
+
   const pushBody = (body: { address?: string; token?: string } | undefined) => {
     if (!opts.notifier) throw Object.assign(new Error("Notifications are not set up on this server."), { statusCode: 404, code: "push_disabled" });
     const token = String(body?.token ?? "");

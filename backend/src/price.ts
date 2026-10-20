@@ -146,6 +146,9 @@ export class PriceFeed {
   private suspect: number | null = null;
   private fx: { rates: Record<string, number>; at: number } | null = null;
   private fxRetryAfter = 0;
+  private fxInflight: Promise<Record<string, number>> | null = null;
+  /** Failed price fetches in a row: the retry wait doubles each time, up to 15 minutes. */
+  private failures = 0;
   private readonly fetchJson: FetchJson;
   private readonly ttlMs: number;
   private readonly maxStaleMs: number;
@@ -203,6 +206,7 @@ export class PriceFeed {
       } else this.suspect = null;
       const rates = await this.rates();
       const ngn = rates.NGN ? usd * rates.NGN : null;
+      this.failures = 0;
       this.cached = {
         usd,
         ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null,
@@ -212,8 +216,10 @@ export class PriceFeed {
       };
       return this.cached;
     } catch (e) {
-      this.opts.log?.(`price: ${(e as Error).message}`);
-      this.retryAfter = this.now() + 60_000;
+      this.failures++;
+      const waitMs = Math.min(60_000 * 2 ** (this.failures - 1), 15 * 60_000);
+      this.opts.log?.(`price: ${(e as Error).message} (next try in ${Math.round(waitMs / 60_000)} min)`);
+      this.retryAfter = this.now() + waitMs;
       if (this.cached && this.now() - this.cached.updatedAt < this.maxStaleMs) return this.cached;
       return null;
     }
@@ -242,6 +248,19 @@ export class PriceFeed {
       errors.push((e as Error).message);
     }
     throw new Error(errors.join("; "));
+  }
+
+  /**
+   * Exchange rates on their own, for apps that fetch the NOID price
+   * themselves when this server can't reach any price source.
+   */
+  async fxRates(): Promise<{ rates: Record<string, number>; updatedAt: number } | null> {
+    this.fxInflight ??= this.rates().finally(() => {
+      this.fxInflight = null;
+    });
+    const rates = await this.fxInflight;
+    if (!this.fx || Object.keys(rates).length === 0) return null;
+    return { rates, updatedAt: this.fx.at };
   }
 
   /** Supported FX rates, fetched at most hourly; an older copy is used while the feed is down. */

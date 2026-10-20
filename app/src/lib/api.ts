@@ -124,6 +124,8 @@ export function createApi(baseUrl: string, _installId = '') {
       ),
     tx: (txid: string) => request<TxStatus>(`/v1/tx/${txid}`),
     price: () => request<Price>('/v1/price', undefined, 10_000),
+    /** Exchange rates only (units per 1 USD), for when the server has no NOID price. */
+    fx: () => request<{ rates: Record<string, number>; updatedAt: number; ageMs?: number }>('/v1/fx', undefined, 10_000),
     pushSubscribe: (address: string, token: string) =>
       request<{ ok: true }>('/v1/push/subscribe', { method: 'POST', body: JSON.stringify({ address, token }) }),
     pushUnsubscribe: (address: string, token: string) =>
