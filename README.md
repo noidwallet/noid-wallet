@@ -65,7 +65,8 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
 your domain, with link-preview images for chat apps (redraw them with
 `python3 tools/make-og-images.py`).
 
-Build and run: see [SETUP-WINDOWS.md](SETUP-WINDOWS.md).
+Build and run: see [SETUP-WINDOWS.md](SETUP-WINDOWS.md). Put it online on a
+server and your domain: see [SETUP-SERVER.md](SETUP-SERVER.md).
 
 ## License
 Apache-2.0. Includes code adapted from Parano1d (Apache-2.0); see NOTICE.
