@@ -9,4 +9,8 @@ export const config = {
   pollMs: Number(process.env.POLL_MS ?? 5000),
   /** Set behind a reverse proxy (Caddy) so rate limits see the real client IP. */
   trustProxy: process.env.TRUST_PROXY === "1",
+  /** Firebase service-account JSON for "NOID received" notifications. Unset = off. */
+  fcmServiceAccount: process.env.FCM_SERVICE_ACCOUNT || undefined,
+  /** Set PRICE=0 to turn off the NOID price feed. */
+  priceEnabled: process.env.PRICE !== "0",
 };

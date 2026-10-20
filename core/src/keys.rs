@@ -3,6 +3,7 @@
 //! Mirrors the official wallet exactly:
 //! - address derivation: noid_node/src/wallet/keystore.rs (MasterSecret)
 //! - Photo Key + key fingerprint: noid_gui/src/secret.rs
+//!
 //! Tests check results against the official v2.0.4 node and GUI.
 
 use std::collections::HashSet;
@@ -19,6 +20,8 @@ use crate::Error;
 pub const SECRET_LEN: usize = 32;
 const IMAGE_SECRET_CONTEXT: &str = "ParanO(1)d master secret from canonical image pixels v1";
 const KEY_ID_CONTEXT: &str = "ParanO(1)d master secret fingerprint v1";
+/// Domain separation for gift card secrets (NOID mobile wallet only).
+const GIFT_SECRET_CONTEXT: &str = "NOID mobile wallet 2026-10 gift card secret v1";
 const MAX_SECRET_PHOTO_BYTES: u64 = 256 << 20;
 const MIN_SECRET_PHOTO_DIMENSION: u32 = 32;
 const MIN_SECRET_PHOTO_DISTINCT_PIXELS: usize = 64;
@@ -79,6 +82,21 @@ impl MasterSecret {
 
     pub fn derive_address(&self, index: u32) -> Address {
         derive_address_from_spend(&self.derive_spend_secret(index))
+    }
+
+    /// Secret of gift card number `index`, derived one-way from this wallet's
+    /// master secret. Gift secrets are handed to recipients inside links, so
+    /// they must reveal nothing about the master; BLAKE3 key derivation is
+    /// one-way. Being derived (not random) means a restored wallet can find
+    /// and take back its unclaimed gifts.
+    pub fn derive_gift_secret(&self, index: u32) -> MasterSecret {
+        let mut hasher = blake3::Hasher::new_derive_key(GIFT_SECRET_CONTEXT);
+        hasher.update(&self.0);
+        hasher.update(&index.to_le_bytes());
+        let mut out = *hasher.finalize().as_bytes();
+        let secret = MasterSecret(out);
+        out.zeroize();
+        secret
     }
 
     /// Short fingerprint shown by the official wallet (e.g. `ab12·cd34·ef56·7890`)
@@ -226,6 +244,20 @@ pub fn parse_address(address: &str) -> Result<Address, Error> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn gift_secrets_are_stable_distinct_and_one_way() {
+        let master = MasterSecret::from_hex(&"01".repeat(32)).unwrap();
+        let g0 = master.derive_gift_secret(0);
+        let g0b = master.derive_gift_secret(0);
+        let g1 = master.derive_gift_secret(1);
+        assert_eq!(*g0.to_hex(), *g0b.to_hex());
+        assert_ne!(*g0.to_hex(), *g1.to_hex());
+        assert_ne!(*g0.to_hex(), *master.to_hex());
+        assert_ne!(g0.derive_address(0), master.derive_address(0));
+        // Gift secrets are valid wallet secrets in their own right.
+        assert!(MasterSecret::from_hex(&g0.to_hex()).is_ok());
+    }
     use super::*;
 
     /// Golden vectors taken from the official parano1d v2.0.4 release binary

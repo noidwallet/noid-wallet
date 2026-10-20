@@ -182,6 +182,55 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
             Ok(serde_json::to_value(plan).unwrap())
         }
 
+        // Gift card `index` of this wallet: its secret (goes into the link) and address.
+        "giftKey" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                secret_hex: Zeroizing<String>,
+                index: u32,
+            }
+            let a: A = args(json)?;
+            let gift = MasterSecret::from_hex(&a.secret_hex)?.derive_gift_secret(a.index);
+            Ok(json!({ "giftSecretHex": *gift.to_hex(), "address": gift.derive_address(0).to_bech32(), "index": a.index }))
+        }
+
+        // Addresses of gift cards start..start+count, for finding gifts after a restore.
+        "giftAddresses" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                secret_hex: Zeroizing<String>,
+                start: u32,
+                count: u32,
+            }
+            let a: A = args(json)?;
+            if a.count == 0 || a.count > 200 {
+                return Err(Error::msg("Ask for between 1 and 200 gift addresses."));
+            }
+            let master = MasterSecret::from_hex(&a.secret_hex)?;
+            let list: Vec<Value> = (a.start..a.start.saturating_add(a.count))
+                .map(|i| json!({ "index": i, "address": master.derive_gift_secret(i).derive_address(0).to_bech32() }))
+                .collect();
+            Ok(Value::Array(list))
+        }
+
+        "planSweep" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                utxos: Vec<Utxo>,
+                #[serde(default)]
+                pending_input_slots: Vec<u32>,
+                #[serde(flatten)]
+                fees: FeeArgs,
+            }
+            let a: A = args(json)?;
+            let pending: HashSet<u32> = a.pending_input_slots.into_iter().collect();
+            let plan = tx::plan_sweep(&a.utxos, &pending, (&a.fees).into())?;
+            Ok(serde_json::to_value(plan).unwrap())
+        }
+
         "planConsolidation" => {
             let a: PlanConsolidationArgs = args(json)?;
             let pending: HashSet<u32> = a.pending_input_slots.into_iter().collect();
@@ -229,6 +278,19 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn gift_keys_through_json() {
+        let secret = "01".repeat(32);
+        let g = ok("giftKey", json!({ "secretHex": secret, "index": 3 }));
+        let list = ok("giftAddresses", json!({ "secretHex": secret, "start": 0, "count": 5 }));
+        assert_eq!(list.as_array().unwrap().len(), 5);
+        assert_eq!(list[3]["address"], g["address"]);
+        // The gift secret is itself a wallet whose first address is the gift address.
+        let inspected = ok("inspectSecret", json!({ "secretHex": g["giftSecretHex"] }));
+        assert_eq!(inspected["address"], g["address"]);
+        assert_ne!(g["giftSecretHex"], json!(secret));
+    }
     use super::*;
 
     fn ok(method: &str, a: Value) -> Value {

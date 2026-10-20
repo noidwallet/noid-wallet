@@ -2,10 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-import { createApi, type Api, type HistoryItem, type Status } from '@/lib/api';
+import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
+import { onPushTokenChange } from '@/lib/push';
 import { reconcileOne } from '@/lib/send';
-import { storage, type PendingTx, type Settings, type WalletMeta, type WalletOrigin } from '@/lib/storage';
+import {
+  storage,
+  type Contact,
+  type GiftRecord,
+  type PendingTx,
+  type Settings,
+  type WalletMeta,
+  type WalletOrigin,
+} from '@/lib/storage';
 
 const REFRESH_MS = 15_000;
 const RELOCK_AFTER_MS = 60_000;
@@ -26,6 +35,10 @@ interface WalletState {
   history: HistoryItem[];
   error: string | null;
   refreshing: boolean;
+  /** NOID price for display; null when off or unavailable. */
+  price: Price | null;
+  contacts: Contact[];
+  gifts: GiftRecord[];
 }
 
 interface WalletActions {
@@ -34,6 +47,12 @@ interface WalletActions {
   markBackedUp: () => Promise<void>;
   removeWallet: () => Promise<void>;
   setApiUrl: (url: string) => Promise<void>;
+  updateSettings: (patch: Partial<Settings>) => Promise<void>;
+  saveContact: (name: string, address: string) => void;
+  removeContact: (id: string) => void;
+  /** Insert or replace a gift record (by index) and persist it. */
+  saveGift: (g: GiftRecord) => void;
+  removeGift: (index: number) => void;
   /** Insert or replace a pending record (by txid) and persist it. */
   recordPending: (p: PendingTx) => void;
   discardPending: (txid: string) => void;
@@ -75,6 +94,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [price, setPrice] = useState<Price | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [gifts, setGifts] = useState<GiftRecord[]>([]);
+  const giftsRef = useRef<GiftRecord[]>([]);
   const backgroundedAt = useRef<number | null>(null);
   const pendingRef = useRef<PendingTx[]>([]);
   const refreshInFlight = useRef(false);
@@ -100,6 +123,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const p = storage.loadPending();
       pendingRef.current = p;
       setPending(p);
+      setContacts(storage.loadContacts());
+      const g = storage.loadGifts();
+      giftsRef.current = g;
+      setGifts(g);
       setMeta(m);
       setSettings(s);
       setInstallId(id);
@@ -131,12 +158,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     refreshInFlight.current = true;
     setRefreshing(true);
     try {
-      const [st, coins, hist] = await Promise.all([
+      const wantPrice = (settings.currency ?? 'none') !== 'none';
+      const [st, coins, hist, px] = await Promise.all([
         api.status(),
         api.utxos(meta.address),
         api.history(meta.address).catch(() => null),
+        wantPrice ? api.price().catch(() => null) : Promise.resolve(null),
       ]);
       setStatus(st);
+      setPrice(px);
       setUtxos(coins.utxos);
       if (hist) setHistory(hist.items);
 
@@ -155,7 +185,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       refreshInFlight.current = false;
       setRefreshing(false);
     }
-  }, [api, meta, settings.apiUrl, updatePending]);
+  }, [api, meta, settings.apiUrl, settings.currency, updatePending]);
+
+  // Firebase can rotate a phone's push token; keep the server's copy current.
+  useEffect(() => {
+    if (!meta || !settings.pushToken) return;
+    return onPushTokenChange((token) => {
+      void api
+        .pushSubscribe(meta.address, token)
+        .then(async () => {
+          const s = { ...settings, pushToken: token };
+          await storage.saveSettings(s);
+          setSettings(s);
+        })
+        .catch(() => {});
+    });
+  }, [api, meta, settings]);
 
   useEffect(() => {
     if (!meta || locked) return;
@@ -188,6 +233,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       updatePending(() => []);
       setHistory([]);
       setUtxos([]);
+      giftsRef.current = [];
+      storage.saveGifts([]);
+      setGifts([]);
       setMeta(m);
       setLocked(false);
     },
@@ -215,6 +263,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       history,
       error,
       refreshing,
+      price,
+      contacts,
+      gifts,
       refresh,
       createWallet,
       async markBackedUp() {
@@ -224,7 +275,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setMeta(m);
       },
       async removeWallet() {
+        if (meta && settings.pushToken) await api.pushUnsubscribe(meta.address, settings.pushToken).catch(() => {});
         await storage.wipe();
+        setContacts([]);
+        giftsRef.current = [];
+        setGifts([]);
+        const s = { ...settings, pushToken: null };
+        await storage.saveSettings(s);
+        setSettings(s);
         pendingRef.current = [];
         setPending([]);
         setMeta(null);
@@ -237,6 +295,41 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await storage.saveSettings(s);
         setSettings(s);
       },
+      async updateSettings(patch: Partial<Settings>) {
+        const s = { ...settings, ...patch };
+        await storage.saveSettings(s);
+        setSettings(s);
+        if (patch.currency === 'none') setPrice(null);
+      },
+      saveContact(name: string, address: string) {
+        setContacts((prev) => {
+          const existing = prev.find((c) => c.address === address);
+          const next = existing
+            ? prev.map((c) => (c.address === address ? { ...c, name } : c))
+            : [...prev, { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, address, createdAt: Date.now() }];
+          storage.saveContacts(next);
+          return next;
+        });
+      },
+      removeContact(id: string) {
+        setContacts((prev) => {
+          const next = prev.filter((c) => c.id !== id);
+          storage.saveContacts(next);
+          return next;
+        });
+      },
+      saveGift(g: GiftRecord) {
+        const next = [...giftsRef.current.filter((x) => x.index !== g.index), g].sort((a, b) => b.createdAt - a.createdAt);
+        giftsRef.current = next;
+        storage.saveGifts(next);
+        setGifts(next);
+      },
+      removeGift(index: number) {
+        const next = giftsRef.current.filter((x) => x.index !== index);
+        giftsRef.current = next;
+        storage.saveGifts(next);
+        setGifts(next);
+      },
       recordPending(p: PendingTx) {
         updatePending((prev) => [...prev.filter((x) => x.txid !== p.txid), p]);
       },
@@ -246,7 +339,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       unlock,
       confirmUser: authenticate,
     }),
-    [loading, meta, settings, api, locked, lockState, status, utxos, pending, history, error, refreshing, refresh, createWallet, unlock, updatePending],
+    [loading, meta, settings, api, locked, lockState, status, utxos, pending, history, error, refreshing, price, contacts, gifts, refresh, createWallet, unlock, updatePending],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

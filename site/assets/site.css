@@ -1,0 +1,33 @@
+:root {
+  --bg: #060b0a; --surface: #0e1715; --raised: #14201d; --line: #1e2d29;
+  --text: #e6efec; --muted: #8a9c96; --accent: #3fd1a0; --ink: #04140f; --warn: #f2b45a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; display: flex; justify-content: center; }
+main { width: 100%; max-width: 460px; padding: 32px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
+.brand { font: 700 15px/1 ui-monospace, "JetBrains Mono", monospace; letter-spacing: 2px; color: var(--accent); }
+h1 { font-size: 28px; line-height: 1.2; margin: 0; letter-spacing: -0.3px; }
+p { margin: 0; color: var(--muted); }
+.card { border-radius: 20px; padding: 22px; aspect-ratio: 340 / 214; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.08); }
+.card .label { font-weight: 800; letter-spacing: 2px; }
+.card .sub { font-size: 11px; letter-spacing: 2.4px; opacity: .8; }
+.card .amount { font: 800 40px/1 ui-monospace, monospace; }
+.card .unit { font-weight: 700; letter-spacing: 2px; font-size: 13px; }
+.card .from { position: absolute; right: 22px; bottom: 22px; font-size: 13px; opacity: .85; }
+.card::after { content: ""; position: absolute; right: -40px; top: -40px; width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.18), transparent 70%); }
+.t-vault { background: linear-gradient(135deg, #0b1f1a, #04100c); color: #e9fff7; }
+.t-celebrate { background: linear-gradient(135deg, #2a1250, #120726); color: #fff6e8; }
+.t-thanks { background: linear-gradient(135deg, #3b1d0b, #1a0c04); color: #fff3e6; }
+.t-birthday { background: linear-gradient(135deg, #0e2148, #07122a); color: #f3f7ff; }
+.message { font-style: italic; color: var(--text); text-align: center; }
+.btn { display: block; text-align: center; text-decoration: none; font-weight: 700; padding: 15px 18px; border-radius: 12px; background: var(--accent); color: var(--ink); border: 1px solid var(--accent); }
+.btn.secondary { background: var(--raised); color: var(--text); border-color: var(--line); }
+.note { border-left: 3px solid var(--warn); padding: 4px 12px; color: var(--warn); font-size: 14px; }
+.steps { margin: 0; padding-left: 20px; color: var(--muted); }
+.steps li { margin: 6px 0; }
+.mono { font-family: ui-monospace, "JetBrains Mono", monospace; word-break: break-all; color: var(--text); }
+.hidden { display: none !important; }
+footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 12px; }
+footer a { color: var(--muted); }

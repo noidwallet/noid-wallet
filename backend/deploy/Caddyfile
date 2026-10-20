@@ -1,10 +1,32 @@
-# HTTPS in front of the wallet API. Replace the domain with yours and point
-# its DNS A record at the server. Caddy gets the certificate automatically.
-api.yourdomain.com {
+# HTTPS for the wallet API and the link pages. Point both DNS A records
+# (api.<domain> and <domain>) at the server; Caddy gets certificates itself.
+api.noidusa.com {
 	encode gzip
 	reverse_proxy 127.0.0.1:8787
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
+}
+
+# Gift and payment link pages. The gift secret is after "#" in those links,
+# which browsers never send here; no logs, no third-party scripts, no referrer.
+noidusa.com, www.noidusa.com {
+	root * /var/www/noid-site
+	encode gzip
+	try_files {path} {path}/index.html
+	file_server
+	log {
+		output discard
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	@wellknown path /.well-known/assetlinks.json
+	header @wellknown Content-Type "application/json"
 }

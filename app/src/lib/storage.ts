@@ -9,11 +9,15 @@ import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 
+import type { Currency } from './safety';
+
 const SECRET = 'noid.master.v1';
 const META = 'noid.meta.v1';
 const SETTINGS = 'noid.settings.v1';
 const INSTALL_ID = 'noid.install.v1';
 const PENDING_FILE = 'pending-v2.json';
+const CONTACTS_FILE = 'contacts-v1.json';
+const GIFTS_FILE = 'gifts-v1.json';
 
 export type WalletOrigin = 'generated' | 'imported' | 'photo';
 
@@ -26,13 +30,49 @@ export interface WalletMeta {
   createdAt: number;
 }
 
+export type { Currency };
+
 export interface Settings {
   apiUrl: string;
+  /** Show balances in this currency too (display only). */
+  currency?: Currency;
+  /** Push token registered with the wallet server, when notifications are on. */
+  pushToken?: string | null;
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  address: string;
+  createdAt: number;
+}
+
+/**
+ * A gift card this wallet made. Its secret is NOT stored: it is re-derived
+ * from the master secret by `index` whenever it is needed (sharing again or
+ * taking the gift back), so a restored wallet can find its gifts too.
+ */
+export interface GiftRecord {
+  index: number;
+  address: string;
+  /** What the recipient receives, in μNOID (claim fee already covered). */
+  amount: number;
+  message: string;
+  theme: string;
+  from: string;
+  createdAt: number;
+  fundTxid: string | null;
+  /** draft: saved before funding. funded: waiting to be claimed. claimed/takenBack: finished. */
+  status: 'draft' | 'funded' | 'claimed' | 'takenBack';
+  takeBackTxid?: string;
+  /** Removed from the list by the user. Kept so its number is never reused. */
+  hidden?: boolean;
 }
 
 export interface PendingTx {
   txid: string;
-  kind: 'send' | 'consolidate';
+  /** gift: funding a gift card. claim: moving a gift into this wallet (its inputs are not ours). */
+  kind: 'send' | 'consolidate' | 'gift' | 'claim';
   /**
    * submitting: built and saved, but the server has not confirmed it received it.
    *   Never build another transaction while one is in this state; re-send this one.
@@ -64,6 +104,23 @@ async function readJson<T>(key: string): Promise<T | null> {
 
 function pendingFile() {
   return new File(Paths.document, PENDING_FILE);
+}
+
+function readFileJson<T>(name: string, fallback: T): T {
+  try {
+    const f = new File(Paths.document, name);
+    if (!f.exists) return fallback;
+    const parsed = JSON.parse(f.textSync()) as T;
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFileJson(name: string, value: unknown) {
+  const f = new File(Paths.document, name);
+  if (!f.exists) f.create();
+  f.write(JSON.stringify(value));
 }
 
 export const storage = {
@@ -109,13 +166,30 @@ export const storage = {
     f.write(JSON.stringify(p));
   },
 
+  loadContacts(): Contact[] {
+    const c = readFileJson<Contact[]>(CONTACTS_FILE, []);
+    return Array.isArray(c) ? c : [];
+  },
+  saveContacts(c: Contact[]) {
+    writeFileJson(CONTACTS_FILE, c);
+  },
+  loadGifts(): GiftRecord[] {
+    const g = readFileJson<GiftRecord[]>(GIFTS_FILE, []);
+    return Array.isArray(g) ? g : [];
+  },
+  saveGifts(g: GiftRecord[]) {
+    writeFileJson(GIFTS_FILE, g);
+  },
+
   async wipe() {
     await Promise.all([SECRET, META].map((k) => SecureStore.deleteItemAsync(k)));
-    try {
-      const f = pendingFile();
-      if (f.exists) f.delete();
-    } catch {
-      // nothing to remove
+    for (const name of [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE]) {
+      try {
+        const f = new File(Paths.document, name);
+        if (f.exists) f.delete();
+      } catch {
+        // nothing to remove
+      }
     }
   },
 };

@@ -26,6 +26,15 @@ export interface Status extends FeeContext {
   synced: boolean;
   syncStage: string;
   peers: number | null;
+  /** Optional server features; missing on older servers. */
+  features?: { price?: boolean; push?: boolean };
+}
+
+export interface Price {
+  usd: number;
+  ngn: number | null;
+  source: string;
+  updatedAt: number;
 }
 
 export interface Prepared extends FeeContext {
@@ -99,6 +108,11 @@ export function createApi(baseUrl: string, installId = '') {
         100_000,
       ),
     tx: (txid: string) => request<TxStatus>(`/v1/tx/${txid}`),
+    price: () => request<Price>('/v1/price', undefined, 10_000),
+    pushSubscribe: (address: string, token: string) =>
+      request<{ ok: true }>('/v1/push/subscribe', { method: 'POST', body: JSON.stringify({ address, token }) }),
+    pushUnsubscribe: (address: string, token: string) =>
+      request<{ ok: true }>('/v1/push/unsubscribe', { method: 'POST', body: JSON.stringify({ address, token }) }),
     history: (address: string, before?: string) =>
       request<{ items: HistoryItem[]; nextBefore: string | null; indexedFrom: number | null }>(
         `/v1/address/${address}/history${before ? `?before=${encodeURIComponent(before)}` : ''}`,

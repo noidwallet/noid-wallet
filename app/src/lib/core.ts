@@ -94,6 +94,13 @@ export const core = {
     call<SendPlan>('planSend', a),
   planConsolidation: (a: { utxos: Utxo[]; pendingInputSlots: number[]; maxInputs?: number } & FeeContext) =>
     call<ConsolidationPlan>('planConsolidation', a),
+  /** Move every coin at an address to one recipient (gift claim / take back). */
+  planSweep: (a: { utxos: Utxo[]; pendingInputSlots: number[] } & FeeContext) => call<SendPlan>('planSweep', a),
+  /** Gift card `index` of this wallet: secret for the link, and its address. */
+  giftKey: (secretHex: string, index: number) =>
+    call<{ giftSecretHex: string; address: string; index: number }>('giftKey', { secretHex, index }),
+  giftAddresses: (secretHex: string, start: number, count: number) =>
+    call<{ index: number; address: string }[]>('giftAddresses', { secretHex, start, count }),
   buildTransaction: (a: {
     secretHex: string;
     keyIndex: number;

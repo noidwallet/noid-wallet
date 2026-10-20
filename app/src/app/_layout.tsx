@@ -4,9 +4,11 @@ import { useFonts, JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { setupNotificationHandler } from '@/lib/push';
 import { WalletProvider, useWallet } from '@/state/wallet';
 import { colors } from '@/theme';
 
+setupNotificationHandler();
 function Routes() {
   const { loading, meta, locked } = useWallet();
   if (loading) {
@@ -41,6 +43,12 @@ function Routes() {
         <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="backup" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="tx/[txid]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="gifts" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="gift-new" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="gift/[index]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="claim" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="request" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="contacts" options={{ animation: 'slide_from_right' }} />
       </Stack.Protected>
       {/* Reachable before a wallet exists and while unlocked, never behind the lock. */}
       <Stack.Protected guard={!hasWallet || !locked}>

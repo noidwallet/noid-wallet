@@ -52,17 +52,28 @@ export function PendingRow({ item }: { item: PendingTx }) {
     >
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: colors.warn, fontSize: 16, fontWeight: '600' }}>
-          {item.kind === 'consolidate' ? 'Merging coins' : 'Sending'} ·{' '}
+          {PENDING_LABEL[item.kind]} ·{' '}
           {item.state === 'submitting' ? 'checking with the network' : 'waiting for a block'}
         </Text>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>{item.to ? shortAddress(item.to, 4) : 'To yourself'}</Text>
+        <Text style={{ color: colors.muted, fontSize: 13 }}>
+          {item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? shortAddress(item.to, 4) : 'To yourself'}
+        </Text>
       </View>
-      <Text style={{ fontFamily: fonts.mono, fontSize: 15, color: colors.text }}>
-        −{formatNoid(item.kind === 'consolidate' ? item.fee : item.amount + item.fee)}
+      <Text style={{ fontFamily: fonts.mono, fontSize: 15, color: item.kind === 'claim' ? colors.accent : colors.text }}>
+        {item.kind === 'claim'
+          ? `+${formatNoid(item.amount)}`
+          : `−${formatNoid(item.kind === 'consolidate' ? item.fee : item.amount + item.fee)}`}
       </Text>
     </Pressable>
   );
 }
+
+const PENDING_LABEL: Record<PendingTx['kind'], string> = {
+  send: 'Sending',
+  consolidate: 'Merging coins',
+  gift: 'Creating gift card',
+  claim: 'Claiming gift',
+};
 
 const row = {
   flexDirection: 'row' as const,

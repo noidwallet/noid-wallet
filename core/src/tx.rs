@@ -3,6 +3,7 @@
 //! - select_utxos: noid_node/src/wallet/state.rs
 //! - plan_send / plan_consolidation: noid_node/src/wallet/mod.rs
 //! - build_and_prove_tx: noid_node/src/wallet/builder.rs
+//!
 //! The phone receives the owner's live UTXOs from the node
 //! (paranoid_getSlotsByOwner) and tracks its own pending slots.
 
@@ -321,6 +322,35 @@ pub fn plan_consolidation(
     })
 }
 
+/// Move every coin at an address to one recipient, fee taken from the total
+/// (gift claims and gift take-backs). One output, so no change and no state
+/// growth: spending n >= 1 coins into 1 never adds a slot.
+pub fn plan_sweep(utxos: &[Utxo], pending_inputs: &HashSet<u32>, ctx: FeeContext) -> Result<SendPlan, Error> {
+    let available = spendable_utxos(utxos, pending_inputs);
+    if available.is_empty() {
+        return Err(Error::coded("empty", "There is nothing to claim here. It may have been claimed already."));
+    }
+    if available.len() > MAX_SEND_INPUTS {
+        return Err(Error::msg(format!("This holds more than {MAX_SEND_INPUTS} coins; it cannot be moved in one go.")));
+    }
+    let spendable = sum(available.iter().map(|u| u.value))?;
+    let (fee, breakdown) = ctx.minimum(available.len(), 1);
+    let amount = spendable.checked_sub(fee).filter(|v| *v > 0).ok_or_else(|| {
+        Error::coded("insufficient_funds", "This holds less than the network fee needed to move it.")
+    })?;
+    Ok(SendPlan {
+        amount,
+        fee,
+        total_spend: spendable,
+        input_count: available.len(),
+        output_count: 1,
+        change: 0,
+        spendable,
+        selected_slots: available.iter().map(|u| u.slot_index).collect(),
+        fee_breakdown: breakdown,
+    })
+}
+
 pub struct BuildRequest<'a> {
     pub secret: &'a MasterSecret,
     pub key_index: u32,
@@ -452,6 +482,31 @@ pub fn take_selected(utxos: &[Utxo], slots: &[u32]) -> Result<Vec<Utxo>, Error> 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sweep_spends_everything_into_one_output() {
+        let ctx = FeeContext { active_slot_count: 0, log_slots: 24, relay_floor: 5_000 };
+        let utxos = vec![
+            Utxo { slot_index: 7, value: 1_005_800, creation_id: 1 },
+        ];
+        let plan = plan_sweep(&utxos, &HashSet::new(), ctx).unwrap();
+        // 5000 base + 100 per input + 700 for one output; no state growth.
+        assert_eq!((plan.fee, plan.amount, plan.output_count, plan.change), (5_800, 1_000_000, 1, 0));
+        assert_eq!(plan.fee_breakdown.state_growth, 0);
+
+        let two = vec![
+            Utxo { slot_index: 1, value: 3_000, creation_id: 1 },
+            Utxo { slot_index: 2, value: 4_000, creation_id: 2 },
+        ];
+        let p2 = plan_sweep(&two, &HashSet::new(), ctx).unwrap();
+        assert_eq!((p2.fee, p2.amount, p2.selected_slots.len()), (5_900, 1_100, 2));
+
+        assert!(plan_sweep(&[], &HashSet::new(), ctx).is_err());
+        let dust = vec![Utxo { slot_index: 3, value: 5_000, creation_id: 3 }];
+        assert!(plan_sweep(&dust, &HashSet::new(), ctx).is_err());
+        let locked: HashSet<u32> = [7].into_iter().collect();
+        assert!(plan_sweep(&utxos, &locked, ctx).is_err());
+    }
     use super::*;
     use noid_gkr::{verify_paged_spend_authorization, WalletAuthorizationBundle};
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>NOID payment request</title>
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <main>
+    <div class="brand">NOID</div>
+    <section id="request" style="display:flex;flex-direction:column;gap:20px">
+      <h1>Payment request</h1>
+      <div class="card t-vault" style="aspect-ratio:auto;gap:10px">
+        <div class="sub">PLEASE SEND</div>
+        <div class="amount" id="amount">Any amount</div>
+        <p id="note" class="hidden" style="color:inherit"></p>
+      </div>
+      <p>To this address:</p>
+      <p class="mono" id="to"></p>
+      <a id="open" class="btn" href="#">Pay with NOID</a>
+      <a class="btn secondary" href="/#get">Get NOID for Android</a>
+      <p>Paying from another wallet? Copy the address above and check every character.</p>
+    </section>
+    <section id="invalid" class="hidden">
+      <h1>This payment link is incomplete</h1>
+      <p>Ask for the payment link again and open the whole link.</p>
+    </section>
+    <footer>NOID is an independent wallet for the Parano1d network.</footer>
+  </main>
+  <script src="/assets/links.js"></script>
+  <script src="/assets/pay.js"></script>
+</body>
+</html>

@@ -1,13 +1,16 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActionNotice, Button, Notice } from '@/components/ui';
 import { HistoryRow, PendingRow } from '@/components/TxRow';
 import { formatNoid, shortAddress } from '@/lib/amount';
+import { inbox } from '@/lib/inbox';
 import { go } from '@/lib/nav';
+import { fiat } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
 
@@ -15,15 +18,29 @@ import { colors, fonts, radius, space } from '@/theme';
 const MERGE_HINT_AT = 20;
 
 export default function Home() {
-  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings } = useWallet();
+  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price } = useWallet();
   const [copied, setCopied] = useState(false);
+
+  // A gift or payment link opened the app: take the user straight to it.
+  const handleInbox = useCallback(() => {
+    const link = inbox.peek();
+    if (!link) return;
+    if (link.kind === 'gift') go('/claim');
+    else go('/send');
+  }, []);
+  useFocusEffect(handleInbox);
+  useEffect(() => inbox.subscribe(handleInbox), [handleInbox]);
+
   if (!meta) return null;
 
   // Only count a pending transaction while its coins are still in the live
   // set: once a block spends them, `balance` already reflects it.
   const live = new Map(utxos.map((u) => [u.slotIndex, u.value]));
   const inFlight = pending.filter((p) => p.inputSlots.length > 0 && p.inputSlots.every((s) => live.has(s)));
-  const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' ? p.amount : 0) + p.fee, 0);
+  const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount : 0) + p.fee, 0);
+  // Gift claims coming in (their coins are not ours yet, so not in `balance`).
+  const claimIn = pending.filter((p) => p.kind === 'claim').reduce((s, p) => s + p.amount, 0);
+  const balanceValue = fiat(Math.max(0, balance - pendingOut), price, settings.currency ?? 'none');
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));
   const lockedValue = utxos.filter((u) => lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
   const available = balance - lockedValue;
@@ -76,6 +93,10 @@ export default function Home() {
             </Text>
             <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18 }}>NOID</Text>
           </View>
+          {balanceValue ? <Text style={{ color: colors.muted, fontSize: 15 }}>{balanceValue}</Text> : null}
+          {claimIn > 0 ? (
+            <Text style={{ color: colors.accent, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
+          ) : null}
           {pendingOut > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 14 }}>
               {formatNoid(pendingOut)} on its way out
@@ -121,6 +142,12 @@ export default function Home() {
           <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.md }}>{sendBlocker}</Text>
         ) : null}
 
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <Tile title="Gift card" hint="Send NOID as a link" onPress={() => go('/gifts')} highlight />
+          <Tile title="Request" hint="Ask for an amount" onPress={() => go('/request')} />
+          <Tile title="Contacts" hint="People you pay" onPress={() => go('/contacts')} />
+        </View>
+
         {lockState === 'no-screen-lock' ? (
           <Notice tone="danger">
             This phone has no screen lock, so anyone holding it can open your wallet. Set a PIN, pattern or fingerprint in
@@ -164,5 +191,29 @@ export default function Home() {
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function Tile({ title, hint, onPress, highlight }: { title: string; hint: string; onPress: () => void; highlight?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${hint}`}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flex: 1,
+        minHeight: 72,
+        padding: space.md,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: highlight ? colors.accent : colors.line,
+        backgroundColor: colors.surface,
+        justifyContent: 'space-between',
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Text style={{ color: highlight ? colors.accent : colors.text, fontSize: 15, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ color: colors.muted, fontSize: 12 }}>{hint}</Text>
+    </Pressable>
   );
 }

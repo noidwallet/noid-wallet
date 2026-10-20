@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>NOID gift card</title>
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <main>
+    <div class="brand">NOID</div>
+    <section id="gift">
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <h1 id="title">You received a NOID gift card</h1>
+        <div id="card" class="card t-vault">
+          <div><div class="label">NOID</div><div class="sub">GIFT CARD</div></div>
+          <div><div class="amount" id="amount">NOID</div><div class="unit" id="unit">NOID</div></div>
+          <div class="from" id="from"></div>
+        </div>
+        <p id="message" class="message hidden"></p>
+        <a id="open" class="btn" href="#">Open in NOID to claim</a>
+        <p>Don’t have NOID yet?</p>
+        <ol class="steps">
+          <li>Install the NOID wallet for Android.</li>
+          <li>Create a wallet and write down its secret.</li>
+          <li>Come back to this message and tap the gift link again.</li>
+        </ol>
+        <a class="btn secondary" href="/#get">Get NOID for Android</a>
+        <p class="note">This link is the gift. Anyone who has it can claim it, so don’t forward it.</p>
+      </div>
+    </section>
+    <section id="invalid" class="hidden">
+      <h1>This gift link is incomplete</h1>
+      <p>Ask the sender to share the gift link again, and open the whole link.</p>
+    </section>
+    <footer>NOID is an independent wallet for the Parano1d network. The gift is read on this page only; it is never sent to our server.</footer>
+  </main>
+  <script src="/assets/links.js"></script>
+  <script src="/assets/gift.js"></script>
+</body>
+</html>

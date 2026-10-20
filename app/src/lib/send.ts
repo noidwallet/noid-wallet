@@ -149,8 +149,8 @@ export async function submitLoop(
   throw lastError instanceof Error ? lastError : new Error('The transaction could not be sent. Try again.');
 }
 
-export function executeSend(c: Common & { to: string; amount: number; reviewedFee: number }) {
-  return submitLoop(c, 'send', c.to, c.reviewedFee, async () => {
+export function executeSend(c: Common & { to: string; amount: number; reviewedFee: number; kind?: 'send' | 'gift' }) {
+  return submitLoop(c, c.kind ?? 'send', c.to, c.reviewedFee, async () => {
     const { plan, utxos } = await planSend(c.api, c.address, c.pending, c.amount);
     return { plan, utxos, outputs: plan.outputCount as 1 | 2 };
   });
@@ -163,6 +163,31 @@ export function executeConsolidation(c: Common & { reviewedFee: number }) {
     const plan = await core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(c.pending), ...ctx });
     return { plan, utxos, outputs: 1 };
   });
+}
+
+/**
+ * Move everything at an address (a gift) to `to`. `c.secretHex` is the gift's
+ * secret, `c.address` the gift's address, and `c.pending` this wallet's own
+ * pending list (so output slots already in use are avoided).
+ */
+export function executeSweep(c: Common & { to: string; reviewedFee: number; kind: 'claim' }) {
+  return submitLoop(c, c.kind, c.to, c.reviewedFee, async () => {
+    const { plan, utxos } = await planSweep(c.api, c.address, c.pending);
+    return { plan, utxos, outputs: 1 };
+  });
+}
+
+export async function planSweep(api: Api, address: string, pending: PendingTx[]) {
+  const [{ utxos }, ctx] = await Promise.all([api.utxos(address), api.status()]);
+  const core = await getCore();
+  const plan = await core.planSweep({
+    utxos,
+    pendingInputSlots: pendingInputs(pending),
+    activeSlotCount: ctx.activeSlotCount,
+    logSlots: ctx.logSlots,
+    relayFloor: ctx.relayFloor,
+  });
+  return { plan, utxos };
 }
 
 /** Codes after which a saved transaction can never confirm and its coins are free again. */

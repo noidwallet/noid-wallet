@@ -1,15 +1,22 @@
 import { config } from "./config.js";
 import { openDb } from "./db.js";
 import { Indexer } from "./indexer.js";
+import { PriceFeed } from "./price.js";
+import { fcmSender, Notifier } from "./push.js";
 import { buildServer } from "./server.js";
 
+const log = (m: string) => console.log(new Date().toISOString(), m);
 const db = openDb(config.dbPath);
+const sender = fcmSender(config.fcmServiceAccount, log);
+const notifier = sender ? new Notifier(db, sender, log) : null;
+const price = config.priceEnabled ? new PriceFeed({ log }) : null;
 const indexer = new Indexer(db, {
   indexFrom: config.indexFrom,
   pollMs: config.pollMs,
-  log: (m) => console.log(new Date().toISOString(), m),
+  log,
+  onBlock: notifier ? (h, rows) => notifier.onRows(h, rows) : undefined,
 });
-const app = await buildServer(db, indexer, { trustProxy: config.trustProxy });
+const app = await buildServer(db, indexer, { trustProxy: config.trustProxy, price, notifier });
 
 indexer.start();
 await app.listen({ host: config.host, port: config.port });

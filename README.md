@@ -43,6 +43,21 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
   and plain path) and refused if a single pixel differs. Photo wallets still
   ask for a written backup of the 64-character secret.
 
+**Features**
+- Gift cards: send NOID as a link or QR anyone can claim into their own NOID
+  wallet. Each gift is a small wallet whose secret is derived from yours, so a
+  restored wallet can find and take back unclaimed gifts. The secret travels
+  after `#` in the link, which browsers never send to a server. Gift numbers
+  are never reused, and a gift address is checked unused before it is funded.
+- Payment requests: amount + note as a link or QR; NOID fills in the send.
+- Contacts, with warnings for first-time and look-alike addresses
+  (address-poisoning protection).
+- Balances in naira or dollars (price from SafeTrade via your server).
+- Opt-in "NOID received" notifications (see SETUP-NOTIFICATIONS.md).
+
+`site/` holds the pages that gift (`/g`) and payment (`/pay`) links open on
+your domain.
+
 Build and run: see [SETUP-WINDOWS.md](SETUP-WINDOWS.md).
 
 ## License

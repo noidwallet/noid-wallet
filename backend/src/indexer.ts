@@ -57,7 +57,19 @@ export class Indexer {
   lastError: string | null = null;
   tip = 0;
 
-  constructor(private db: Db, private opts: { indexFrom?: number; pollMs: number; log: (msg: string) => void }) {}
+  /** Blocks at or below this height were indexed as catch-up, not live: no notifications. */
+  private liveFrom: number | null = null;
+
+  constructor(
+    private db: Db,
+    private opts: {
+      indexFrom?: number;
+      pollMs: number;
+      log: (msg: string) => void;
+      /** Called after each live block is stored (used for notifications). */
+      onBlock?: (height: number, rows: { address: string; txid: string; direction: string; amount: number }[]) => Promise<void> | void;
+    },
+  ) {}
 
   get indexedHeight(): number {
     const row = this.db.prepare("SELECT MAX(height) AS h FROM blocks").get() as { h: number | null };
@@ -90,6 +102,7 @@ export class Indexer {
   async step() {
     const chain = await rpc<ChainInfo>("getChainInfo");
     this.tip = chain.height;
+    this.liveFrom ??= chain.height + 1;
     let from = this.indexedHeight + 1;
     if (from === 0) from = Math.max(0, this.opts.indexFrom ?? chain.height - (RETAINED_BODIES - 2));
 
@@ -111,7 +124,10 @@ export class Indexer {
       const block = await rpc<BlockDetails | null>("getBlockDetails", [h]);
       if (!block) break;
       if (!block.retained) this.opts.log(`indexer: body for ${h} already pruned; history gap`);
-      this.store(block);
+      const rows = this.store(block);
+      if (this.opts.onBlock && h >= this.liveFrom && rows.length > 0) {
+        await Promise.resolve(this.opts.onBlock(h, rows)).catch((e: Error) => this.opts.log(`indexer: notify failed: ${e.message}`));
+      }
     }
   }
 
@@ -123,7 +139,8 @@ export class Indexer {
     })();
   }
 
-  store(block: BlockDetails) {
+  store(block: BlockDetails): { address: string; txid: string; direction: string; amount: number }[] {
+    const stored: { address: string; txid: string; direction: string; amount: number }[] = [];
     const { height, hash, timestamp } = block.header;
     const insTx = this.db.prepare(
       "INSERT OR REPLACE INTO txs (txid, height, time, fee, kind, input_owner) VALUES (?, ?, ?, ?, ?, ?)",
@@ -140,8 +157,10 @@ export class Indexer {
         insTx.run(tx.txid, height, timestamp, tx.fee_micronoid, kind, tx.input_owner);
         for (const r of classify(tx)) {
           insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.counterparty);
+          stored.push({ address: r.address, txid: tx.txid, direction: r.direction, amount: r.amount });
         }
       }
     })();
+    return stored;
   }
 }

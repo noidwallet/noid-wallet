@@ -17,24 +17,77 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": ["android.permission.CAMERA", "android.permission.USE_BIOMETRIC"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.RECORD_AUDIO"
       ],
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "noidusa.com",
+              "pathPrefix": "/g"
+            },
+            {
+              "scheme": "https",
+              "host": "noidusa.com",
+              "pathPrefix": "/pay"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "plugins": [
       "expo-router",
-      ["expo-secure-store", { "configureAndroidBackup": true }],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
       "expo-font",
-      ["expo-camera", { "barcodeScannerEnabled": true, "recordAudioAndroid": false }],
-      ["expo-local-authentication", { "faceIDPermission": "Unlock NOID." }]
+      [
+        "expo-camera",
+        {
+          "barcodeScannerEnabled": true,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock NOID."
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "color": "#3FD1A0",
+          "defaultChannel": "payments"
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": true },
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
-      "defaultApiUrl": ""
+      "defaultApiUrl": "",
+      "linkBaseUrl": "https://noidusa.com"
     }
   }
 }

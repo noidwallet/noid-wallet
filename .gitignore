@@ -17,3 +17,5 @@ backend/data/
 .env
 *.keystore
 *.jks
+google-services.json
+firebase-service-account*.json

@@ -37,6 +37,19 @@ export function openDb(path: string): Db {
     );
     CREATE INDEX IF NOT EXISTS address_txs_by_height ON address_txs (address, height DESC);
     CREATE INDEX IF NOT EXISTS txs_by_height ON txs (height);
+    CREATE TABLE IF NOT EXISTS push_subs (
+      address TEXT NOT NULL,
+      token TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (address, token)
+    );
+    CREATE INDEX IF NOT EXISTS push_subs_by_token ON push_subs (token);
+    CREATE TABLE IF NOT EXISTS push_sent (
+      address TEXT NOT NULL,
+      txid TEXT NOT NULL,
+      height INTEGER NOT NULL,
+      PRIMARY KEY (address, txid)
+    );
   `);
   return db;
 }

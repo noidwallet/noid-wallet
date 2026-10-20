@@ -1,13 +1,21 @@
 import { Text, View } from 'react-native';
 
-import { Body, Button, Screen } from '@/components/ui';
+import { Body, Button, Notice, Screen } from '@/components/ui';
+import { useInbox } from '@/lib/inbox';
 import { go } from '@/lib/nav';
 import { colors, fonts, space } from '@/theme';
 
 export default function Welcome() {
+  const incoming = useInbox();
   return (
     <Screen>
       <View style={{ flex: 1, justifyContent: 'center', gap: space.lg }}>
+        {incoming?.kind === 'gift' ? (
+          <Notice tone="warn">
+            Someone sent you a NOID gift card{incoming.from ? ` from ${incoming.from}` : ''}. Create or restore a wallet first,
+            then you can claim it.
+          </Notice>
+        ) : null}
         <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 15, letterSpacing: 1 }}>NOID</Text>
         <Text style={{ color: colors.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.8, lineHeight: 40 }}>
           Your Parano1d wallet, in your pocket.

@@ -13,12 +13,15 @@ Environment=HOST=127.0.0.1
 Environment=PORT=8787
 Environment=DB_PATH=/var/lib/noid-wallet/wallet-index.sqlite
 Environment=TRUST_PROXY=1
+# Notifications (see SETUP-NOTIFICATIONS.md):
+#Environment=FCM_SERVICE_ACCOUNT=/etc/noid/firebase-service-account.json
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/noid-wallet
+ReadOnlyPaths=-/etc/noid
 PrivateTmp=true
 
 [Install]

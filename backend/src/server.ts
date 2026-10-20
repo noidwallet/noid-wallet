@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 
 import type { Db } from "./db.js";
 import type { Indexer } from "./indexer.js";
+import type { PriceFeed } from "./price.js";
+import { PUSH_TOKEN_RE, type Notifier } from "./push.js";
 import {
   rpc,
   RpcError,
@@ -70,7 +72,11 @@ function intParam(raw: string | undefined, fallback: number, min: number, max: n
   return Math.min(Math.max(Number(raw), min), max);
 }
 
-export async function buildServer(db: Db, indexer: Indexer, opts: { trustProxy: boolean }): Promise<FastifyInstance> {
+export async function buildServer(
+  db: Db,
+  indexer: Indexer,
+  opts: { trustProxy: boolean; price?: PriceFeed | null; notifier?: Notifier | null },
+): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
   const app = Fastify({
     logger: { level: "info" },
@@ -125,8 +131,50 @@ export async function buildServer(db: Db, indexer: Indexer, opts: { trustProxy: 
       relayFloor: mempool.fee_floor,
       mempool: { size: mempool.size, capacity: mempool.capacity },
       indexer: { indexedHeight: indexer.indexedHeight, healthy: indexer.lastError === null },
+      features: { price: !!opts.price, push: !!opts.notifier },
     };
   });
+
+  /** NOID price for display (USD from SafeTrade, NGN via a public FX rate). */
+  app.get("/v1/price", async (_req, reply) => {
+    const p = opts.price ? await opts.price.get() : null;
+    if (!p) {
+      reply.code(503);
+      return { error: { code: "price_unavailable", message: "The NOID price is not available right now." } };
+    }
+    return p;
+  });
+
+  const pushBody = (body: { address?: string; token?: string } | undefined) => {
+    if (!opts.notifier) throw Object.assign(new Error("Notifications are not set up on this server."), { statusCode: 404, code: "push_disabled" });
+    const token = String(body?.token ?? "");
+    if (!PUSH_TOKEN_RE.test(token)) throw badRequest("Invalid notification token.");
+    return { notifier: opts.notifier, a: address(String(body?.address ?? "")), token };
+  };
+
+  app.post<{ Body: { address?: string; token?: string } }>(
+    "/v1/push/subscribe",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { notifier, a, token } = pushBody(req.body);
+      const r = notifier.subscribe(a, token);
+      if (!r.ok) {
+        reply.code(429);
+        return { error: { code: "push_limit", message: r.message } };
+      }
+      return { ok: true };
+    },
+  );
+
+  app.post<{ Body: { address?: string; token?: string } }>(
+    "/v1/push/unsubscribe",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { notifier, a, token } = pushBody(req.body);
+      notifier.unsubscribe(a, token);
+      return { ok: true };
+    },
+  );
 
   /** Live coins of one address, straight from the node's verified State. */
   app.get<{ Params: { address: string } }>("/v1/address/:address/utxos", async (req) => {
