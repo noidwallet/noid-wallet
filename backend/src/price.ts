@@ -18,6 +18,14 @@ export const SAFETRADE_BASES = [
   "https://safetrade.com/api/v2/peatio/public",
   "https://safe.trade/api/v2/peatio/public",
 ];
+/**
+ * Fallback: CoinPaprika mirrors SafeTrade's NOID markets and has a free,
+ * keyless API. SafeTrade's own API sits behind a bot wall that refuses
+ * server requests from many networks.
+ */
+export const PAPRIKA_MARKETS_URL = "https://api.coinpaprika.com/v1/coins/noid-parano1d/markets";
+/** A mirrored market quote older than this is not trusted as "current". */
+const PAPRIKA_MAX_AGE_MS = 2 * 60 * 60_000;
 const FX_URL = "https://open.er-api.com/v6/latest/USD";
 const USD_LIKE = new Set(["usdt", "usdc", "usd"]);
 
@@ -65,6 +73,32 @@ export function noidUsdFromPeatio(markets: unknown, tickers: unknown): number | 
   return null;
 }
 
+interface PaprikaMarket {
+  exchange_name?: string;
+  pair?: string;
+  last_updated?: string;
+  quotes?: { USD?: { price?: unknown; volume_24h?: unknown } };
+}
+
+/**
+ * NOID price in USD from CoinPaprika's market list: the most traded NOID
+ * market quoted in the last two hours, preferring NOID/USDT. Pure; unit-tested.
+ */
+export function noidUsdFromPaprika(markets: unknown, now: number): number | null {
+  if (!Array.isArray(markets)) return null;
+  const usable = (markets as PaprikaMarket[])
+    .map((m) => ({
+      pair: (m.pair ?? "").toUpperCase(),
+      price: Number(m.quotes?.USD?.price),
+      volume: Number(m.quotes?.USD?.volume_24h) || 0,
+      at: Date.parse(m.last_updated ?? ""),
+    }))
+    .filter((m) => m.pair.startsWith("NOID/") && sanePrice(m.price) && Number.isFinite(m.at) && now - m.at <= PAPRIKA_MAX_AGE_MS && m.at - now < 5 * 60_000);
+  if (usable.length === 0) return null;
+  usable.sort((a, b) => Number(b.pair === "NOID/USDT") - Number(a.pair === "NOID/USDT") || b.volume - a.volume);
+  return usable[0]?.price ?? null;
+}
+
 async function defaultFetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (noid-wallet-server)" },
@@ -91,6 +125,7 @@ export class PriceFeed {
       /** Serve the last good price this long when the sources are down. */
       maxStaleMs?: number;
       bases?: string[];
+      paprikaUrl?: string;
       log?: (msg: string) => void;
       now?: () => number;
     } = {},
@@ -122,7 +157,8 @@ export class PriceFeed {
 
   private async refresh(): Promise<Price | null> {
     try {
-      let usd = await this.fetchUsd();
+      const got = await this.fetchUsd();
+      let usd = got.usd;
       const last = this.cached?.usd ?? null;
       if (last !== null && Math.abs(usd - last) / last > MAX_JUMP) {
         // One odd trade on a thin market should not move every wallet's display:
@@ -135,7 +171,7 @@ export class PriceFeed {
       } else this.suspect = null;
       const rate = await this.fetchNgnRate().catch(() => null);
       const ngn = rate ? usd * rate : null;
-      this.cached = { usd, ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null, source: "SafeTrade", updatedAt: this.now() };
+      this.cached = { usd, ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null, source: got.source, updatedAt: this.now() };
       return this.cached;
     } catch (e) {
       this.opts.log?.(`price: ${(e as Error).message}`);
@@ -145,8 +181,8 @@ export class PriceFeed {
     }
   }
 
-  private async fetchUsd(): Promise<number> {
-    let lastErr: unknown = null;
+  private async fetchUsd(): Promise<{ usd: number; source: string }> {
+    const errors: string[] = [];
     for (const base of this.opts.bases ?? SAFETRADE_BASES) {
       try {
         const [markets, tickers] = await Promise.all([
@@ -154,13 +190,20 @@ export class PriceFeed {
           this.fetchJson(`${base}/markets/tickers`),
         ]);
         const usd = noidUsdFromPeatio(markets, tickers);
-        if (usd) return usd;
-        lastErr = new Error("no NOID market");
+        if (usd) return { usd, source: "SafeTrade" };
+        errors.push(`${new URL(base).host}: no NOID market`);
       } catch (e) {
-        lastErr = e;
+        errors.push((e as Error).message);
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error("price unavailable");
+    try {
+      const usd = noidUsdFromPaprika(await this.fetchJson(this.opts.paprikaUrl ?? PAPRIKA_MARKETS_URL), this.now());
+      if (usd) return { usd, source: "SafeTrade via CoinPaprika" };
+      errors.push("coinpaprika: no recent NOID market");
+    } catch (e) {
+      errors.push((e as Error).message);
+    }
+    throw new Error(errors.join("; "));
   }
 
   private async fetchNgnRate(): Promise<number | null> {

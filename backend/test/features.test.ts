@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
-import { noidUsdFromPeatio, PriceFeed } from "../src/price.js";
+import { noidUsdFromPaprika, noidUsdFromPeatio, PriceFeed } from "../src/price.js";
 import { Notifier, type PushSender } from "../src/push.js";
 import { buildServer, clientKey } from "../src/server.js";
 
@@ -33,11 +33,13 @@ test("price feed caches, serves stale while refreshing, rejects one-off jumps", 
   const feed = new PriceFeed({
     now: () => now,
     bases: ["https://x"],
+    paprikaUrl: "https://x/paprika",
     fetchJson: async (url) => {
       calls++;
       if (fail) throw new Error("down");
       if (url.endsWith("/markets?limit=1000")) return [{ id: "noidusdt", base_unit: "noid", quote_unit: "usdt" }];
       if (url.endsWith("/markets/tickers")) return { noidusdt: { ticker: { last: usd } } };
+      if (url.endsWith("/paprika")) return [];
       return { result: "success", rates: { NGN: 1500 } };
     },
   });
@@ -66,6 +68,38 @@ test("price feed caches, serves stale while refreshing, rejects one-off jumps", 
   now += 60 * 60_000;
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(await feed.get(), null, "too old: no price rather than a wrong one");
+});
+
+test("paprika fallback: recent NOID/USDT preferred, stale or junk ignored", () => {
+  const now = Date.parse("2026-10-20T16:30:00Z");
+  const m = (pair: string, price: unknown, at: string, volume = 1000) => ({ pair, last_updated: at, quotes: { USD: { price, volume_24h: volume } } });
+  assert.equal(noidUsdFromPaprika([m("NOID/USDT", 0.61, "2026-10-20T16:16:09Z")], now), 0.61);
+  assert.equal(
+    noidUsdFromPaprika([m("NOID/BTC", 0.7, "2026-10-20T16:20:00Z", 9e9), m("NOID/USDT", 0.61, "2026-10-20T16:16:09Z", 1)], now),
+    0.61,
+  );
+  assert.equal(noidUsdFromPaprika([m("NOID/USDT", 0.61, "2026-10-20T10:00:00Z")], now), null, "too old");
+  assert.equal(noidUsdFromPaprika([m("NOID/USDT", "x", "2026-10-20T16:16:09Z")], now), null);
+  assert.equal(noidUsdFromPaprika([m("BTC/USDT", 60000, "2026-10-20T16:16:09Z")], now), null);
+  assert.equal(noidUsdFromPaprika({ error: "nope" }, now), null);
+});
+
+test("price feed falls back to CoinPaprika when SafeTrade blocks the server", async () => {
+  const now = Date.parse("2026-10-20T16:30:00Z");
+  const feed = new PriceFeed({
+    now: () => now,
+    bases: ["https://blocked"],
+    paprikaUrl: "https://paprika/markets",
+    fetchJson: async (url) => {
+      if (url.startsWith("https://blocked")) throw new Error("HTTP 403 from blocked");
+      if (url === "https://paprika/markets") return [{ pair: "NOID/USDT", last_updated: "2026-10-20T16:16:09Z", quotes: { USD: { price: 0.6, volume_24h: 5 } } }];
+      return { result: "success", rates: { NGN: 1300 } };
+    },
+  });
+  const p = await feed.get();
+  assert.equal(p?.usd, 0.6);
+  assert.equal(p?.ngn, 780);
+  assert.equal(p?.source, "SafeTrade via CoinPaprika");
 });
 
 test("notifications: validated tokens, once per tx, no dust, no old blocks, owners never locked out", async () => {

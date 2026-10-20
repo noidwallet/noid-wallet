@@ -1,7 +1,7 @@
 // Diagnose the NOID price feed from this machine: which SafeTrade API base
 // answers, whether it lists a NOID market, and whether the naira rate loads.
 // Run: npm run price-check
-import { SAFETRADE_BASES, noidUsdFromPeatio } from "../src/price.js";
+import { PAPRIKA_MARKETS_URL, PriceFeed, SAFETRADE_BASES, noidUsdFromPaprika, noidUsdFromPeatio } from "../src/price.js";
 
 const UA = "Mozilla/5.0 (noid-wallet-server)";
 
@@ -35,6 +35,13 @@ for (const base of SAFETRADE_BASES) {
   if (usd) break;
 }
 
+const pap = await get(PAPRIKA_MARKETS_URL);
+const papUsd = noidUsdFromPaprika(pap.json, Date.now());
+console.log(`\nCoinPaprika fallback: ${pap.status}, NOID price: ${papUsd ? `$${papUsd}` : "not found"}`);
+
 const fx = await get("https://open.er-api.com/v6/latest/USD");
 const ngn = (fx.json as { rates?: { NGN?: number } } | null)?.rates?.NGN;
 console.log(`\nNaira rate: ${fx.status}${ngn ? `, 1 USD = ${ngn} NGN` : ""}`);
+
+const p = await new PriceFeed().get();
+console.log(`\nWhat the wallet will show: ${p ? `$${p.usd.toFixed(4)}${p.ngn ? ` / ₦${p.ngn.toFixed(2)}` : ""} (source: ${p.source})` : "no price"}`);
