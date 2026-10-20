@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Noidly",
-    "slug": "noidly",
+    "name": "NOID",
+    "slug": "noid",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "noidly",
+    "scheme": "noid",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#060B0A",
     "android": {
-      "package": "com.dpeluola.noidly",
+      "package": "com.dpeluola.noid",
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#060B0A",
@@ -30,7 +30,7 @@
       ["expo-secure-store", { "configureAndroidBackup": true }],
       "expo-font",
       ["expo-camera", { "barcodeScannerEnabled": true, "recordAudioAndroid": false }],
-      ["expo-local-authentication", { "faceIDPermission": "Unlock Noidly." }]
+      ["expo-local-authentication", { "faceIDPermission": "Unlock NOID." }]
     ],
     "experiments": { "typedRoutes": true },
     "extra": {

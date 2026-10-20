@@ -187,7 +187,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [updatePending],
   );
 
-  const unlock = useCallback(async (reason = 'Unlock Noidly') => {
+  const unlock = useCallback(async (reason = 'Unlock NOID') => {
     const ok = await authenticate(reason);
     if (ok) setLocked(false);
     return ok;

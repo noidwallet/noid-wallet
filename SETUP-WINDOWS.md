@@ -1,4 +1,4 @@
-# Build and run NOID Wallet on Windows
+# Build and run NOID on Windows
 
 This gets the app running on your Android phone from your Windows PC. The
 one-time setup takes about an hour (mostly downloads). After that, a rebuild
@@ -6,6 +6,11 @@ is one command.
 
 You will install: Git, Node.js 22+, Visual Studio C++ Build Tools, Rust,
 Android Studio (with SDK 36 and NDK), and a JDK 17.
+
+**Keep the project in a short folder such as `C:\dev\noid`.** The Android
+build creates very deep file paths, and Windows build tools fail on paths
+over 260 characters (`Filename longer than 260 characters`). A folder under
+`C:\Users\<you>\Projects\...` is already too deep.
 
 ---
 
@@ -177,7 +182,7 @@ The app needs the backend (`backend\`) and a synced Parano1d node.
 |---|---|
 | `linker 'link.exe' not found` | Install the C++ Build Tools (step 1) and reopen the terminal. |
 | `Could not find any NDK` from cargo-ndk | Check `ANDROID_NDK_HOME` points to the NDK folder that exists. |
-| Filename too long during `cargo` or `git` | Run `git config --global core.longpaths true`, and keep the project in a short path like `C:\dev\noid-wallet`. |
+| `Filename longer than 260 characters` (ninja, during `buildCMakeDebug`) or filename too long in `cargo`/`git` | Move the project to a short path like `C:\dev\noid`, then in `app` run `npx expo prebuild --platform android --clean` and build again. Also run `git config --global core.longpaths true`. |
 | App crashes on start with `couldn't find libnoid_mobile_core.so` | Run `npm run core:android` before `npx expo run:android`. |
 | `adb devices` shows `unauthorized` | Unlock the phone and accept the USB debugging prompt. |
 | App says it cannot reach the wallet server | Phone and PC on the same Wi-Fi, backend started with `HOST=0.0.0.0`, Windows Firewall allows port 8787. |

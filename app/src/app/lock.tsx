@@ -22,7 +22,7 @@ export default function Lock() {
   return (
     <Screen>
       <View style={{ flex: 1, justifyContent: 'center', gap: space.md }}>
-        <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, letterSpacing: 1 }}>Noidly</Text>
+        <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, letterSpacing: 1 }}>NOID</Text>
         <Text style={{ color: colors.text, fontSize: 28, fontWeight: '800' }}>Wallet locked</Text>
         <Body muted>{meta ? `Fingerprint ${meta.keyId}` : ''}</Body>
         {failed ? <Body muted>Unlock was cancelled. Try again.</Body> : null}

@@ -1,4 +1,4 @@
-# Noidly
+# NOID
 
 Android wallet for the [Parano1d](https://parano1d.org) (NOID) network. A light
 wallet: no full node on the phone. Keys and zero-knowledge proofs stay on the
