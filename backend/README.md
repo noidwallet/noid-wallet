@@ -33,6 +33,7 @@ sudo useradd --system --create-home noid
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin noidapi
 sudo mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend /var/www/noid-site
 sudo chown noid:noid /var/lib/parano1d
+sudo install -d -o noid -g noid -m 700 /home/noid/.parano1d
 sudo chown noidapi:noidapi /var/lib/noid-wallet
 
 # 2. node: download the official Core release + SHA256SUMS from

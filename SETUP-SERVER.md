@@ -60,6 +60,7 @@ useradd --system --no-create-home --shell /usr/sbin/nologin noidapi
 mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend /var/www/noid-site /etc/noid
 chown noid:noid /var/lib/parano1d
 chown noidapi:noidapi /var/lib/noid-wallet
+install -d -o noid -g noid -m 700 /home/noid/.parano1d
 ```
 If the upgrade says a reboot is needed: `reboot`, wait a minute, `ssh root@SERVER_IP` again.
 

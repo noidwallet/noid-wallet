@@ -14,7 +14,9 @@ RestartSec=5
 LimitNOFILE=65536
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/parano1d /home/noid/.parano1d
+# The node keeps its config file in ~/.parano1d (created at install; "-" = don't
+# refuse to start if it is missing).
+ReadWritePaths=/var/lib/parano1d -/home/noid/.parano1d
 PrivateTmp=true
 
 [Install]
