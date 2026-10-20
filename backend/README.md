@@ -54,11 +54,13 @@ sudo systemctl reload caddy
 
 # 5. firewall: only SSH, HTTP(S) and P2P; and only noid/noidapi may use the RPC port
 sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 9600/tcp && sudo ufw enable
-sudo mkdir -p /etc/nftables.d && sudo cp deploy/nftables-noid-rpc.nft /etc/nftables.d/
-# load it now and at every boot (it sits alongside ufw's rules in its own table)
-echo 'include "/etc/nftables.d/*.nft"' | sudo tee -a /etc/nftables.conf
-sudo systemctl enable --now nftables
+# RPC-port rule: its own table and its own boot unit, loaded after ufw.
+# (Don't enable nftables.service for it: Ubuntu's /etc/nftables.conf starts
+# with "flush ruleset" and would wipe ufw's rules.)
+sudo mkdir -p /etc/noid && sudo cp deploy/nftables-noid-rpc.nft /etc/noid/
+sudo systemctl daemon-reload && sudo systemctl enable --now noid-rpc-firewall
 sudo nft list table inet noid_rpc   # must show the rule
+sudo ufw status                     # must still be active with the rules above
 
 # 6. link pages (gift and payment links open these)
 sudo cp -r ../site/. /var/www/noid-site/

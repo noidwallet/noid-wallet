@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { giftDay, pickGiftIndex, sweepFeeTooHigh } from './gifts';
+import type { Api } from './api';
+import { findLostGifts, giftDay, pickGiftIndex, sweepFeeTooHigh } from './gifts';
 import type { GiftRecord } from './storage';
 
 const DAY = 86_400_000;
@@ -28,4 +29,34 @@ test('sweep fees far above the network minimum are refused', () => {
   assert.equal(sweepFeeTooHigh(20_000, 1), false);
   assert.equal(sweepFeeTooHigh(500_000, 1), true);
   assert.equal(sweepFeeTooHigh(56_100, 504), false, 'many coins legitimately cost more');
+});
+
+test('find gifts: walks every day, past several used numbers, stops after a gap', async () => {
+  const now = Date.UTC(2026, 0, 11); // day 10
+  const used = new Map<string, number>([
+    ['a1000', 0], // claimed
+    ['a1001', 0],
+    ['a1002', 0],
+    ['a1003', 0],
+    ['a1004', 0],
+    ['a1005', 7_000], // 6th gift of the day, never delivered
+    ['a0', 3_000], // day 0, long ago
+  ]);
+  const api = {
+    history: async (a: string) => ({ items: used.has(a) ? [{}] : [], nextBefore: null, indexedFrom: 0 }),
+    utxos: async (a: string) => ({ balance: used.get(a) ?? 0, utxos: [] }),
+  } as unknown as Api;
+  const found = await findLostGifts(
+    api,
+    async (start, count) => Array.from({ length: count }, (_, i) => ({ index: start + i, address: `a${start + i}` })),
+    [],
+    { nowMs: now },
+  );
+  assert.deepEqual(
+    found.map((f) => [f.index, f.balance]),
+    [
+      [1005, 7_000],
+      [0, 3_000],
+    ],
+  );
 });

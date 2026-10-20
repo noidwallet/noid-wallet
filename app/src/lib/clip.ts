@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 
@@ -10,15 +11,33 @@ export async function copyText(text: string, what: string) {
   toast(`${what} copied`);
 }
 
-/**
- * Copy something that is worth money (a gift link). The clipboard is cleared
- * after a minute if it still holds it, so other apps can't read it later.
- */
+// Something worth money (a gift link) is wiped from the clipboard after a
+// minute. Android only lets the app on screen read the clipboard, so the check
+// runs when the timer fires while NOID is open, or else the next time NOID
+// comes back to the front.
+const SENSITIVE_FOR_MS = 60_000;
+let sensitive: { text: string; until: number } | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+
+async function wipeIfStillThere() {
+  const s = sensitive;
+  if (!s || Date.now() < s.until) return;
+  if (AppState.currentState !== 'active') return; // try again when NOID is back on screen
+  sensitive = null;
+  try {
+    if ((await Clipboard.getStringAsync()) === s.text) await Clipboard.setStringAsync('');
+  } catch {
+    // clipboard unavailable: nothing to do
+  }
+}
+
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') void wipeIfStillThere();
+});
+
 export async function copySensitive(text: string, what: string) {
   await copyText(text, what);
-  setTimeout(() => {
-    void Clipboard.getStringAsync()
-      .then((now) => (now === text ? Clipboard.setStringAsync('') : undefined))
-      .catch(() => {});
-  }, 60_000);
+  sensitive = { text, until: Date.now() + SENSITIVE_FOR_MS };
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void wipeIfStillThere(), SENSITIVE_FOR_MS + 500);
 }

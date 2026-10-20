@@ -7,6 +7,8 @@ import { parseLink } from '@/lib/links';
 
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string | null {
   try {
+    // Real NOID links are short; anything huge is ignored rather than parsed.
+    if (path.length > 2048) return '/';
     const link = parseLink(path, LINK_HOSTS);
     if (link) inbox.set(link);
     // Never let another app deep-link into an arbitrary screen.

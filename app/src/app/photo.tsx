@@ -14,7 +14,7 @@ import { useWallet } from '@/state/wallet';
 import { colors, space, type } from '@/theme';
 
 export default function Photo() {
-  usePreventScreenCapture();
+  usePreventScreenCapture('photo');
   const { createWallet } = useWallet();
   const [key, setKey] = useState<(NewKey & { width: number; height: number; name: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);

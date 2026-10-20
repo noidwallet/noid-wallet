@@ -1,7 +1,9 @@
 # Only the node itself (user noid) and the wallet API (user noidapi) may talk
 # to the node's RPC port. The node gives owner rights to any local caller.
-# Install: sudo cp deploy/nftables-noid-rpc.nft /etc/nftables.d/ (or include
-# it from /etc/nftables.conf), then: sudo nft -f /etc/nftables.d/nftables-noid-rpc.nft
+# Loaded by noid-rpc-firewall.service (after ufw, at every boot). It lives in
+# its own table, so it never touches ufw's rules. Safe to load more than once.
+table inet noid_rpc
+delete table inet noid_rpc
 table inet noid_rpc {
 	chain output {
 		type filter hook output priority 0; policy accept;

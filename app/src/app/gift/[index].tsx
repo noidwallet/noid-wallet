@@ -25,7 +25,7 @@ import { colors, fonts, radius, space, type } from '@/theme';
 
 export default function GiftDetail() {
   // The gift link is money: keep it out of screenshots and the app switcher.
-  usePreventScreenCapture();
+  usePreventScreenCapture('gift-detail');
   const params = useLocalSearchParams<{ index: string; fresh?: string }>();
   const index = Number(params.index);
   const w = useWallet();

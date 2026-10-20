@@ -1,0 +1,17 @@
+# Loads the RPC-port rule (deploy/nftables-noid-rpc.nft) at boot, after ufw.
+# Do NOT enable nftables.service for this: Ubuntu's /etc/nftables.conf starts
+# with "flush ruleset", which would wipe ufw's firewall.
+[Unit]
+Description=NOID: restrict the node RPC port to the node and wallet API users
+After=ufw.service network-pre.target
+Before=parano1d.service noid-wallet-api.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/noid/nftables-noid-rpc.nft
+ExecStop=/usr/sbin/nft delete table inet noid_rpc
+
+[Install]
+WantedBy=multi-user.target

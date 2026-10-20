@@ -12,10 +12,12 @@ Android delivers push messages through Firebase Cloud Messaging (FCM).
 
 ## 2. Server key for sending (once)
 1. Firebase console → Project settings → **Service accounts** → **Generate new private key**.
-2. Copy that JSON file to the server, readable only by the `noid` user:
+2. Copy that JSON file to the server, readable only by root (systemd hands it
+   to the wallet API privately through `LoadCredential`, so no other user,
+   not even the node's, needs to read it):
    ```sh
    sudo mkdir -p /etc/noid
-   sudo install -o noid -g noid -m 600 firebase-service-account.json /etc/noid/
+   sudo install -o root -g root -m 600 firebase-service-account.json /etc/noid/
    ```
    This file IS secret: it can send notifications as your app. Never commit it.
 3. In `/etc/systemd/system/noid-wallet-api.service`, uncomment the

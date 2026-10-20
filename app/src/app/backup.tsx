@@ -11,7 +11,7 @@ import { useWallet } from '@/state/wallet';
 import { colors, space } from '@/theme';
 
 export default function Backup() {
-  usePreventScreenCapture();
+  usePreventScreenCapture('backup');
   const { meta, confirmUser, markBackedUp } = useWallet();
   const [secret, setSecret] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);

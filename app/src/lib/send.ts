@@ -13,6 +13,65 @@ import { ApiError, type Api } from './api';
 import type { BuiltTx, ConsolidationPlan, SendPlan, Utxo } from './core';
 import type { PendingTx } from './storage';
 
+/**
+ * Refused-payment memory (guards against a dishonest wallet server).
+ *
+ * When the server says a payment was refused, its coins become free again and
+ * the user usually tries once more. A dishonest server could relay the first
+ * payment anyway and hide its coins, so the retry picks other coins and both
+ * confirm. So for a while after a refusal:
+ *  - every coin of the refused payment must still be listed as unspent, and
+ *  - the next payment must spend at least one of them,
+ * which makes the two payments mutually exclusive: at most one can confirm.
+ */
+const REFUSED_FOR_MS = 30 * 60_000;
+let refused: { address: string; slots: number[]; at: number }[] = [];
+
+function noteRefused(address: string, slots: number[], code: string) {
+  // "inputs_spent" means those coins really are gone (spent elsewhere), so the
+  // next payment cannot reuse them; remembering it would block sending for no reason.
+  if (code === 'inputs_spent' || !slots.length) return;
+  refused.push({ address, slots, at: Date.now() });
+}
+
+export class RefusedButSpent extends Error {
+  readonly code = 'refused_but_spent';
+  constructor() {
+    super(
+      'Your last payment was reported as refused, but the money it used is no longer in your balance. It may have gone through. Check Activity before paying again.',
+    );
+  }
+}
+
+/** Throws unless a new spend from `address` is safe given recent refusals. Exported for tests. */
+export function checkRefusals(address: string, utxos: Utxo[], inputSlots: number[], now = Date.now()) {
+  refused = refused.filter((r) => now - r.at < REFUSED_FOR_MS);
+  const listed = new Set(utxos.map((u) => u.slotIndex));
+  for (const r of refused) {
+    if (r.address !== address) continue;
+    if (r.slots.some((s) => !listed.has(s))) throw new RefusedButSpent();
+    if (!r.slots.some((s) => inputSlots.includes(s))) throw new RefusedButSpent();
+  }
+}
+
+function clearRefusals(address: string, inputSlots: number[]) {
+  // The new payment shares coins with these, so only one of them can ever confirm.
+  refused = refused.filter((r) => r.address !== address || !r.slots.some((s) => inputSlots.includes(s)));
+}
+
+/** For tests only. */
+export function resetRefusals() {
+  refused = [];
+}
+
+/**
+ * A server-reported fee this far above normal is refused rather than paid:
+ * the fee floor and network load figures come from the server.
+ */
+export function feeLooksWrong(fee: number, amount: number): boolean {
+  return fee > Math.max(250_000, Math.floor(amount * 0.05));
+}
+
 export class FeeChanged extends Error {
   constructor(readonly newPlan: SendPlan | ConsolidationPlan) {
     super('The network fee changed while sending. Review the new fee.');
@@ -73,13 +132,20 @@ export async function planSend(api: Api, address: string, pending: PendingTx[], 
     logSlots: ctx.logSlots,
     relayFloor: ctx.relayFloor,
   });
+  if (feeLooksWrong(plan.fee, amount)) throw suspiciousFee();
   return { plan, utxos };
+}
+
+function suspiciousFee() {
+  return Object.assign(new Error('The network fee looks wrong. Check your wallet server in Settings.'), { code: 'fee_suspicious' });
 }
 
 export async function planConsolidation(api: Api, address: string, pending: PendingTx[]) {
   const [{ utxos }, ctx] = await Promise.all([api.utxos(address), api.status()]);
   const core = await getCore();
-  return core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(pending), ...ctx });
+  const plan = await core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(pending), ...ctx });
+  if (feeLooksWrong(plan.fee, 0)) throw suspiciousFee();
+  return plan;
 }
 
 export async function submitLoop(
@@ -115,6 +181,9 @@ export async function submitLoop(
       pendingOutputSlots: pendingOutputs(c.pending),
     });
 
+    // Claims spend the gift's coins, not this wallet's: tracked under the gift's address.
+    checkRefusals(c.address, utxos, built.inputSlots);
+
     const record: PendingTx = {
       txid: built.txid,
       kind,
@@ -137,11 +206,13 @@ export async function submitLoop(
       if (!(e instanceof ApiError) || e.ambiguous) throw new SubmitUnknown(built.txid);
       // The node clearly refused it, so it was never relayed and cannot confirm.
       await c.discard(built.txid);
+      noteRefused(c.address, built.inputSlots, e.code);
       lastError = e;
       if (!e.retryable) throw e;
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
       continue;
     }
+    clearRefusals(c.address, built.inputSlots);
     const sent: PendingTx = { ...record, state: 'submitted' };
     await c.record(sent);
     return { built, pending: sent };
@@ -161,6 +232,7 @@ export function executeConsolidation(c: Common & { reviewedFee: number }) {
     const [{ utxos }, ctx] = await Promise.all([c.api.utxos(c.address), c.api.status()]);
     const core = await getCore();
     const plan = await core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(c.pending), ...ctx });
+    if (feeLooksWrong(plan.fee, 0)) throw suspiciousFee();
     return { plan, utxos, outputs: 1 };
   });
 }
@@ -206,7 +278,7 @@ const DEAD = new Set(['inputs_spent', 'stale_anchor', 'fee_too_low', 'rejected',
  * - pending in mempool -> keep as submitted
  * - unknown -> re-send the identical intent; drop only if the node definitely refuses it
  */
-export async function reconcileOne(api: Api, p: PendingTx): Promise<PendingTx | null> {
+export async function reconcileOne(api: Api, p: PendingTx, walletAddress?: string): Promise<PendingTx | null> {
   const status = await api.tx(p.txid);
   if (status.status === 'confirmed') return null;
   if (status.status === 'pending') return p.state === 'submitted' ? p : { ...p, state: 'submitted' };
@@ -214,7 +286,10 @@ export async function reconcileOne(api: Api, p: PendingTx): Promise<PendingTx | 
     await api.submit(p.intentHex, p.txid);
     return { ...p, state: 'submitted' };
   } catch (e) {
-    if (e instanceof ApiError && !e.ambiguous && DEAD.has(e.code)) return null;
+    if (e instanceof ApiError && !e.ambiguous && DEAD.has(e.code)) {
+      if (walletAddress && p.kind !== 'claim') noteRefused(walletAddress, p.inputSlots, e.code);
+      return null;
+    }
     return p;
   }
 }

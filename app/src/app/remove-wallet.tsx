@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { Banner, Body, Button, Field, Screen } from '@/components/ui';
 import { goRoot } from '@/lib/nav';
+import { hasUnresolvedSend } from '@/lib/send';
 import { useWallet } from '@/state/wallet';
 
 export default function RemoveWallet() {
@@ -10,6 +11,8 @@ export default function RemoveWallet() {
   if (!w.meta) return null;
   const backedUp = w.meta.backedUp;
   const openGifts = w.gifts.filter((g) => !g.hidden && g.status === 'funded').length;
+  // This phone's record of an unconfirmed payment is what stops it being paid twice.
+  const unresolved = hasUnresolvedSend(w.pending);
 
   return (
     <Screen
@@ -19,7 +22,7 @@ export default function RemoveWallet() {
           title="Remove wallet"
           kind="danger"
           icon="warning"
-          disabled={confirm !== 'REMOVE' || !backedUp}
+          disabled={confirm !== 'REMOVE' || !backedUp || unresolved}
           onPress={async () => {
             if (!(await w.confirmUser('Remove this wallet'))) return;
             await w.removeWallet();
@@ -38,6 +41,11 @@ export default function RemoveWallet() {
           Settings.
         </Banner>
       )}
+      {unresolved ? (
+        <Banner tone="warn" icon="clock">
+          A payment is still being checked with the network. Wait until it shows as sent or failed in Activity, then remove the wallet.
+        </Banner>
+      ) : null}
       {openGifts > 0 ? (
         <Banner tone="warn" icon="gift">
           {openGifts} gift card{openGifts === 1 ? ' is' : 's are'} still waiting to be claimed. After you restore this wallet, Gift cards →

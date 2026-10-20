@@ -19,7 +19,7 @@ interface Candidate {
 }
 
 export default function Restore() {
-  usePreventScreenCapture();
+  usePreventScreenCapture('restore');
   const { createWallet, api } = useWallet();
   const [secret, setSecret] = useState('');
   const [keyId, setKeyId] = useState<string | null>(null);

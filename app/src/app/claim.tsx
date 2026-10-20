@@ -25,7 +25,7 @@ type View_ = 'enter' | 'loading' | 'ready' | 'empty' | 'failed' | 'claiming' | '
 
 export default function Claim() {
   // The gift secret is on this screen: no screenshots or app-switcher previews.
-  usePreventScreenCapture();
+  usePreventScreenCapture('claim');
   const w = useWallet();
   const [gift, setGift] = useState<Gift | null>(null);
   const [giftAddress, setGiftAddress] = useState<string | null>(null);

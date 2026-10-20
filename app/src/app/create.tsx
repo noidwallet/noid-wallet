@@ -11,7 +11,7 @@ import { useWallet } from '@/state/wallet';
 import { colors, space, type } from '@/theme';
 
 export default function Create() {
-  usePreventScreenCapture();
+  usePreventScreenCapture('create');
   const { createWallet } = useWallet();
   const [key, setKey] = useState<NewKey | null>(null);
   const [step, setStep] = useState<'show' | 'confirm'>('show');

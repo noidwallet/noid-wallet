@@ -208,7 +208,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       // Check every saved transaction; re-send the identical one if the network lost it.
       for (const p of pendingRef.current) {
-        const next = await reconcileOne(api, p).catch(() => p);
+        const next = await reconcileOne(api, p, meta.address).catch(() => p);
         if (next === p) continue;
         updatePending((prev) => {
           if (next === null) return prev.filter((x) => x.txid !== p.txid);
@@ -318,13 +318,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       lastUpdated,
       contacts,
       gifts,
-      sentTo: [
-        ...new Set([
-          ...recipients,
-          ...history.filter((h) => h.direction === 'sent' && h.counterparty).map((h) => h.counterparty!),
-          ...pending.filter((p) => p.kind === 'send' && p.to).map((p) => p.to!),
-        ]),
-      ],
+      // Only what this phone itself sent: server-supplied history could plant
+      // an address here and silence the first-payment warning.
+      sentTo: [...new Set([...recipients, ...pending.filter((p) => p.kind === 'send' && p.to).map((p) => p.to!)])],
       refresh,
       createWallet,
       async markBackedUp() {

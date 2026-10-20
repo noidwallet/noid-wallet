@@ -127,29 +127,39 @@ export async function giftState(api: Api, g: GiftRecord): Promise<GiftState> {
 }
 
 /**
- * After a restore: find unclaimed gifts this wallet made in the last `days`
- * days (the first `perDay` gifts of each day), so they can be taken back.
+ * "Find gifts" after a restore: walk every day since gift numbers began. Each
+ * day's numbers are used in order (day x 100, +1, +2 ...), so a day is done
+ * after `gap` numbers in a row that never had any activity. Any used number
+ * not already on this phone that still holds NOID is returned.
  */
 export async function findLostGifts(
   api: Api,
-  addressesForDay: (day: number) => Promise<{ index: number; address: string }[]>,
+  addressesFrom: (start: number, count: number) => Promise<{ index: number; address: string }[]>,
   known: GiftRecord[],
-  opts: { days?: number; nowMs?: number; onProgress?: (done: number, total: number) => void } = {},
+  opts: { nowMs?: number; gap?: number; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<{ index: number; address: string; balance: number }[]> {
-  const days = opts.days ?? 120;
+  const gap = opts.gap ?? 2;
   const today = giftDay(opts.nowMs ?? Date.now());
   const have = new Set(known.map((g) => g.address));
-  const todo: { index: number; address: string }[] = [];
-  for (let d = today; d >= Math.max(0, today - days); d--) {
-    todo.push(...(await addressesForDay(d)).filter((a) => !have.has(a.address)));
-  }
   const found: { index: number; address: string; balance: number }[] = [];
-  // A few at a time, to be gentle with the server.
-  for (let i = 0; i < todo.length; i += 8) {
-    const batch = todo.slice(i, i + 8);
-    const res = await Promise.all(batch.map((a) => api.utxos(a.address).then((r) => ({ ...a, balance: r.balance }))));
-    found.push(...res.filter((r) => r.balance > 0));
-    opts.onProgress?.(Math.min(i + 8, todo.length), todo.length);
+  for (let d = today; d >= 0; d--) {
+    let misses = 0;
+    for (let k = 0; k < GIFTS_PER_DAY && misses < gap; k += 4) {
+      const batch = await addressesFrom(d * GIFTS_PER_DAY + k, Math.min(4, GIFTS_PER_DAY - k));
+      const used = await Promise.all(batch.map((a) => api.history(a.address).then((h) => h.items.length > 0)));
+      for (let i = 0; i < batch.length && misses < gap; i++) {
+        if (!used[i]) {
+          misses++;
+          continue;
+        }
+        misses = 0;
+        const a = batch[i]!;
+        if (have.has(a.address)) continue;
+        const { balance } = await api.utxos(a.address);
+        if (balance > 0) found.push({ ...a, balance });
+      }
+    }
+    opts.onProgress?.(today - d + 1, today + 1);
   }
   return found;
 }

@@ -7,16 +7,12 @@ import { GiftCard } from '@/components/GiftCard';
 import { Avatar, Banner, Body, Button, EmptyState, IconButton, ListRow, Pill, Screen } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import { core } from '@/lib/core';
-import { findLostGifts, GIFT_BADGE, GIFT_TONE, GIFTS_PER_DAY, giftState, newGiftRecord, type GiftState } from '@/lib/gifts';
+import { findLostGifts, GIFT_BADGE, GIFT_TONE, giftState, newGiftRecord, type GiftState } from '@/lib/gifts';
 import type { GiftTheme } from '@/lib/links';
 import { go } from '@/lib/nav';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
 import { colors, space, type } from '@/theme';
-
-/** "Find gifts" checks the first few gifts of each recent day. */
-const SCAN_DAYS = 120;
-const SCAN_PER_DAY = 5;
 
 export default function Gifts() {
   const w = useWallet();
@@ -51,9 +47,9 @@ export default function Gifts() {
       const secret = await storage.readSecret();
       const found = await findLostGifts(
         w.api,
-        (day) => core.giftAddresses(secret, day * GIFTS_PER_DAY, SCAN_PER_DAY),
+        (start, count) => core.giftAddresses(secret, start, count),
         w.gifts,
-        { days: SCAN_DAYS, onProgress: (done, total) => setScanning(`Looking for your gifts… ${Math.round((done / total) * 100)}%`) },
+        { onProgress: (done, total) => setScanning(`Looking for your gifts… ${Math.round((done / total) * 100)}%`) },
       );
       for (const f of found) {
         w.saveGift({ ...newGiftRecord({ index: f.index, address: f.address, amount: f.balance, message: '', theme: 'vault', from: '' }), status: 'funded' });
@@ -64,7 +60,7 @@ export default function Gifts() {
         text:
           found.length > 0
             ? `Found ${found.length} unclaimed gift${found.length === 1 ? '' : 's'}. Open one to share it again or take it back.`
-            : `No unclaimed gifts found from the last ${SCAN_DAYS} days.`,
+            : 'No unclaimed gifts found.',
       });
     } catch (e) {
       setNote({ tone: 'danger', text: (e as Error).message });
