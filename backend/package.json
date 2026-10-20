@@ -4,13 +4,16 @@
   "private": true,
   "description": "API for the NOID mobile wallet: locked-down proxy to a Parano1d node plus a history indexer.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "price-check": "tsx scripts/price-check.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "10.3.0",
