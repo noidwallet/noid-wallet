@@ -45,7 +45,7 @@ export default function Receive() {
             toast('Address copied');
           }}
         />
-        <IconAction icon="share" label="Share" onPress={() => Share.share({ message: meta.address }).catch(() => {})} />
+        <IconAction icon="share" label="Share" onPress={() => Share.share({ message: `My NOID wallet address (send only NOID to it): ${meta.address}` }).catch(() => {})} />
         <IconAction icon="request" label="Request" onPress={() => go('/request')} />
       </View>
       <Text style={[type.bodySm, { textAlign: 'center', color: colors.faint }]}>Tip: Request lets you ask for an exact amount with a note.</Text>

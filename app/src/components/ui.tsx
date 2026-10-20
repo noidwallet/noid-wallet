@@ -612,7 +612,7 @@ export const styles = StyleSheet.create({
   },
   error: { color: colors.danger, fontFamily: fonts.ui, fontSize: 13 },
   kv: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md, paddingVertical: 6 },
-  kvLabel: { color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 15 },
+  kvLabel: { color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 15, flexShrink: 1 },
   kvValue: { color: colors.text, fontFamily: fonts.ui, fontSize: 15, flexShrink: 1, textAlign: 'right' },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.xs, borderRadius: radius.md },
   toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 48, alignItems: 'center' },

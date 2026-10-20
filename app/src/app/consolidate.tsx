@@ -31,11 +31,11 @@ export default function Consolidate() {
 
   if (!w.meta) return null;
   const meta = w.meta;
-  const shownError = hasPending && !done ? 'Wait until your pending transaction confirms, then merge coins.' : error;
+  const shownError = hasPending && !done ? 'Wait until your pending payment confirms, then combine.' : error;
 
   async function run() {
     if (!plan) return;
-    if (!(await w.confirmUser('Merge your coins'))) return;
+    if (!(await w.confirmUser('Combine your balance pieces'))) return;
     setSending(true);
     setError(null);
     try {
@@ -67,34 +67,34 @@ export default function Consolidate() {
 
   return (
     <Screen
-      header={sending ? undefined : { title: 'Merge coins' }}
+      header={sending ? undefined : { title: 'Combine pieces' }}
       footer={
         done ? (
           <Button title="Done" onPress={goHome} />
         ) : (
-          <Button title="Merge coins" icon="merge" busy={sending} disabled={!plan || hasPending} onPress={run} />
+          <Button title="Combine pieces" icon="merge" busy={sending} disabled={!plan || hasPending} onPress={run} />
         )
       }
     >
       <Body muted>
-        Your balance is held as separate coins. Merging the smallest ones into one makes later sends cheaper and faster. Your
-        balance only goes down by the network fee.
+        Your balance is held as separate pieces, like notes in a purse. Combining the smallest into one makes later sends
+        cheaper and faster. Your balance only goes down by the network fee.
       </Body>
       {plan ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.lg, paddingVertical: space.md }}>
             <View style={{ alignItems: 'center' }}>
               <Text style={type.display}>{plan.inputCount}</Text>
-              <Text style={type.bodySm}>coins</Text>
+              <Text style={type.bodySm}>pieces</Text>
             </View>
             <Icon name="chevron" size={28} color={colors.accent} />
             <View style={{ alignItems: 'center' }}>
               <Text style={[type.display, { color: colors.accent }]}>1</Text>
-              <Text style={type.bodySm}>coin</Text>
+              <Text style={type.bodySm}>piece</Text>
             </View>
           </View>
           <Card>
-            {plan.untouchedCount > 0 ? <KeyValue label="Coins left as they are" value={String(plan.untouchedCount)} /> : null}
+            {plan.untouchedCount > 0 ? <KeyValue label="Pieces left as they are" value={String(plan.untouchedCount)} /> : null}
             <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
             <KeyValue label="Balance after" value={`${formatNoid(plan.balanceAfter)} NOID`} />
           </Card>

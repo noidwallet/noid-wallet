@@ -14,6 +14,7 @@ import { LINK_BASE } from '@/lib/config';
 import { core } from '@/lib/core';
 import { GIFT_BADGE, GIFT_STATUS, GIFT_TONE, giftState, sweepFeeTooHigh, type GiftState } from '@/lib/gifts';
 import { giftLink, type GiftTheme } from '@/lib/links';
+import { onRelock } from '@/lib/lockEvents';
 import { goBack, goHome } from '@/lib/nav';
 import { executeSweep, FeeChanged, planSweep, SubmitUnknown } from '@/lib/send';
 import { storage } from '@/lib/storage';
@@ -30,11 +31,14 @@ export default function GiftDetail() {
   const w = useWallet();
   const gift = w.gifts.find((g) => g.index === index);
   const [link, setLink] = useState<string | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
   const [state, setState] = useState<GiftState | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [takingBack, setTakingBack] = useState(false);
   const shot = useRef<View>(null);
+  // Re-locked from the background: the link is like cash, so hide it again.
+  useEffect(() => onRelock(() => setLink(null)), []);
   // Shared card images hold the claim QR. The share sheet can return before
   // the receiving app has read the file, so they are removed a little later
   // and, at the latest, when this screen closes.
@@ -80,8 +84,9 @@ export default function GiftDetail() {
         // Only record a finished state when the server's node is in sync.
         if (w.status?.synced && (s === 'claimed' || s === 'takenBack') && gift.status !== s) w.saveGift({ ...gift, status: s });
         if (s === 'funded' && gift.status !== 'funded') w.saveGift({ ...gift, status: 'funded' });
+        setCheckFailed(false);
       })
-      .catch(() => {});
+      .catch(() => setCheckFailed(true));
   }, [gift, w]);
 
   useFocusEffect(check);
@@ -102,7 +107,8 @@ export default function GiftDetail() {
   const shareText = link
     ? `I sent you a NOID gift card: ${amount} NOID${g.message ? ` — “${g.message}”` : ''}. Open this link to claim it with the NOID wallet: ${link}`
     : '';
-  const shown: GiftState = state ?? (g.status === 'draft' ? 'draft' : 'waiting');
+  // Until the chain answers, show what this phone last knew (never guess "sending").
+  const shown: GiftState = state ?? g.status;
   const canShare = shown === 'funded' || shown === 'waiting';
 
   async function shareImage() {
@@ -235,7 +241,10 @@ export default function GiftDetail() {
       ) : canShare && !link ? (
         <Button title="Show gift link and QR" kind="secondary" icon="shield" onPress={reveal} />
       ) : null}
-      {state === null && !error ? <ActivityIndicator color={colors.accent} /> : null}
+      {state === null && !error && !checkFailed ? <ActivityIndicator color={colors.accent} /> : null}
+      {checkFailed && state === null ? (
+        <Banner tone="neutral">Can’t check this gift right now. It updates by itself once you’re back online.</Banner>
+      ) : null}
 
       {showDetails ? (
         <Card>

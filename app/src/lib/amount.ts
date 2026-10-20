@@ -6,13 +6,15 @@ export const MICRO = 1_000_000;
 /**
  * "1.5" or "1,5" -> 1500000. A comma is read as the decimal point, because
  * phones set to comma-decimal regions only offer "," on the number pad.
- * Thousands separators are not accepted, so "1,500" can never become 1500.
+ * Thousands separators are not accepted. "1,500" is refused outright: it could
+ * mean 1500 (as the app displays it) or 1.5, and guessing wrong moves money.
  * Returns null for invalid input or more than 6 decimals.
  */
 export function parseNoid(input: string): number | null {
   const raw = input.trim().replace(/\s/g, '');
   if (raw.includes(',') && raw.includes('.')) return null;
   if ((raw.match(/,/g) ?? []).length > 1) return null;
+  if (/^\d{1,3},\d{3}$/.test(raw)) return null;
   const s = raw.replace(',', '.');
   if (!/^\d*(\.\d{0,6})?$/.test(s) || s === '' || s === '.') return null;
   const [whole = '0', frac = ''] = s.split('.');

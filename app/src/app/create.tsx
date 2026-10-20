@@ -43,6 +43,16 @@ export default function Create() {
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.md }}>
           {error ? <Banner tone="danger">{error}</Banner> : <ActivityIndicator color={colors.accent} size="large" />}
           {!error ? <Body muted>Creating your wallet…</Body> : null}
+          {error ? (
+            <Button
+              title="Try again"
+              kind="secondary"
+              onPress={() => {
+                setError(null);
+                core.generateSecret().then(setKey, (e: Error) => setError(e.message));
+              }}
+            />
+          ) : null}
         </View>
       </Screen>
     );

@@ -53,7 +53,7 @@ export default function NewGift() {
   async function review() {
     setError(null);
     if (!amount) {
-      setError('Enter an amount, with at most 6 decimal places.');
+      setError('Enter an amount like 1500 or 1.5: a dot for decimals, no commas for thousands.');
       return;
     }
     if (!w.status) {
@@ -195,7 +195,7 @@ export default function NewGift() {
             key={t}
             accessibilityRole="radio"
             accessibilityLabel={`${THEME_LABEL[t]} design`}
-            accessibilityState={{ selected: t === theme }}
+            accessibilityState={{ checked: t === theme }}
             onPress={() => setTheme(t)}
             style={{ alignItems: 'center', gap: 6 }}
           >
@@ -228,7 +228,7 @@ export default function NewGift() {
             onPress={() => setAmountText(q)}
             style={({ pressed }) => ({
               flex: 1,
-              minHeight: 40,
+              minHeight: 44,
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: 999,

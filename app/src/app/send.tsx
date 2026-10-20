@@ -46,7 +46,10 @@ export default function Send() {
   const [step, setStep] = useState<Step>('form');
   const [stage, setStage] = useState<Stage>('preparing');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ txid: string; proveMs: number } | null>(null);
+  const [result, setResult] = useState<{
+    txid: string;
+    proveMs: number;
+  } | null>(null);
   const [unknownTxid, setUnknownTxid] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [checkedLookalike, setCheckedLookalike] = useState(false);
@@ -118,15 +121,25 @@ export default function Send() {
   const contactForTo = safety.kind === 'contact' ? safety.name : null;
   const tooMuch = !!amount && amount > available;
   const online = !!w.settings.apiUrl && !!w.status && !w.error;
+  // Just opened (e.g. from a payment link): the first check hasn't answered yet.
+  const connecting = !!w.settings.apiUrl && !w.status && !w.error;
   const blocker = !w.settings.apiUrl
     ? 'NOID isn’t connected to a wallet server yet. Add one in Settings to send.'
-    : !online
-      ? 'Can’t reach your wallet server, so sending is paused. Check your connection.'
-      : available === 0 && w.utxos.length > 0
-        ? 'Your coins are in a pending transaction. You can send again once it confirms.'
-        : available === 0
-          ? 'You have no NOID to send yet. Receive some first.'
-          : null;
+    : connecting
+      ? null
+      : !online
+        ? 'Can’t reach your wallet server, so sending is paused. Check your connection.'
+        : available === 0 && w.utxos.length > 0
+          ? 'Your NOID is tied up in a payment that hasn’t confirmed yet. Try again in a minute.'
+          : available === 0
+            ? 'You have no NOID to send yet. Receive some first.'
+            : null;
+
+  // "0.0123 NOID (≈ ₦9)" when a currency is chosen.
+  const withFiat = (micro: number) => {
+    const f = fiat(micro, w.price, currency);
+    return `${formatNoid(micro)} NOID${f ? ` (${f})` : ''}`;
+  };
 
   // Recent people to pay: contacts first, then addresses you paid before.
   const recents = [
@@ -147,7 +160,7 @@ export default function Send() {
       return;
     }
     if (!amount) {
-      setError('Enter an amount, with at most 6 decimal places.');
+      setError('Enter an amount like 1500 or 1.5: a dot for decimals, no commas for thousands.');
       return;
     }
     setBusy(true);
@@ -170,7 +183,7 @@ export default function Send() {
     const coins = w.utxos.filter((u) => !lockedSlots.has(u.slotIndex));
     if (!w.status || coins.length === 0) return;
     if (coins.length > 504) {
-      setError('Your balance is spread over more than 504 coins. Merge coins first, then send everything.');
+      setError('Your balance is in more than 504 pieces. Combine them first (Settings), then send everything.');
       return;
     }
     // Spending every coin into one output never adds a slot, so the fee is
@@ -233,7 +246,11 @@ export default function Send() {
   const recipientName = contactForTo ?? null;
   const recipientRow = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-      <Avatar initials={recipientName ? initialsOf(recipientName) : undefined} icon={recipientName ? undefined : 'send'} tone={recipientName ? toneFor(recipientName) : 'neutral'} />
+      <Avatar
+        initials={recipientName ? initialsOf(recipientName) : undefined}
+        icon={recipientName ? undefined : 'send'}
+        tone={recipientName ? toneFor(recipientName) : 'neutral'}
+      />
       <View style={{ flex: 1 }}>
         <Text style={type.title}>{recipientName ?? 'NOID address'}</Text>
         <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
@@ -257,12 +274,19 @@ export default function Send() {
           </>
         }
       >
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: space.lg,
+          }}
+        >
           <SuccessMark tone="warn" />
           <Title style={{ textAlign: 'center' }}>Still checking with the network</Title>
           <Body muted style={{ textAlign: 'center' }}>
-            Your payment was saved before it was sent. The wallet keeps checking and re-sends this same payment if needed, so it
-            can never be paid twice. Don’t send it again; it shows in Activity until it confirms.
+            Your payment was saved before it was sent. The wallet keeps checking and re-sends this same payment if needed, so it can never
+            be paid twice. Don’t send it again; it shows in Activity until it confirms.
           </Body>
           <Card style={{ alignSelf: 'stretch' }}>
             <KeyValue label="Amount" value={`${formatNoid(plan.amount)} NOID`} />
@@ -279,15 +303,26 @@ export default function Send() {
         footer={
           <>
             <Button title="Done" onPress={goHome} />
-            <Button title="View transaction" kind="tertiary" onPress={() => go({ pathname: '/tx/[txid]', params: { txid: result.txid } })} />
+            <Button
+              title="View transaction"
+              kind="tertiary"
+              onPress={() => go({ pathname: '/tx/[txid]', params: { txid: result.txid } })}
+            />
           </>
         }
       >
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: space.lg,
+          }}
+        >
           <SuccessMark />
           <Title style={{ textAlign: 'center' }}>{formatNoid(plan.amount)} NOID sent</Title>
           <Body muted style={{ textAlign: 'center' }}>
-            It confirms with the next block, usually within a minute. Secured on this phone in {(result.proveMs / 1000).toFixed(1)} s.
+            It confirms with the next block, usually within a minute.
           </Body>
           <Card style={{ alignSelf: 'stretch' }}>
             {recipientRow}
@@ -342,9 +377,15 @@ export default function Send() {
           />
         }
       >
-        <View style={{ alignItems: 'center', gap: space.xs, paddingVertical: space.md }}>
+        <View
+          style={{
+            alignItems: 'center',
+            gap: space.xs,
+            paddingVertical: space.md,
+          }}
+        >
           <Text style={type.caption}>You send</Text>
-          <Text style={type.display}>{formatNoid(plan.amount)}</Text>
+          <Text adjustsFontSizeToFit numberOfLines={1} maxFontSizeMultiplier={1.3} style={type.display}>{formatNoid(plan.amount)}</Text>
           <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>NOID</Text>
           {value ? <Text style={type.bodySm}>{value}</Text> : null}
         </View>
@@ -354,21 +395,37 @@ export default function Send() {
           {note ? <Text style={type.bodySm}>For: {note}</Text> : null}
         </Card>
         {safety.kind === 'lookalike' ? (
-          <Card style={{ borderColor: colors.danger, backgroundColor: colors.dangerTint }}>
-            <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
+          <Card
+            style={{
+              borderColor: colors.danger,
+              backgroundColor: colors.dangerTint,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: space.sm,
+                alignItems: 'center',
+              }}
+            >
               <Icon name="warning" size={20} color={colors.danger} />
               <Text style={[type.title, { color: colors.danger }]}>Possible look-alike address</Text>
             </View>
             <Text style={[type.bodySm, { color: colors.text }]}>
-              This address starts and ends like {safety.name ? `your contact ${safety.name}` : 'an address you paid before'}, but the
-              middle is different. Scammers create addresses like this so a quick glance looks right.
+              This address starts and ends like {safety.name ? `your contact ${safety.name}` : 'an address you paid before'}, but the middle
+              is different. Scammers create addresses like this so a quick glance looks right.
             </Text>
             <Text style={type.monoSm}>Known: {groupAddress(safety.similarTo)}</Text>
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: checkedLookalike }}
               onPress={() => setCheckedLookalike((v) => !v)}
-              style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center', paddingVertical: 4 }}
+              style={{
+                flexDirection: 'row',
+                gap: space.sm,
+                alignItems: 'center',
+                paddingVertical: 4,
+              }}
               hitSlop={8}
             >
               <View
@@ -392,26 +449,26 @@ export default function Send() {
           <Banner tone="warn">First time paying this address. Confirm it with the person you are paying.</Banner>
         ) : null}
         <Card>
-          <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
-          <KeyValue label="Total" value={`${formatNoid(plan.totalSpend)} NOID`} />
+          <KeyValue label="Network fee" value={withFiat(plan.fee)} />
+          <KeyValue label="Total" value={withFiat(plan.totalSpend)} />
           {showDetails ? (
             <>
               {plan.feeBreakdown.stateGrowth > 0 ? (
-                <KeyValue label="Fee includes storage" value={`${formatNoid(plan.feeBreakdown.stateGrowth)} NOID`} />
+                <KeyValue label="Part of the fee for network storage" value={`${formatNoid(plan.feeBreakdown.stateGrowth)} NOID`} />
               ) : null}
               {plan.change > 0 ? <KeyValue label="Change back to you" value={`${formatNoid(plan.change)} NOID`} /> : null}
-              <KeyValue label="Coins used" value={String(plan.inputCount)} />
+              <KeyValue label="Balance pieces used" value={String(plan.inputCount)} />
             </>
           ) : (
-            <Pressable accessibilityRole="button" onPress={() => setShowDetails(true)} hitSlop={8}>
+            <Pressable accessibilityRole="button" onPress={() => setShowDetails(true)} hitSlop={12}>
               <Text style={{ color: colors.accent, fontFamily: fonts.uiSemi }}>Show details</Text>
             </Pressable>
           )}
         </Card>
         {plan.fee > Math.max(50_000, plan.amount / 100) ? (
           <Banner tone="warn">
-            This fee is unusually high ({formatNoid(plan.fee)} NOID). If the network is not busy, check your wallet server in
-            Settings before you send.
+            This fee is unusually high ({formatNoid(plan.fee)} NOID). If the network is not busy, check your wallet server in Settings
+            before you send.
           </Banner>
         ) : null}
         <Banner tone="danger">Payments can’t be reversed. Check the address and amount.</Banner>
@@ -433,9 +490,10 @@ export default function Send() {
   return (
     <Screen
       header={{ title: 'Send NOID' }}
-      footer={<Button title="Continue" busy={busy} disabled={!to || !amountText || tooMuch || !!blocker} onPress={review} />}
+      footer={<Button title="Continue" busy={busy} disabled={!to || !amountText || tooMuch || !!blocker || connecting} onPress={review} />}
     >
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
+      {connecting ? <Banner tone="neutral">Connecting to the network…</Banner> : null}
       {fromLink ? <Banner tone="warn">Filled in from a link someone sent you. Check the address and amount before you send.</Banner> : null}
       <Field
         label="To"
@@ -466,7 +524,12 @@ export default function Send() {
               }}
             />
             <IconButton icon="scan" label="Scan QR code" size={40} onPress={() => go('/scan')} />
-            <IconButton icon="contacts" label="Choose contact" size={40} onPress={() => go({ pathname: '/contacts', params: { pick: '1' } })} />
+            <IconButton
+              icon="contacts"
+              label="Choose contact"
+              size={40}
+              onPress={() => go({ pathname: '/contacts', params: { pick: '1' } })}
+            />
           </>
         }
       />
@@ -517,9 +580,16 @@ export default function Send() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Send everything"
+            hitSlop={8}
             onPress={sendMax}
             disabled={!w.status || w.utxos.length === 0}
-            style={{ backgroundColor: colors.accentTint, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 6, marginRight: space.sm }}
+            style={{
+              backgroundColor: colors.accentTint,
+              borderRadius: radius.pill,
+              paddingHorizontal: space.md,
+              paddingVertical: 6,
+              marginRight: space.sm,
+            }}
           >
             <Text style={{ color: colors.accent, fontFamily: fonts.uiBold }}>Max</Text>
           </Pressable>

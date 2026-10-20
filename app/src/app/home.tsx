@@ -79,16 +79,20 @@ export default function Home() {
   const loaded = lastUpdated !== null || online;
   const value = loaded ? fiat(shownBalance, price, settings.currency ?? 'none') : null;
 
+  // First contact after opening the app: not offline, just not answered yet.
+  const connecting = hasServer && !status && !error;
   const statusText = !hasServer
     ? 'No server'
-    : !online
-      ? lastUpdated
-        ? `Offline · ${ago(lastUpdated, now)}`
-        : 'Offline'
-      : status?.synced
-        ? `Live · #${status.height.toLocaleString()}`
-        : 'Syncing';
-  const statusColor = !online ? colors.danger : status?.synced ? colors.accent : colors.warn;
+    : connecting
+      ? 'Connecting…'
+      : !online
+        ? lastUpdated
+          ? `Offline · ${ago(lastUpdated, now)}`
+          : 'Offline'
+        : status?.synced
+          ? 'Online'
+          : 'Syncing';
+  const statusColor = connecting ? colors.textSecondary : !online ? colors.danger : status?.synced ? colors.accent : colors.warn;
 
   // Most serious first; at most two unless the user asks for more.
   const banners: { key: string; node: React.ReactNode }[] = [];
@@ -136,7 +140,7 @@ export default function Home() {
       key: 'merge',
       node: (
         <Banner tone="info" icon="merge" onPress={() => go('/consolidate')}>
-          Your balance is spread over {utxos.length} coins. Merge them to make sends cheaper and faster.
+          Your balance is in {utxos.length} small pieces. Combine them to make sends cheaper and faster.
         </Banner>
       ),
     });
@@ -144,35 +148,102 @@ export default function Home() {
   const shownBanners = showAllBanners ? banners : banners.slice(0, 2);
 
   const activity = [
-    ...pending.map((p) => ({ key: `p-${p.txid}`, node: <PendingRow item={p} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} /> })),
-    ...history.map((h) => ({ key: h.txid, node: <HistoryRow item={h} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} /> })),
+    ...pending.map((p) => ({
+      key: `p-${p.txid}`,
+      node: <PendingRow item={p} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} />,
+    })),
+    ...history.map((h) => ({
+      key: h.txid,
+      node: <HistoryRow item={h} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} />,
+    })),
   ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: space.xxl, gap: space.xl }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.accent} />}
+        contentContainerStyle={{
+          paddingHorizontal: space.gutter,
+          paddingBottom: space.xxl,
+          gap: space.xl,
+        }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh({ manual: true })} tintColor={colors.accent} />
+        }
       >
         {/* Header: wordmark, connection status, settings */}
-        <View style={{ height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-            <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18, letterSpacing: 2 }}>NOID</Text>
+        <View
+          style={{
+            height: 56,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.md,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.accent,
+                fontFamily: fonts.monoBold,
+                fontSize: 18,
+                letterSpacing: 2,
+              }}
+            >
+              NOID
+            </Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Connection: ${statusText}`}
+              hitSlop={10}
               onPress={() => go('/server')}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.s1, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                backgroundColor: colors.s1,
+                borderRadius: radius.pill,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+              }}
             >
-              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: statusColor }} />
-              <Text style={{ color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 12 }}>{statusText}</Text>
+              <View
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 4,
+                  backgroundColor: statusColor,
+                }}
+              />
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  fontFamily: fonts.mono,
+                  fontSize: 12,
+                }}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.3}
+              >
+                {statusText}
+              </Text>
             </Pressable>
           </View>
           <IconButton icon="settings" label="Settings" onPress={() => go('/settings')} />
         </View>
 
         {/* Balance card */}
-        <View style={{ borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: colors.lineStrong }}>
+        <View
+          style={{
+            borderRadius: radius.xl,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: colors.lineStrong,
+          }}
+        >
           <Svg style={{ position: 'absolute', width: '100%', height: '100%' }} preserveAspectRatio="none">
             <Defs>
               <LinearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
@@ -188,7 +259,13 @@ export default function Home() {
             <Rect width="100%" height="100%" fill="url(#glow)" />
           </Svg>
           <View style={{ padding: space.xl, gap: space.md }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
               <Text style={type.caption}>Total balance</Text>
               <Pressable
                 accessibilityRole="button"
@@ -204,30 +281,76 @@ export default function Home() {
                 accessibilityRole="button"
                 accessibilityLabel={hidden ? 'Balance hidden. Tap to show' : `${formatNoid(shownBalance)} NOID. Tap to hide`}
                 onPress={toggleHidden}
-                style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'baseline',
+                  gap: space.sm,
+                }}
               >
                 <Text adjustsFontSizeToFit numberOfLines={1} style={[type.display, { flexShrink: 1 }]}>
                   {hidden ? '••••••' : formatNoid(shownBalance)}
                 </Text>
-                <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 16 }}>NOID</Text>
+                <Text
+                  style={{
+                    color: colors.accent,
+                    fontFamily: fonts.monoBold,
+                    fontSize: 16,
+                  }}
+                >
+                  NOID
+                </Text>
               </Pressable>
             ) : (
               <Skeleton width={180} height={44} />
             )}
-            {value && !hidden ? <Text style={{ color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 15 }}>{value}</Text> : null}
+            {value && !hidden ? (
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  fontFamily: fonts.ui,
+                  fontSize: 15,
+                }}
+              >
+                {value}
+              </Text>
+            ) : null}
             {pendingOut > 0 && !hidden ? (
-              <View style={{ alignSelf: 'flex-start', backgroundColor: colors.warnTint, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={{ color: colors.warn, fontFamily: fonts.uiBold, fontSize: 12 }}>
-                  −{formatNoid(pendingOut)} pending{ready > 0 ? ` · ${formatNoid(ready)} ready` : ''}
+              <View
+                style={{
+                  alignSelf: 'flex-start',
+                  backgroundColor: colors.warnTint,
+                  borderRadius: radius.pill,
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.warn,
+                    fontFamily: fonts.uiBold,
+                    fontSize: 12,
+                  }}
+                >
+                  −{formatNoid(pendingOut)} pending
+                  {ready > 0 ? ` · ${formatNoid(ready)} ready` : ''}
                 </Text>
               </View>
             ) : null}
             {claimIn > 0 && !hidden ? (
-              <Text style={{ color: colors.accent, fontFamily: fonts.ui, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
+              <Text
+                style={{
+                  color: colors.accent,
+                  fontFamily: fonts.ui,
+                  fontSize: 14,
+                }}
+              >
+                +{formatNoid(claimIn)} from a gift arriving with the next block
+              </Text>
             ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Copy your address"
+              hitSlop={8}
               onPress={async () => {
                 await Clipboard.setStringAsync(meta.address);
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -246,14 +369,28 @@ export default function Home() {
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Text style={{ color: colors.textSecondary, fontFamily: fonts.mono, fontSize: 13 }}>{shortAddress(meta.address, 8)}</Text>
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  fontFamily: fonts.mono,
+                  fontSize: 13,
+                }}
+              >
+                {shortAddress(meta.address, 8)}
+              </Text>
               <Icon name="copy" size={16} color={colors.textSecondary} />
             </Pressable>
           </View>
         </View>
 
         {/* Main actions */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: space.xs }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            paddingHorizontal: space.xs,
+          }}
+        >
           <IconAction icon="send" label="Send" onPress={() => go('/send')} highlight />
           <IconAction icon="receive" label="Receive" onPress={() => go('/receive')} />
           <IconAction icon="scan" label="Scan" onPress={() => go('/scan')} />
@@ -273,14 +410,27 @@ export default function Home() {
 
         {/* Activity */}
         <View style={{ gap: space.xs }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
             <Text style={type.h2}>Activity</Text>
             {activity.length > ACTIVITY_ON_HOME ? <Link title="See all" onPress={() => go('/activity')} /> : null}
           </View>
           {!loaded ? (
             <View style={{ gap: space.md, paddingTop: space.sm }}>
               {[0, 1, 2].map((i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: space.md, alignItems: 'center' }}>
+                <View
+                  key={i}
+                  style={{
+                    flexDirection: 'row',
+                    gap: space.md,
+                    alignItems: 'center',
+                  }}
+                >
                   <Skeleton width={40} height={40} style={{ borderRadius: 20 }} />
                   <View style={{ flex: 1, gap: 6 }}>
                     <Skeleton width="60%" height={14} />

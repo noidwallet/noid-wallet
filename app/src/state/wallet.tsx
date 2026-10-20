@@ -4,6 +4,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 
 import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
+import { emitRelock } from '@/lib/lockEvents';
 import { onPushTokenChange } from '@/lib/push';
 import { reconcileOne } from '@/lib/send';
 import {
@@ -27,6 +28,8 @@ interface WalletState {
   settings: Settings;
   api: Api;
   locked: boolean;
+  /** Re-locked after time in the background: the lock covers the open screens. */
+  paused: boolean;
   lockState: LockState;
   status: Status | null;
   utxos: Utxo[];
@@ -46,7 +49,8 @@ interface WalletState {
 }
 
 interface WalletActions {
-  refresh: () => Promise<void>;
+  /** Re-fetch everything. `manual` shows the pull-to-refresh spinner. */
+  refresh: (opts?: { manual?: boolean }) => Promise<void>;
   createWallet: (secretHex: string, origin: WalletOrigin, keyIndex?: number) => Promise<void>;
   markBackedUp: () => Promise<void>;
   removeWallet: () => Promise<void>;
@@ -96,6 +100,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>({ apiUrl: '' });
   const [installId, setInstallId] = useState('');
   const [locked, setLocked] = useState(true);
+  const [paused, setPaused] = useState(false);
   const [lockState, setLockState] = useState<LockState>('secure');
   const [status, setStatus] = useState<Status | null>(null);
   const [utxos, setUtxos] = useState<Utxo[]>([]);
@@ -161,22 +166,32 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (next === 'background') backgroundedAt.current = Date.now();
       if (next === 'active') {
         void screenLockState().then(setLockState, () => {});
-        if (backgroundedAt.current && Date.now() - backgroundedAt.current > RELOCK_AFTER_MS) setLocked(true);
+        if (backgroundedAt.current && Date.now() - backgroundedAt.current > RELOCK_AFTER_MS) {
+          emitRelock();
+          setPaused(true);
+        }
       }
     });
     return () => sub.remove();
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!meta || refreshInFlight.current) return;
+  const refresh = useCallback(async (opts?: { manual?: boolean }) => {
+    // Only a pull-to-refresh shows the spinner; the background poll is silent.
+    // A pull during a poll keeps spinning until that poll finishes.
+    if (opts?.manual) setRefreshing(true);
+    if (refreshInFlight.current) return;
+    if (!meta) {
+      setRefreshing(false);
+      return;
+    }
     if (!settings.apiUrl) {
+      setRefreshing(false);
       // Nothing to talk to yet; the home screen asks the user to add a server.
       setStatus(null);
       setError(null);
       return;
     }
     refreshInFlight.current = true;
-    setRefreshing(true);
     try {
       const wantPrice = (settings.currency ?? 'none') !== 'none';
       const [st, coins, hist, px] = await Promise.all([
@@ -233,14 +248,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [api, meta, settings]);
 
   useEffect(() => {
-    if (!meta || locked) return;
+    if (!meta || locked || paused) return;
     const first = setTimeout(() => void refresh(), 0);
     const t = setInterval(() => void refresh(), REFRESH_MS);
     return () => {
       clearTimeout(first);
       clearInterval(t);
     };
-  }, [meta, locked, refresh]);
+  }, [meta, locked, paused, refresh]);
 
   const createWallet = useCallback(
     async (secretHex: string, origin: WalletOrigin, keyIndex = 0) => {
@@ -269,13 +284,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setGifts([]);
       setMeta(m);
       setLocked(false);
+      setPaused(false);
     },
     [updatePending],
   );
 
   const unlock = useCallback(async (reason = 'Unlock NOID') => {
     const ok = await authenticate(reason);
-    if (ok) setLocked(false);
+    if (ok) {
+      setLocked(false);
+      setPaused(false);
+    }
     return ok;
   }, []);
 
@@ -286,6 +305,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       settings,
       api,
       locked,
+      paused,
       lockState,
       status,
       utxos,
@@ -329,6 +349,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setUtxos([]);
         setHistory([]);
         setLocked(true);
+        setPaused(false);
       },
       async setApiUrl(url: string) {
         const s = { ...settings, apiUrl: url.trim().replace(/\/+$/, '') };
@@ -388,7 +409,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       unlock,
       confirmUser: authenticate,
     }),
-    [loading, meta, settings, api, locked, lockState, status, utxos, pending, history, error, refreshing, price, lastUpdated, contacts, recipients, gifts, refresh, createWallet, unlock, updatePending],
+    [loading, meta, settings, api, locked, paused, lockState, status, utxos, pending, history, error, refreshing, price, lastUpdated, contacts, recipients, gifts, refresh, createWallet, unlock, updatePending],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

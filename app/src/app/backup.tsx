@@ -4,6 +4,7 @@ import { ActivityIndicator, View, type TextInput } from 'react-native';
 
 import { SecretView } from '@/components/SecretView';
 import { Banner, Body, Button, Field, KeyValue, Screen, SuccessMark, Title } from '@/components/ui';
+import { onRelock } from '@/lib/lockEvents';
 import { goBack, useHardwareBack } from '@/lib/nav';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
@@ -20,6 +21,17 @@ export default function Backup() {
   const [check, setCheck] = useState('');
   const [check2, setCheck2] = useState('');
   const second = useRef<TextInput>(null);
+
+  // Re-locked from the background: hide the secret until the user confirms again.
+  useEffect(
+    () =>
+      onRelock(() => {
+        setSecret(null);
+        setDenied(true);
+        setStep((s) => (s === 'done' ? s : 'show'));
+      }),
+    [],
+  );
 
   // Android back on the check step returns to the secret, like the header arrow.
   useHardwareBack(

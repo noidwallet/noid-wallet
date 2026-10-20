@@ -32,13 +32,13 @@ export default function Server() {
       await w.setApiUrl(clean);
       setNote({ tone: 'info', text: `Connected. Block ${s.height.toLocaleString()}${s.synced ? '' : ' (node still syncing)'}.` });
       setSaved(true);
-    } catch (e) {
+    } catch {
       const local = /^https:\/\/(192\.168|10\.|172\.)/.test(clean);
       setNote({
         tone: 'danger',
         text: local
           ? 'Cannot reach that server. A test server on your Wi-Fi uses http://, not https://, and needs the port, e.g. http://192.168.1.20:8787.'
-          : `${(e as Error).message} Check the address, and that the server is running.`,
+          : 'Can’t connect. Check your internet. If it’s on, check the address; the server may also be down for a moment.',
       });
     } finally {
       setBusy(false);
@@ -69,9 +69,11 @@ export default function Server() {
         }}
         keyboardType="url"
         returnKeyType="go"
-        onSubmitEditing={() => void save()}
+        onSubmitEditing={() => {
+          if (!busy) void save();
+        }}
         placeholder="https://api.noidusa.com"
-        hint="Testing at home? Use your PC’s Wi-Fi address with http, e.g. http://192.168.1.20:8787"
+        hint={__DEV__ ? 'Testing at home? Use your PC’s Wi-Fi address with http, e.g. http://192.168.1.20:8787' : undefined}
       />
       {note ? <Banner tone={note.tone === 'danger' ? 'danger' : 'success'}>{note.text}</Banner> : null}
     </Screen>

@@ -119,7 +119,7 @@ export default function Restore() {
             <KeyValue label="Wallet ID" value={keyId} />
           </Card>
           <Banner tone="info">Compare this Wallet ID with the key fingerprint your desktop wallet shows before you continue.</Banner>
-          <Text style={type.bodySm}>Choose the account to use. The desktop wallet calls the one you used your active address.</Text>
+          <Text style={type.bodySm}>Pick the account that holds your NOID. It’s usually the one with a balance.</Text>
           <View style={{ gap: space.sm }}>
             {candidates.map((c) => {
               const selected = c.index === chosen;
@@ -127,7 +127,7 @@ export default function Restore() {
                 <Pressable
                   key={c.index}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  accessibilityState={{ checked: selected }}
                   accessibilityLabel={`Account ${c.index + 1}, ${c.balance === null ? 'no balance info' : `${formatNoid(c.balance)} NOID`}`}
                   onPress={() => setChosen(c.index)}
                   style={{
@@ -155,8 +155,10 @@ export default function Restore() {
                     {selected ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent }} /> : null}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={type.title}>Address #{c.index}</Text>
-                    <Text style={type.monoSm}>{shortAddress(c.address, 6)}</Text>
+                    <Text style={type.title}>Account {c.index + 1}</Text>
+                    <Text style={type.monoSm}>
+                      #{c.index} · {shortAddress(c.address, 6)}
+                    </Text>
                   </View>
                   <Text style={[type.mono, { color: (c.balance ?? 0) > 0 ? colors.accent : colors.textSecondary }]}>
                     {c.balance === null ? 'No balance info' : `${formatNoid(c.balance, { maxDecimals: 4 })}`}

@@ -59,7 +59,7 @@ export default function Request() {
             <QRCode value={link} size={208} backgroundColor="#fff" color="#000" />
           </View>
           {amountStr ? (
-            <Text style={type.display} accessibilityLabel={`${amountStr} NOID`}>
+            <Text adjustsFontSizeToFit numberOfLines={1} maxFontSizeMultiplier={1.3} style={type.display} accessibilityLabel={`${amountStr} NOID`}>
               {amountStr} <Text style={[type.h2, { color: colors.textSecondary }]}>NOID</Text>
             </Text>
           ) : (
@@ -97,7 +97,7 @@ export default function Request() {
         placeholder="0.0"
         right={<Text style={[type.title, { color: colors.textSecondary }]}>NOID</Text>}
         hint={value}
-        error={amountOk ? null : 'Use a positive number with at most 6 decimal places.'}
+        error={amountOk ? null : 'Use a number like 1500 or 1.5: a dot for decimals, no commas for thousands.'}
       />
       <Field
         label="What it’s for (optional)"

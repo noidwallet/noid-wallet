@@ -6,7 +6,7 @@ import { colors, space, type } from '@/theme';
 
 const STEPS: { stage: Stage; label: string }[] = [
   { stage: 'preparing', label: 'Preparing' },
-  { stage: 'forging', label: 'Securing on this phone' },
+  { stage: 'forging', label: 'Signing your payment' },
   { stage: 'submitting', label: 'Sending to the network' },
 ];
 

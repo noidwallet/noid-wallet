@@ -38,21 +38,16 @@ export default function TxDetail() {
 
   const confirmed = status?.status === 'confirmed' || (!!item && !pend);
   const pill = confirmed
-    ? { text: status?.status === 'confirmed' ? `Confirmed · ${status.confirmations}` : 'Confirmed', tone: 'success' as const }
+    ? { text: 'Confirmed', tone: 'success' as const }
     : pend || status?.status === 'pending'
       ? { text: 'Pending', tone: 'warn' as const }
       : { text: 'Checking…', tone: 'neutral' as const };
 
   const outgoing = item ? item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract' : pend?.kind !== 'claim';
-  const amount = item
-    ? item.direction === 'self'
-      ? item.fee
-      : item.amount
-    : pend
-      ? pend.kind === 'consolidate'
-        ? pend.fee
-        : pend.amount
-      : null;
+  // Same total as the activity row: what left the wallet, fee included.
+  const base = item ? (item.direction === 'self' ? 0 : item.amount) : pend ? (pend.kind === 'consolidate' ? 0 : pend.amount) : null;
+  const feePart = item ? (item.direction === 'sent' || item.direction === 'self' ? item.fee : 0) : pend && pend.kind !== 'claim' ? pend.fee : 0;
+  const amount = base === null ? null : base + feePart;
   const fiatValue = amount !== null ? fiatOf(amount) : null;
   const label = item ? TX_LABEL[item.direction] : pend
       ? pend.kind === 'claim'
@@ -60,7 +55,7 @@ export default function TxDetail() {
         : pend.kind === 'gift'
           ? 'Gift card'
           : pend.kind === 'consolidate'
-            ? 'Merging coins'
+            ? 'Combining pieces'
             : 'Sending'
       : 'Transaction';
   const counterparty = item?.counterparty && item.direction !== 'self' ? item.counterparty : pend?.to ?? null;
@@ -72,7 +67,7 @@ export default function TxDetail() {
         <Avatar icon={outgoing ? 'send' : 'receive'} tone={outgoing ? 'neutral' : 'success'} size={56} />
         <Text style={type.title}>{label}</Text>
         {amount !== null ? (
-          <Text style={[type.display, { color: outgoing ? colors.text : colors.accent }]}>
+          <Text adjustsFontSizeToFit numberOfLines={1} maxFontSizeMultiplier={1.3} style={[type.display, { color: outgoing ? colors.text : colors.accent }]}>
             {outgoing ? '−' : '+'}
             {formatNoid(amount)}
           </Text>
@@ -80,6 +75,11 @@ export default function TxDetail() {
           <Skeleton width={160} height={40} />
         ) : null}
         {amount !== null ? <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>NOID</Text> : null}
+        {base !== null && base > 0 && feePart > 0 ? (
+          <Text style={type.bodySm}>
+            {formatNoid(base)} NOID + {formatNoid(feePart)} network fee
+          </Text>
+        ) : null}
         {amount !== null && fiatValue ? <Text style={type.bodySm}>{fiatValue} at today’s price</Text> : null}
         <Pill text={pill.text} tone={pill.tone} />
       </View>

@@ -7,7 +7,11 @@ test('parseNoid converts decimal NOID to integer μNOID without float error', ()
   assert.equal(parseNoid('0.1'), 100_000);
   assert.equal(parseNoid('0.000001'), 1);
   assert.equal(parseNoid('1,5'), 1_500_000);
-  assert.equal(parseNoid('1,500'), 1_500_000);
+  assert.equal(parseNoid('1,500'), null, 'ambiguous: 1500 or 1.5');
+  assert.equal(parseNoid('12,345'), null);
+  assert.equal(parseNoid('1,5'), 1_500_000);
+  assert.equal(parseNoid('1,50'), 1_500_000);
+  assert.equal(parseNoid('1500'), 1_500_000_000);
   assert.equal(parseNoid('12,345.67'), null);
   assert.equal(parseNoid('1,000,000'), null);
   assert.equal(parseNoid('.5'), 500_000);

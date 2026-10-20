@@ -10,7 +10,7 @@ import type { IconName } from '@/components/Icon';
 export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
   received: 'Received',
-  self: 'Merged coins',
+  self: 'Combined pieces',
   mined: 'Mined',
   contract: 'Contract',
 };
@@ -67,7 +67,7 @@ export function HistoryRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: H
 
 const PENDING_LABEL: Record<PendingTx['kind'], string> = {
   send: 'Sending',
-  consolidate: 'Merging coins',
+  consolidate: 'Combining pieces',
   gift: 'Creating gift card',
   claim: 'Claiming gift',
 };

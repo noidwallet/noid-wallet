@@ -82,7 +82,7 @@ export default function Settings() {
         <ListRow
           leading={<Avatar icon="server" tone={online ? 'success' : 'danger'} />}
           title="Wallet server"
-          subtitle={`${server} · ${online ? 'connected' : 'not reachable'}`}
+          subtitle={`${server} · ${online ? 'connected' : !w.status && !w.error ? 'connecting…' : 'not reachable'}`}
           chevron
           onPress={() => go('/server')}
         />
@@ -96,7 +96,8 @@ export default function Settings() {
               <Pressable
                 key={c.id}
                 accessibilityRole="radio"
-                accessibilityState={{ selected: currency === c.id }}
+                accessibilityState={{ checked: currency === c.id }}
+                hitSlop={4}
                 onPress={() => void w.updateSettings({ currency: c.id })}
                 style={{
                   flex: 1,
@@ -144,7 +145,7 @@ export default function Settings() {
       <Section title="More">
         <ListRow leading={<Avatar icon="contacts" />} title="Contacts" subtitle={`${w.contacts.length} saved`} chevron onPress={() => go('/contacts')} />
         <ListRow leading={<Avatar icon="gift" />} title="Gift cards" chevron onPress={() => go('/gifts')} />
-        <ListRow leading={<Avatar icon="merge" />} title="Merge coins" subtitle={`${w.utxos.length} coins`} chevron onPress={() => go('/consolidate')} />
+        <ListRow leading={<Avatar icon="merge" />} title="Combine balance pieces" subtitle={`${w.utxos.length} ${w.utxos.length === 1 ? 'piece' : 'pieces'}`} chevron onPress={() => go('/consolidate')} />
       </Section>
 
       <Section title="Danger zone">
