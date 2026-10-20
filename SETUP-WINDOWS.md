@@ -53,13 +53,22 @@ choco install -y microsoft-openjdk17
      Build-Tools 36.0.0** and **Android SDK Platform-Tools**. Click Apply.
 
 ### Environment variables
-Windows search > **Edit environment variables for your account**:
+Windows search > **Edit environment variables for your account**.
 
-| Variable | Value |
+**New variables.** Under *User variables*, click **New…** for each of these:
+
+| Variable name | Variable value |
 |---|---|
 | `ANDROID_HOME` | `%LOCALAPPDATA%\Android\Sdk` |
 | `ANDROID_NDK_HOME` | `%LOCALAPPDATA%\Android\Sdk\ndk\27.1.12297006` |
-| `Path` (add a line) | `%LOCALAPPDATA%\Android\Sdk\platform-tools` |
+
+**Path: edit it, do not create it.** `Path` already exists, and it holds
+other tools such as Rust's `cargo`. Making a new variable called `path`
+replaces it and breaks them.
+1. Under *User variables*, click the existing **Path** row, then **Edit…**.
+2. In the list that opens, click **New** and paste
+   `%LOCALAPPDATA%\Android\Sdk\platform-tools`.
+3. Click **OK** on every window.
 
 Close and reopen PowerShell, then check:
 ```powershell
