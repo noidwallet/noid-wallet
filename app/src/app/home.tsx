@@ -19,9 +19,17 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   if (!meta) return null;
 
-  const pendingOut = pending.reduce((s, p) => s + (p.kind === 'send' ? p.amount : 0) + p.fee, 0);
+  // Only count a pending transaction while its coins are still in the live
+  // set: once a block spends them, `balance` already reflects it.
+  const live = new Map(utxos.map((u) => [u.slotIndex, u.value]));
+  const inFlight = pending.filter((p) => p.inputSlots.length > 0 && p.inputSlots.every((s) => live.has(s)));
+  const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' ? p.amount : 0) + p.fee, 0);
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));
-  const available = utxos.filter((u) => !lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
+  const lockedValue = utxos.filter((u) => lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
+  const available = balance - lockedValue;
+  // What the user will hold once pending sends confirm; change comes back then.
+  const shownBalance = Math.max(0, balance - pendingOut);
+  const changeIn = Math.max(0, lockedValue - pendingOut);
   const hasServer = !!settings.apiUrl;
   const online = hasServer && !!status && !error;
   const sendBlocker = !hasServer
@@ -64,13 +72,15 @@ export default function Home() {
           <Text style={{ color: colors.muted, fontSize: 13, letterSpacing: 0.8, textTransform: 'uppercase' }}>Balance</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
             <Text adjustsFontSizeToFit numberOfLines={1} style={{ color: colors.text, fontFamily: fonts.monoBold, fontSize: 44, flexShrink: 1 }}>
-              {formatNoid(balance, { maxDecimals: 4 })}
+              {formatNoid(shownBalance, { maxDecimals: 4 })}
             </Text>
             <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18 }}>NOID</Text>
           </View>
           {pendingOut > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 14 }}>
-              {formatNoid(available)} available · {formatNoid(pendingOut)} on its way out
+              {formatNoid(pendingOut)} on its way out
+              {changeIn > 0 ? ` · ${formatNoid(changeIn)} change returns with the next block` : ''}
+              {available > 0 ? ` · ${formatNoid(available)} ready to send` : ''}
             </Text>
           ) : null}
           <Pressable
