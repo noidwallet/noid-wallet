@@ -539,7 +539,12 @@ export default function Send() {
         }
       />
       {recents.length > 0 && !to ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ gap: space.sm, alignItems: 'center' }}
+        >
           {recents.map((r) => (
             <Pressable
               key={r.address}

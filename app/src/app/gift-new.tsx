@@ -192,7 +192,12 @@ export default function NewGift() {
       footer={<Button title="Review" busy={busy} disabled={!amountText || amountInvalid || (!!amount && amount > available)} onPress={review} />}
     >
       <GiftCard theme={theme} amount={amount ? formatNoid(amount) : '0'} from={from.trim() || undefined} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={{ gap: space.sm, alignItems: 'center' }}
+      >
         {GIFT_THEMES.map((t) => (
           <Pressable
             key={t}
