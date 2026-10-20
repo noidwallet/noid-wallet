@@ -129,16 +129,16 @@ Run it again whenever anything in `core\` changes.
 ## 5. Build and install the app
 
 ```powershell
-npx expo run:android --device
+npm run android -- --device
 ```
 Pick your phone from the list. The first build takes 10–20 minutes. Later
 builds are much faster. The app opens on your phone and stays connected to
 your PC for live reloading of JavaScript changes.
 
-To make an installable APK you can send to testers:
-```powershell
-npx expo run:android --variant release
-```
+This development build installs as a separate app, **NOID Dev**
+(`com.dpeluola.noid.dev`), so it never touches the release app and the real
+wallet in it. To make the signed APK you give to people, see
+[SETUP-RELEASE.md](SETUP-RELEASE.md).
 
 ---
 

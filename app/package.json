@@ -42,7 +42,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo run:android",
+    "android": "expo run:android --app-id com.dpeluola.noid.dev",
     "core:android": "cd ../core && cargo ndk -t arm64-v8a -t x86_64 -o ../app/modules/noid-core/android/src/main/jniLibs build --release",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",

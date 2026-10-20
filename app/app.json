@@ -2,7 +2,7 @@
   "expo": {
     "name": "NOID",
     "slug": "noid",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "noid",
     "icon": "./assets/icon.png",
@@ -90,7 +90,8 @@
           "color": "#3FD1A0",
           "defaultChannel": "payments"
         }
-      ]
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true
