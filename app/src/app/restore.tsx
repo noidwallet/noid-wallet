@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { router } from 'expo-router';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { Pressable, Text, View } from 'react-native';
 
 import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { core } from '@/lib/core';
+import { goBack, goRoot } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
 
@@ -73,6 +73,7 @@ export default function Restore() {
           setSecret(t);
           setKeyId(null);
           setCandidates([]);
+          setError(null);
         }}
         placeholder="64 hexadecimal characters"
         error={error}
@@ -129,7 +130,7 @@ export default function Restore() {
               setBusy(true);
               try {
                 await createWallet(clean, 'imported', chosen);
-                router.replace('/home');
+                goRoot();
               } catch (e) {
                 setError((e as Error).message);
                 setBusy(false);
@@ -138,6 +139,13 @@ export default function Restore() {
           />
         </>
       )}
+      {clean.length > 0 && clean.length !== 64 ? (
+        <Body muted style={{ fontSize: 14 }}>{clean.length} of 64 characters</Body>
+      ) : null}
+      {candidates.length > 0 && candidates.every((c) => c.balance === null) ? (
+        <Notice tone="warn">Balances could not load because no wallet server is reachable. You can still restore, or set a server first from the welcome screen.</Notice>
+      ) : null}
+      <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>
   );
 }

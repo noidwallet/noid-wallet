@@ -1,13 +1,13 @@
-import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button, Notice } from '@/components/ui';
+import { ActionNotice, Button, Notice } from '@/components/ui';
 import { HistoryRow, PendingRow } from '@/components/TxRow';
 import { formatNoid, shortAddress } from '@/lib/amount';
+import { go } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
 
@@ -15,14 +15,24 @@ import { colors, fonts, radius, space } from '@/theme';
 const MERGE_HINT_AT = 20;
 
 export default function Home() {
-  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState } = useWallet();
+  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings } = useWallet();
   const [copied, setCopied] = useState(false);
   if (!meta) return null;
 
   const pendingOut = pending.reduce((s, p) => s + (p.kind === 'send' ? p.amount : 0) + p.fee, 0);
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));
   const available = utxos.filter((u) => !lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
-  const online = !!status && !error;
+  const hasServer = !!settings.apiUrl;
+  const online = hasServer && !!status && !error;
+  const sendBlocker = !hasServer
+    ? 'Add a wallet server to send.'
+    : !online
+      ? 'Sending needs a connection to your wallet server.'
+      : available === 0 && pendingOut > 0
+        ? 'Your coins are in a pending transaction. Send again once it confirms.'
+        : available === 0
+          ? 'Receive some NOID first, then you can send.'
+          : null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -36,11 +46,17 @@ export default function Home() {
               style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: online ? (status?.synced ? colors.ok : colors.warn) : colors.danger }}
             />
             <Text style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 12 }}>
-              {!online ? 'offline' : status?.synced ? `block ${status.height.toLocaleString()}` : `syncing · ${status?.syncStage}`}
+              {!hasServer ? 'no server' : !online ? 'offline' : status?.synced ? `block ${status.height.toLocaleString()}` : `syncing · ${status?.syncStage}`}
             </Text>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => router.push('/settings')} hitSlop={12}>
-            <Text style={{ color: colors.muted, fontSize: 15 }}>Settings</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            onPress={() => go('/settings')}
+            hitSlop={12}
+            style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: space.sm, opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>Settings</Text>
           </Pressable>
         </View>
 
@@ -58,6 +74,8 @@ export default function Home() {
             </Text>
           ) : null}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Copy your address"
             onPress={async () => {
               await Clipboard.setStringAsync(meta.address);
               void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -83,12 +101,15 @@ export default function Home() {
 
         <View style={{ flexDirection: 'row', gap: space.md }}>
           <View style={{ flex: 1 }}>
-            <Button title="Send" onPress={() => router.push('/send')} disabled={!online || available === 0} />
+            <Button title="Send" onPress={() => go('/send')} disabled={!!sendBlocker} />
           </View>
           <View style={{ flex: 1 }}>
-            <Button title="Receive" kind="secondary" onPress={() => router.push('/receive')} />
+            <Button title="Receive" kind="secondary" onPress={() => go('/receive')} />
           </View>
         </View>
+        {sendBlocker && hasServer && online ? (
+          <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.md }}>{sendBlocker}</Text>
+        ) : null}
 
         {lockState === 'no-screen-lock' ? (
           <Notice tone="danger">
@@ -97,18 +118,24 @@ export default function Home() {
           </Notice>
         ) : null}
         {!meta.backedUp ? (
-          <Pressable onPress={() => router.push('/backup')}>
-            <Notice tone="warn">You have not confirmed a backup of your secret yet. Tap to back it up now.</Notice>
-          </Pressable>
+          <ActionNotice tone="warn" onPress={() => go('/backup')}>
+            You have not confirmed a backup of your secret yet. Tap to back it up now.
+          </ActionNotice>
         ) : null}
-        {error ? <Notice tone="danger">{error}</Notice> : null}
+        {!hasServer ? (
+          <ActionNotice tone="warn" onPress={() => go('/server')}>
+            No wallet server is set, so your balance cannot load. Tap to add one.
+          </ActionNotice>
+        ) : error ? (
+          <ActionNotice tone="danger" onPress={() => go('/server')}>
+            {error} Tap to check your wallet server.
+          </ActionNotice>
+        ) : null}
         {utxos.length >= MERGE_HINT_AT && pending.length === 0 ? (
-          <Pressable onPress={() => router.push('/consolidate')}>
-            <Notice>
-              Your balance is spread over {utxos.length} coins. Merging them makes future sends cheaper and faster. Tap
-              to merge.
-            </Notice>
-          </Pressable>
+          <ActionNotice onPress={() => go('/consolidate')}>
+            Your balance is spread over {utxos.length} coins. Merging them makes future sends cheaper and faster. Tap to
+            merge.
+          </ActionNotice>
         ) : null}
 
         <View>

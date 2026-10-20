@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
 import { Text } from 'react-native';
 
 import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { core } from '@/lib/core';
+import { go, goBack, goRoot } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, space } from '@/theme';
 
@@ -19,7 +19,7 @@ export default function Settings() {
   }, []);
 
   if (!w.meta) return null;
-
+  const server = w.settings.apiUrl ? w.settings.apiUrl.replace(/^https?:\/\//, '') : 'not set';
 
   return (
     <Screen>
@@ -30,9 +30,9 @@ export default function Settings() {
         <KeyValue label="Fingerprint" value={w.meta.keyId} />
         <KeyValue label="Backup" value={w.meta.backedUp ? 'Confirmed' : 'Not confirmed'} mono={false} />
       </Card>
-      <Button title="Show my secret" kind="secondary" onPress={() => router.push('/backup')} />
+      <Button title={w.meta.backedUp ? 'Show my secret' : 'Back up my secret'} kind="secondary" onPress={() => go('/backup')} />
 
-      <Button title={`Wallet server · ${w.settings.apiUrl.replace(/^https?:\/\//, '')}`} kind="secondary" onPress={() => router.push('/server')} />
+      <Button title={`Wallet server · ${server}`} kind="secondary" onPress={() => go('/server')} />
       <Body muted style={{ fontSize: 14 }}>
         The server only sees your public address and finished transactions. Your secret never leaves this phone.
       </Body>
@@ -49,7 +49,13 @@ export default function Settings() {
             up first with Show my secret.
           </Notice>
         )}
-        <Field value={confirmRemove} onChangeText={setConfirmRemove} placeholder="REMOVE" autoCapitalize="characters" />
+        <Field
+          value={confirmRemove}
+          onChangeText={(t) => setConfirmRemove(t.toUpperCase())}
+          placeholder="Type REMOVE"
+          autoCapitalize="characters"
+          editable={w.meta.backedUp}
+        />
         <Button
           title="Remove wallet"
           kind="danger"
@@ -57,13 +63,13 @@ export default function Settings() {
           onPress={async () => {
             if (!(await w.confirmUser('Remove this wallet'))) return;
             await w.removeWallet();
-            router.replace('/welcome');
+            goRoot();
           }}
         />
       </Card>
 
       <Text style={{ color: colors.faint, fontSize: 12, marginTop: space.md }}>{version}</Text>
-      <Button title="Back" kind="ghost" onPress={() => router.back()} />
+      <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>
   );
 }

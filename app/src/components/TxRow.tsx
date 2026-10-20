@@ -1,12 +1,12 @@
 import { Pressable, Text, View } from 'react-native';
-import { router } from 'expo-router';
 
 import { formatNoid, shortAddress } from '@/lib/amount';
+import { go } from '@/lib/nav';
 import type { HistoryItem } from '@/lib/api';
 import type { PendingTx } from '@/lib/storage';
 import { colors, fonts, space } from '@/theme';
 
-const LABEL: Record<HistoryItem['direction'], string> = {
+export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
   received: 'Received',
   self: 'Merged coins',
@@ -23,9 +23,13 @@ export function HistoryRow({ item }: { item: HistoryItem }) {
   const outgoing = item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract';
   const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee : 0);
   return (
-    <Pressable onPress={() => router.push({ pathname: '/tx/[txid]', params: { txid: item.txid } })} style={row}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
+      style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
+    >
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{LABEL[item.direction]}</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{TX_LABEL[item.direction]}</Text>
         <Text style={{ color: colors.muted, fontSize: 13 }}>
           {item.counterparty && item.direction !== 'self' ? `${shortAddress(item.counterparty, 4)} · ` : ''}
           {when(item.time)}
@@ -41,7 +45,11 @@ export function HistoryRow({ item }: { item: HistoryItem }) {
 
 export function PendingRow({ item }: { item: PendingTx }) {
   return (
-    <Pressable onPress={() => router.push({ pathname: '/tx/[txid]', params: { txid: item.txid } })} style={row}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
+      style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
+    >
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: colors.warn, fontSize: 16, fontWeight: '600' }}>
           {item.kind === 'consolidate' ? 'Merging coins' : 'Sending'} ·{' '}

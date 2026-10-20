@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -60,7 +60,8 @@ export function Button({
   busy,
 }: {
   title: string;
-  onPress: () => void;
+  /** May return a promise: the button then ignores taps and shows a spinner until it settles. */
+  onPress: () => void | Promise<unknown>;
   kind?: ButtonKind;
   disabled?: boolean;
   busy?: boolean;
@@ -71,19 +72,65 @@ export function Button({
     danger: { bg: 'transparent', fg: colors.danger, border: colors.danger },
     ghost: { bg: 'transparent', fg: colors.muted, border: 'transparent' },
   };
+  const [running, setRunning] = useState(false);
+  const inFlight = useRef(false);
   const p = palette[kind];
-  const off = disabled || busy;
+  const spinning = !!busy || running;
+  const off = !!disabled || spinning;
+
+  function handlePress() {
+    // A double tap must never run an action twice (two sends, two prompts).
+    if (inFlight.current || off) return;
+    const result = onPress();
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      inFlight.current = true;
+      setRunning(true);
+      (result as Promise<unknown>)
+        .catch(() => {})
+        .finally(() => {
+          inFlight.current = false;
+          setRunning(false);
+        });
+    }
+  }
+
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!off, busy: !!busy }}
-      onPress={off ? undefined : onPress}
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: off, busy: spinning }}
+      onPress={handlePress}
+      disabled={off}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: p.bg, borderColor: p.border, opacity: off ? 0.5 : pressed ? 0.85 : 1 },
+        { backgroundColor: p.bg, borderColor: p.border, opacity: disabled ? 0.45 : pressed ? 0.8 : 1 },
       ]}
     >
-      {busy ? <ActivityIndicator color={p.fg} /> : <Text style={[styles.buttonText, { color: p.fg }]}>{title}</Text>}
+      {spinning ? <ActivityIndicator color={p.fg} /> : <Text style={[styles.buttonText, { color: p.fg }]}>{title}</Text>}
+    </Pressable>
+  );
+}
+
+/** A text link with a comfortable tap area. */
+export function Link({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      onPress={disabled ? undefined : onPress}
+      hitSlop={12}
+      style={({ pressed }) => ({ alignSelf: 'flex-start', paddingVertical: 4, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}
+    >
+      <Text style={{ color: colors.accent, fontSize: 15, fontWeight: '600' }}>{title}</Text>
+    </Pressable>
+  );
+}
+
+/** A notice the user can tap to act on (fix a server, back up a secret). */
+export function ActionNotice({ children, tone, onPress }: { children: ReactNode; tone?: 'info' | 'warn' | 'danger'; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+      <Notice tone={tone}>{children}</Notice>
     </Pressable>
   );
 }

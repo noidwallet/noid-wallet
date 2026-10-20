@@ -1,7 +1,7 @@
-import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 
 import { Body, Button, Screen } from '@/components/ui';
+import { go } from '@/lib/nav';
 import { colors, fonts, space } from '@/theme';
 
 export default function Welcome() {
@@ -18,10 +18,10 @@ export default function Welcome() {
         </Body>
       </View>
       <View style={{ gap: space.md }}>
-        <Button title="Create a new wallet" onPress={() => router.push('/create')} />
-        <Button title="Restore with my secret" kind="secondary" onPress={() => router.push('/restore')} />
-        <Button title="Use a photo as my key" kind="secondary" onPress={() => router.push('/photo')} />
-        <Button title="Wallet server settings" kind="ghost" onPress={() => router.push('/server')} />
+        <Button title="Create a new wallet" onPress={() => go('/create')} />
+        <Button title="Restore with my secret" kind="secondary" onPress={() => go('/restore')} />
+        <Button title="Use a photo as my key" kind="secondary" onPress={() => go('/photo')} />
+        <Button title="Wallet server settings" kind="ghost" onPress={() => go('/server')} />
       </View>
     </Screen>
   );

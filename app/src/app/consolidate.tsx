@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import type { ConsolidationPlan } from '@/lib/core';
+import { goBack, goHome, useHardwareBack } from '@/lib/nav';
 import { executeConsolidation, FeeChanged, planConsolidation, SubmitUnknown } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
@@ -16,6 +16,9 @@ export default function Consolidate() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
+
+  // While the proof is being forged, stay on this screen so the result is seen.
+  useHardwareBack(useCallback(() => sending, [sending]));
 
   const hasPending = w.pending.length > 0;
   useEffect(() => {
@@ -81,12 +84,15 @@ export default function Consolidate() {
       {shownError ? <Notice tone="danger">{shownError}</Notice> : null}
       {done ? <Notice>Merging. It confirms with the next block.</Notice> : null}
       <View style={{ flex: 1, minHeight: space.lg }} />
+      {sending ? <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Forging your proof. Keep the app open.</Body> : null}
       {done ? (
-        <Button title="Done" onPress={() => router.replace('/home')} />
+        <Button title="Done" onPress={goHome} />
       ) : (
-        <Button title={sending ? 'Forging proof…' : 'Merge coins'} busy={sending} disabled={!plan} onPress={run} />
+        <>
+          <Button title="Merge coins" busy={sending} disabled={!plan || hasPending} onPress={run} />
+          {!sending ? <Button title="Back" kind="ghost" onPress={() => goBack()} /> : null}
+        </>
       )}
-      <Button title="Back" kind="ghost" onPress={() => router.back()} />
     </Screen>
   );
 }

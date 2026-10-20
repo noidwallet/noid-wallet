@@ -122,6 +122,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!meta || refreshInFlight.current) return;
+    if (!settings.apiUrl) {
+      // Nothing to talk to yet; the home screen asks the user to add a server.
+      setStatus(null);
+      setError(null);
+      return;
+    }
     refreshInFlight.current = true;
     setRefreshing(true);
     try {
@@ -149,7 +155,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       refreshInFlight.current = false;
       setRefreshing(false);
     }
-  }, [api, meta, updatePending]);
+  }, [api, meta, settings.apiUrl, updatePending]);
 
   useEffect(() => {
     if (!meta || locked) return;

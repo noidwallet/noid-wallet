@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { ActivityIndicator, Text, View } from 'react-native';
 
-import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { Body, Button, Card, Field, KeyValue, Link, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid, parseNoid, shortAddress } from '@/lib/amount';
 import { core, type SendPlan } from '@/lib/core';
+import { go, goBack, goHome, useHardwareBack } from '@/lib/nav';
 import { scanResult, parsePaymentQr } from '@/lib/scan';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
@@ -34,6 +35,23 @@ export default function Send() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ txid: string; proveMs: number } | null>(null);
   const [unknownTxid, setUnknownTxid] = useState<string | null>(null);
+
+  // Android back button: from review go back to the form; while sending stay;
+  // after sending go home instead of back into a finished send.
+  useHardwareBack(
+    useCallback(() => {
+      if (step === 'sending') return true;
+      if (step === 'review') {
+        setStep('form');
+        return true;
+      }
+      if (step === 'done') {
+        goHome();
+        return true;
+      }
+      return false;
+    }, [step]),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -166,7 +184,7 @@ export default function Send() {
             <KeyValue label="Transaction" value={shortAddress(unknownTxid, 6)} />
           </Card>
         </View>
-        <Button title="Back to wallet" onPress={() => router.replace('/home')} />
+        <Button title="Back to wallet" onPress={goHome} />
       </Screen>
     );
   }
@@ -187,7 +205,7 @@ export default function Send() {
             <KeyValue label="Transaction" value={shortAddress(result.txid, 6)} />
           </Card>
         </View>
-        <Button title="Done" onPress={() => router.replace('/home')} />
+        <Button title="Done" onPress={goHome} />
       </Screen>
     );
   }
@@ -223,7 +241,14 @@ export default function Send() {
         {error ? <Notice tone="danger">{error}</Notice> : null}
         <View style={{ flex: 1 }} />
         <Button title="Forge proof and send" onPress={confirmAndSend} />
-        <Button title="Edit" kind="ghost" onPress={() => setStep('form')} />
+        <Button
+          title="Edit"
+          kind="ghost"
+          onPress={() => {
+            setError(null);
+            setStep('form');
+          }}
+        />
       </Screen>
     );
   }
@@ -235,7 +260,7 @@ export default function Send() {
         <Notice tone="warn">
           Your last send is still being checked with the network. Wait until it shows as sent in Activity, then try again.
         </Notice>
-        <Button title="Back" kind="ghost" onPress={() => router.back()} />
+        <Button title="Back" kind="ghost" onPress={() => goBack()} />
       </Screen>
     );
   }
@@ -260,30 +285,38 @@ export default function Send() {
             title="Paste"
             kind="secondary"
             onPress={async () => {
-              const t = await Clipboard.getStringAsync();
-              if (t) setTo(parsePaymentQr(t).address);
+              const t = (await Clipboard.getStringAsync()).trim();
+              if (!t) {
+                setToError('Nothing to paste. Copy a NOID address first.');
+                return;
+              }
+              const p = parsePaymentQr(t);
+              setTo(p.address);
+              if (p.amount) setAmountText(p.amount);
+              setToError(null);
             }}
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Button title="Scan QR" kind="secondary" onPress={() => router.push('/scan')} />
+          <Button title="Scan QR" kind="secondary" onPress={() => go('/scan')} />
         </View>
       </View>
       <Field
         label="Amount (NOID)"
         mono
         value={amountText}
-        onChangeText={setAmountText}
+        onChangeText={(t) => {
+          setAmountText(t);
+          setError(null);
+        }}
         keyboardType="decimal-pad"
         placeholder="0.0"
       />
-      <Text onPress={sendMax} style={{ color: colors.accent, fontSize: 15, alignSelf: 'flex-start' }}>
-        Send everything
-      </Text>
+      <Link title="Send everything" onPress={sendMax} disabled={!w.status || w.utxos.length === 0} />
       {error ? <Notice tone="danger">{error}</Notice> : null}
       <View style={{ flex: 1 }} />
       <Button title="Review" busy={busy} disabled={!to || !amountText} onPress={review} />
-      <Button title="Cancel" kind="ghost" onPress={() => router.back()} />
+      <Button title="Cancel" kind="ghost" onPress={() => goBack()} />
     </Screen>
   );
 }

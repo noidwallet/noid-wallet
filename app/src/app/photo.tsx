@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { usePreventScreenCapture } from 'expo-screen-capture';
@@ -7,6 +6,7 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { shortAddress } from '@/lib/amount';
 import { core, type NewKey } from '@/lib/core';
+import { goBack, goRoot } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 
 export default function Photo() {
@@ -82,7 +82,7 @@ export default function Photo() {
               setBusy(true);
               try {
                 await createWallet(key.secretHex, 'photo');
-                router.replace('/home');
+                goRoot();
               } catch (e) {
                 setError((e as Error).message);
                 setBusy(false);
@@ -95,6 +95,7 @@ export default function Photo() {
         <Button title={supported === null ? 'Checking this phone…' : 'Choose photo'} busy={busy} disabled={!supported} onPress={pick} />
       )}
       {error ? <Notice tone="danger">{error}</Notice> : null}
+      <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>
   );
 }

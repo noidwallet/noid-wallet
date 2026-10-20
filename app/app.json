@@ -34,7 +34,7 @@
     ],
     "experiments": { "typedRoutes": true },
     "extra": {
-      "defaultApiUrl": "https://api.yourdomain.com"
+      "defaultApiUrl": ""
     }
   }
 }

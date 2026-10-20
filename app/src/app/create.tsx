@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 
 import { Body, Button, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { SecretView } from '@/components/SecretView';
 import { core, type NewKey } from '@/lib/core';
+import { goBack, goRoot, useHardwareBack } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 
 export default function Create() {
@@ -19,6 +19,15 @@ export default function Create() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Android back from the check step returns to the secret, not out of setup.
+  useHardwareBack(
+    useCallback(() => {
+      if (step !== 'confirm' || busy) return busy;
+      setStep('show');
+      return true;
+    }, [step, busy]),
+  );
+
   useEffect(() => {
     core.generateSecret().then(setKey, (e: Error) => setError(e.message));
   }, []);
@@ -28,6 +37,7 @@ export default function Create() {
       <Screen>
         <Title>Creating your wallet…</Title>
         {error ? <Notice tone="danger">{error}</Notice> : null}
+        <Button title="Back" kind="ghost" onPress={() => goBack()} />
       </Screen>
     );
   }
@@ -46,6 +56,7 @@ export default function Create() {
           Write it on paper and keep it offline. Do not screenshot it or paste it into chats or cloud notes.
         </Notice>
         <Button title="I wrote it down" onPress={() => setStep('confirm')} />
+        <Button title="Cancel" kind="ghost" onPress={() => goBack()} />
       </Screen>
     );
   }
@@ -62,7 +73,7 @@ export default function Create() {
         label={`Group ${askGroup}`}
         mono
         value={check}
-        onChangeText={setCheck}
+        onChangeText={(t) => setCheck(t.replace(/\s+/g, ''))}
         maxLength={8}
         placeholder="8 characters"
         keyboardType="visible-password"
@@ -74,7 +85,7 @@ export default function Create() {
         label="Group 8"
         mono
         value={check2}
-        onChangeText={setCheck2}
+        onChangeText={(t) => setCheck2(t.replace(/\s+/g, ''))}
         maxLength={8}
         placeholder="8 characters"
         keyboardType="visible-password"
@@ -90,7 +101,7 @@ export default function Create() {
           setBusy(true);
           try {
             await createWallet(key.secretHex, 'generated');
-            router.replace('/home');
+            goRoot();
           } catch (e) {
             setError((e as Error).message);
             setBusy(false);

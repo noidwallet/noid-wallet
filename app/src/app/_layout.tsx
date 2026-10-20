@@ -19,12 +19,15 @@ function Routes() {
   const hasWallet = !!meta;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'fade' }}>
-      <Stack.Screen name="server" options={{ animation: 'slide_from_right' }} />
+      {/* First on purpose: whenever the current screen stops being allowed
+          (wallet locked, removed or created), the app falls back here and
+          `/` picks welcome, lock or home. */}
+      <Stack.Screen name="index" />
       <Stack.Protected guard={!hasWallet}>
         <Stack.Screen name="welcome" />
-        <Stack.Screen name="create" />
-        <Stack.Screen name="restore" />
-        <Stack.Screen name="photo" />
+        <Stack.Screen name="create" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="restore" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="photo" options={{ animation: 'slide_from_right' }} />
       </Stack.Protected>
       <Stack.Protected guard={hasWallet && locked}>
         <Stack.Screen name="lock" />
@@ -38,6 +41,10 @@ function Routes() {
         <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="backup" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="tx/[txid]" options={{ animation: 'slide_from_right' }} />
+      </Stack.Protected>
+      {/* Reachable before a wallet exists and while unlocked, never behind the lock. */}
+      <Stack.Protected guard={!hasWallet || !locked}>
+        <Stack.Screen name="server" options={{ animation: 'slide_from_right' }} />
       </Stack.Protected>
     </Stack>
   );

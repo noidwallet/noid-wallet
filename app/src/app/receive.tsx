@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Body, Button, Screen, Title } from '@/components/ui';
+import { goBack } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
 
@@ -32,8 +32,8 @@ export default function Receive() {
           setTimeout(() => setCopied(false), 1500);
         }}
       />
-      <Button title="Share" kind="secondary" onPress={() => Share.share({ message: meta.address })} />
-      <Button title="Back" kind="ghost" onPress={() => router.back()} />
+      <Button title="Share" kind="secondary" onPress={() => Share.share({ message: meta.address }).catch(() => {})} />
+      <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>
   );
 }

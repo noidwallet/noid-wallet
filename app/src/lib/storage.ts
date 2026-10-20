@@ -49,7 +49,8 @@ export interface PendingTx {
   createdAt: number;
 }
 
-const defaultApiUrl = (Constants.expoConfig?.extra?.defaultApiUrl as string | undefined) ?? 'https://api.yourdomain.com';
+// Empty until you deploy a production server and set extra.defaultApiUrl in app.json.
+const defaultApiUrl = (Constants.expoConfig?.extra?.defaultApiUrl as string | undefined) ?? '';
 
 async function readJson<T>(key: string): Promise<T | null> {
   const raw = await SecureStore.getItemAsync(key);

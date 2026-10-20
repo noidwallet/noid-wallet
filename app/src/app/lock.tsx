@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { router } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Body, Button, Screen } from '@/components/ui';
+import { goRoot } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space } from '@/theme';
 
@@ -10,14 +10,22 @@ export default function Lock() {
   const { unlock, meta } = useWallet();
   const [failed, setFailed] = useState(false);
 
-  function tryUnlock() {
-    unlock().then((ok) => (ok ? router.replace('/home') : setFailed(true)));
+  const prompted = useRef(false);
+
+  async function tryUnlock() {
+    setFailed(false);
+    const ok = await unlock();
+    if (ok) goRoot();
+    else setFailed(true);
   }
 
   // Prompt once as soon as the lock screen opens.
   useEffect(() => {
-    unlock().then((ok) => (ok ? router.replace('/home') : setFailed(true)));
-  }, [unlock]);
+    if (prompted.current) return;
+    prompted.current = true;
+    void tryUnlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Screen>
