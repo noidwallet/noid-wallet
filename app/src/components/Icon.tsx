@@ -30,7 +30,9 @@ export type IconName =
   | 'bell'
   | 'key'
   | 'image'
-  | 'torch';
+  | 'torch'
+  | 'eye'
+  | 'eyeOff';
 
 const PATHS: Record<IconName, (c: string) => React.ReactNode> = {
   back: (c) => <Path d="M15 5l-7 7 7 7" stroke={c} />,
@@ -115,6 +117,18 @@ const PATHS: Record<IconName, (c: string) => React.ReactNode> = {
     </>
   ),
   torch: (c) => <Path d="M13 3L5 13h6l-1 8 8-10h-6l1-8z" stroke={c} />,
+  eye: (c) => (
+    <>
+      <Path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" stroke={c} />
+      <Circle cx={12} cy={12} r={3} stroke={c} />
+    </>
+  ),
+  eyeOff: (c) => (
+    <Path
+      d="M4 4l16 16M10.6 6.1c.5-.1.9-.1 1.4-.1 6 0 9.5 6 9.5 6a17 17 0 01-2.6 3.4M6.6 7.6C4 9.3 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 004.2 4.2"
+      stroke={c}
+    />
+  ),
 };
 
 export function Icon({ name, size = 22, color = colors.text }: { name: IconName; size?: number; color?: string }) {

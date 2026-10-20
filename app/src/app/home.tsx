@@ -55,6 +55,10 @@ export default function Home() {
   );
 
   if (!meta) return null;
+  const toggleHidden = () => {
+    void Haptics.selectionAsync();
+    void w.updateSettings({ hideBalance: !settings.hideBalance });
+  };
   const nameOf = makeNameOf(w.contacts);
   const hidden = !!settings.hideBalance;
 
@@ -189,18 +193,23 @@ export default function Home() {
                 accessibilityRole="button"
                 accessibilityLabel={hidden ? 'Show balance' : 'Hide balance'}
                 hitSlop={12}
-                onPress={() => void w.updateSettings({ hideBalance: !hidden })}
+                onPress={toggleHidden}
               >
-                <Text style={{ color: colors.textSecondary, fontFamily: fonts.uiSemi, fontSize: 13 }}>{hidden ? 'Show' : 'Hide'}</Text>
+                <Icon name={hidden ? 'eyeOff' : 'eye'} size={20} color={colors.textSecondary} />
               </Pressable>
             </View>
             {loaded ? (
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={hidden ? 'Balance hidden. Tap to show' : `${formatNoid(shownBalance)} NOID. Tap to hide`}
+                onPress={toggleHidden}
+                style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}
+              >
                 <Text adjustsFontSizeToFit numberOfLines={1} style={[type.display, { flexShrink: 1 }]}>
-                  {hidden ? '••••' : formatNoid(shownBalance)}
+                  {hidden ? '••••••' : formatNoid(shownBalance)}
                 </Text>
                 <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 16 }}>NOID</Text>
-              </View>
+              </Pressable>
             ) : (
               <Skeleton width={180} height={44} />
             )}
