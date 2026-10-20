@@ -32,7 +32,9 @@ export type IconName =
   | 'image'
   | 'torch'
   | 'eye'
-  | 'eyeOff';
+  | 'eyeOff'
+  | 'swap'
+  | 'link';
 
 const PATHS: Record<IconName, (c: string) => React.ReactNode> = {
   back: (c) => <Path d="M15 5l-7 7 7 7" stroke={c} />,
@@ -114,6 +116,8 @@ const PATHS: Record<IconName, (c: string) => React.ReactNode> = {
     </>
   ),
   torch: (c) => <Path d="M13 3L5 13h6l-1 8 8-10h-6l1-8z" stroke={c} />,
+  swap: (c) => <Path d="M7 4L3.5 7.5 7 11M3.5 7.5H17M17 13l3.5 3.5L17 20M20.5 16.5H7" stroke={c} />,
+  link: (c) => <Path d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1.2-1.2" stroke={c} />,
   eye: (c) => (
     <>
       <Path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" stroke={c} />

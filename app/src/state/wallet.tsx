@@ -201,10 +201,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         wantPrice ? api.price().catch(() => null) : Promise.resolve(null),
       ]);
       setStatus(st);
-      setPrice(px);
+      // A failed price check keeps the last good price (it carries its own age),
+      // so a value never flickers away mid-typing.
+      if (px) setPrice({ ...px, receivedAt: Date.now() });
+      else if (!wantPrice) setPrice(null);
       setUtxos(coins.utxos);
       if (hist) setHistory(hist.items);
-      setLastUpdated(storage.saveSnapshot({ address: meta.address, utxos: coins.utxos, history: hist?.items ?? [] }));
+      // A failed history call keeps the last saved history rather than an empty one.
+      const savedHistory = hist?.items ?? storage.loadSnapshot(meta.address)?.history ?? [];
+      setLastUpdated(storage.saveSnapshot({ address: meta.address, utxos: coins.utxos, history: savedHistory }));
 
       // Check every saved transaction; re-send the identical one if the network lost it.
       const listed = new Set((hist?.items ?? []).map((h) => h.txid));

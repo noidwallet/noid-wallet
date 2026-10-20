@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { AmountField } from '@/components/AmountField';
 import { Icon } from '@/components/Icon';
 import { SendProgress } from '@/components/Progress';
 import {
@@ -40,6 +41,8 @@ export default function Send() {
   const w = useWallet();
   const [to, setTo] = useState('');
   const [amountText, setAmountText] = useState('');
+  // Currency text that can't be turned into an amount (see AmountField).
+  const [amountInvalid, setAmountInvalid] = useState(false);
   const [toError, setToError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<SendPlan | null>(null);
@@ -490,7 +493,9 @@ export default function Send() {
   return (
     <Screen
       header={{ title: 'Send NOID' }}
-      footer={<Button title="Continue" busy={busy} disabled={!to || !amountText || tooMuch || !!blocker || connecting} onPress={review} />}
+      footer={
+        <Button title="Continue" busy={busy} disabled={!to || !amountText || amountInvalid || tooMuch || !!blocker || connecting} onPress={review} />
+      }
     >
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
       {connecting ? <Banner tone="neutral">Connecting to the network…</Banner> : null}
@@ -564,19 +569,19 @@ export default function Send() {
         </ScrollView>
       ) : null}
       {note ? <Banner tone="neutral">Payment request: {note}</Banner> : null}
-      <Field
+      <AmountField
         label="Amount"
-        big
-        value={amountText}
-        onChangeText={(t) => {
+        noidText={amountText}
+        onChangeNoid={(t) => {
           setAmountText(t);
           setError(null);
         }}
-        keyboardType="decimal-pad"
-        placeholder="0"
+        onInvalidChange={setAmountInvalid}
+        price={w.price}
+        currency={currency}
         error={tooMuch ? `More than you have (${formatNoid(available)} NOID available).` : null}
         hint={`${amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: ${formatNoid(available)} NOID`}
-        right={
+        extraRight={
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Send everything"

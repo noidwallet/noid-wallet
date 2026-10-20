@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { GiftCard, THEME_LABEL } from '@/components/GiftCard';
 import { SendProgress } from '@/components/Progress';
+import { AmountField } from '@/components/AmountField';
 import { Banner, Body, Button, Card, Field, KeyValue, Screen } from '@/components/ui';
 import { formatNoid, parseNoid } from '@/lib/amount';
 import { core, type SendPlan } from '@/lib/core';
@@ -22,6 +23,8 @@ export default function NewGift() {
   const w = useWallet();
   const [theme, setTheme] = useState<GiftTheme>('celebrate');
   const [amountText, setAmountText] = useState('');
+  // Currency text that can't be turned into an amount (see AmountField).
+  const [amountInvalid, setAmountInvalid] = useState(false);
   const [message, setMessage] = useState('');
   const [from, setFrom] = useState('');
   const [step, setStep] = useState<Step>('form');
@@ -186,7 +189,7 @@ export default function NewGift() {
   return (
     <Screen
       header={{ title: 'New gift card' }}
-      footer={<Button title="Review" busy={busy} disabled={!amountText || (!!amount && amount > available)} onPress={review} />}
+      footer={<Button title="Review" busy={busy} disabled={!amountText || amountInvalid || (!!amount && amount > available)} onPress={review} />}
     >
       <GiftCard theme={theme} amount={amount ? formatNoid(amount) : '0'} from={from.trim() || undefined} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
@@ -206,16 +209,16 @@ export default function NewGift() {
           </Pressable>
         ))}
       </ScrollView>
-      <Field
+      <AmountField
         label="Amount"
-        big
-        value={amountText}
-        onChangeText={(t) => {
+        noidText={amountText}
+        onChangeNoid={(t) => {
           setAmountText(t);
           setError(null);
         }}
-        keyboardType="decimal-pad"
-        placeholder="0"
+        onInvalidChange={setAmountInvalid}
+        price={w.price}
+        currency={currency}
         error={amount && amount > available ? `More than you have (${formatNoid(available)} NOID available).` : null}
         hint={`${amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: ${formatNoid(available)} NOID`}
       />

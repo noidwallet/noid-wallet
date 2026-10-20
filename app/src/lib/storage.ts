@@ -52,6 +52,8 @@ export interface Settings {
   pushToken?: string | null;
   /** Hide amounts on the home screen (for using the app in public). */
   hideBalance?: boolean;
+  /** The safety slides were shown (before the first wallet was made). */
+  safetySeen?: boolean;
 }
 
 export interface Contact {

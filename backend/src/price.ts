@@ -1,12 +1,42 @@
-// NOID price in USD (from SafeTrade's public Peatio API) and NGN (USD rate
-// from a public FX feed). Display only: the wallet never uses these numbers
+// NOID price in USD (from SafeTrade's public Peatio API, or CoinPaprika's
+// mirror of it) plus exchange rates for the currencies the wallet can show
+// (from a public FX feed). Display only: the wallet never uses these numbers
 // to decide amounts or fees.
 
 export interface Price {
   usd: number;
+  /** NOID in naira; kept for app versions from before `rates`. */
   ngn: number | null;
+  /** Units of each supported currency per 1 USD (empty when the FX feed is down). */
+  rates: Record<string, number>;
   source: string;
   updatedAt: number;
+}
+
+/** Currencies the wallet can show values in (ISO 4217). USD needs no rate. */
+export const FIAT_CODES = [
+  "EUR", "GBP", "NGN", "CAD", "AUD", "JPY", "CNY", "INR", "BRL", "ZAR", "KES", "GHS", "EGP", "MAD", "XOF", "XAF",
+  "UGX", "TZS", "TRY", "AED", "SAR", "CHF", "SEK", "NOK", "PLN", "MXN", "KRW", "SGD", "HKD", "PHP", "IDR", "PKR",
+  "VND", "THB", "MYR", "RUB", "UAH", "ARS", "COP", "NZD",
+] as const;
+
+/** FX rates change slowly and the free feed asks to be called sparingly. */
+const FX_TTL_MS = 60 * 60_000;
+/** Rates older than this are dropped rather than shown. */
+const FX_MAX_AGE_MS = 24 * 60 * 60_000;
+
+/** Keep only supported, sane rates (units per USD). Pure; unit-tested. */
+export function saneRates(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== "object") return out;
+  const r = raw as Record<string, unknown>;
+  for (const code of FIAT_CODES) {
+    const v = r[code];
+    if (typeof v === "number" && Number.isFinite(v) && v > 1e-3 && v < 1e6) out[code] = v;
+  }
+  // Naira per dollar has stayed far inside this range; outside it means a broken feed.
+  if (out.NGN !== undefined && (out.NGN < 10 || out.NGN > 1e6)) delete out.NGN;
+  return out;
 }
 
 type FetchJson = (url: string) => Promise<unknown>;
@@ -114,6 +144,8 @@ export class PriceFeed {
   private retryAfter = 0;
   /** A large jump waits here until a second fetch agrees with it. */
   private suspect: number | null = null;
+  private fx: { rates: Record<string, number>; at: number } | null = null;
+  private fxRetryAfter = 0;
   private readonly fetchJson: FetchJson;
   private readonly ttlMs: number;
   private readonly maxStaleMs: number;
@@ -169,9 +201,15 @@ export class PriceFeed {
           usd = last;
         } else this.suspect = null;
       } else this.suspect = null;
-      const rate = await this.fetchNgnRate().catch(() => null);
-      const ngn = rate ? usd * rate : null;
-      this.cached = { usd, ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null, source: got.source, updatedAt: this.now() };
+      const rates = await this.rates();
+      const ngn = rates.NGN ? usd * rates.NGN : null;
+      this.cached = {
+        usd,
+        ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null,
+        rates,
+        source: got.source,
+        updatedAt: this.now(),
+      };
       return this.cached;
     } catch (e) {
       this.opts.log?.(`price: ${(e as Error).message}`);
@@ -206,10 +244,23 @@ export class PriceFeed {
     throw new Error(errors.join("; "));
   }
 
-  private async fetchNgnRate(): Promise<number | null> {
-    const fx = (await this.fetchJson(FX_URL)) as { result?: string; rates?: Record<string, number> };
-    const r = fx?.rates?.NGN;
-    // Sanity range for naira per dollar.
-    return fx?.result === "success" && typeof r === "number" && Number.isFinite(r) && r > 10 && r < 1e6 ? r : null;
+  /** Supported FX rates, fetched at most hourly; an older copy is used while the feed is down. */
+  private async rates(): Promise<Record<string, number>> {
+    const now = this.now();
+    if (this.fx && now - this.fx.at < FX_TTL_MS) return this.fx.rates;
+    if (now >= this.fxRetryAfter) {
+      try {
+        const fx = (await this.fetchJson(FX_URL)) as { result?: string; rates?: unknown };
+        const rates = fx?.result === "success" ? saneRates(fx.rates) : {};
+        if (Object.keys(rates).length > 0) {
+          this.fx = { rates, at: now };
+          return rates;
+        }
+      } catch (e) {
+        this.opts.log?.(`fx: ${(e as Error).message}`);
+      }
+      this.fxRetryAfter = now + 5 * 60_000;
+    }
+    return this.fx && now - this.fx.at < FX_MAX_AGE_MS ? this.fx.rates : {};
   }
 }

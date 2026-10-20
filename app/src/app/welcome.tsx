@@ -1,10 +1,11 @@
 import { Text, View } from 'react-native';
-import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { Icon, type IconName } from '@/components/Icon';
+import { LogoMark } from '@/components/Logo';
 import { Banner, Button, IconButton, Screen } from '@/components/ui';
 import { useInbox } from '@/lib/inbox';
 import { go } from '@/lib/nav';
+import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
 
 const TRUST: { icon: IconName; text: string }[] = [
@@ -13,32 +14,19 @@ const TRUST: { icon: IconName; text: string }[] = [
   { icon: 'check', text: 'No account, no email, no sign-up' },
 ];
 
-/** Original logo mark: a mint hexagon (a vault) with a solid core, on a soft glow. */
-function Logo() {
-  return (
-    <Svg width={96} height={96} viewBox="0 0 96 96">
-      <Defs>
-        <RadialGradient id="g" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor={colors.accent} stopOpacity={0.35} />
-          <Stop offset="1" stopColor={colors.accent} stopOpacity={0} />
-        </RadialGradient>
-      </Defs>
-      <Circle cx={48} cy={48} r={48} fill="url(#g)" />
-      <Path d="M48 20l24 14v28L48 76 24 62V34z" stroke={colors.accent} strokeWidth={5} strokeLinejoin="round" fill="none" />
-      <Circle cx={48} cy={48} r={8} fill={colors.accent} />
-    </Svg>
-  );
-}
-
 export default function Welcome() {
   const incoming = useInbox();
+  const { settings } = useWallet();
+  // The safety slides come first, once, before any wallet is made or restored.
+  const start = (next: 'create' | 'restore' | 'photo') =>
+    settings.safetySeen ? go(`/${next}`) : go({ pathname: '/safety', params: { next } });
   return (
     <Screen
       footer={
         <>
-          <Button title="Create a new wallet" onPress={() => go('/create')} />
-          <Button title="I already have a wallet" kind="secondary" onPress={() => go('/restore')} />
-          <Button title="Use a photo as my key · Advanced" kind="tertiary" onPress={() => go('/photo')} />
+          <Button title="Create a new wallet" onPress={() => start('create')} />
+          <Button title="I already have a wallet" kind="secondary" onPress={() => start('restore')} />
+          <Button title="Use a photo as my key · Advanced" kind="tertiary" onPress={() => start('photo')} />
         </>
       }
     >
@@ -57,7 +45,7 @@ export default function Welcome() {
         </Banner>
       ) : null}
       <View style={{ flex: 1, justifyContent: 'center', gap: space.xl }}>
-        <Logo />
+        <LogoMark />
         <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 16, letterSpacing: 2 }}>NOID</Text>
         <Text style={[type.h1, { fontSize: 32, lineHeight: 38 }]}>Your Parano1d wallet, in your pocket.</Text>
         <View style={{ gap: space.md }}>

@@ -68,10 +68,12 @@ function Routes() {
           <Stack.Screen name="contacts" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="activity" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="remove-wallet" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="currency" options={{ animation: 'slide_from_right' }} />
         </Stack.Protected>
         {/* Reachable before a wallet exists and while unlocked, never behind the lock. */}
         <Stack.Protected guard={!hasWallet || !locked}>
           <Stack.Screen name="server" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="safety" options={{ animation: 'slide_from_right' }} />
         </Stack.Protected>
       </Stack>
       {hasWallet && !locked && paused ? <LockOverlay /> : null}

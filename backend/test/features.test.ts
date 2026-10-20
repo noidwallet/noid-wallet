@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
-import { noidUsdFromPaprika, noidUsdFromPeatio, PriceFeed } from "../src/price.js";
+import { noidUsdFromPaprika, noidUsdFromPeatio, PriceFeed, saneRates } from "../src/price.js";
 import { Notifier, type PushSender } from "../src/push.js";
 import { buildServer, clientKey } from "../src/server.js";
 
@@ -102,6 +102,45 @@ test("price feed falls back to CoinPaprika when SafeTrade blocks the server", as
   assert.equal(p?.source, "SafeTrade via CoinPaprika");
 });
 
+test("fx rates: only supported, sane currencies; fetched hourly; old copy used while the feed is down", async () => {
+  assert.deepEqual(saneRates({ EUR: 0.9, JPY: 150, NGN: 1500, XYZ: 3, GBP: -1, KES: "129", INR: Infinity }), { EUR: 0.9, JPY: 150, NGN: 1500 });
+  assert.deepEqual(saneRates({ NGN: 5 }), {}, "naira outside its sane range");
+  assert.deepEqual(saneRates(null), {});
+
+  let now = 1_000_000;
+  let fxCalls = 0;
+  let fxDown = false;
+  const feed = new PriceFeed({
+    now: () => now,
+    bases: ["https://x"],
+    paprikaUrl: "https://x/paprika",
+    fetchJson: async (url) => {
+      if (url.endsWith("/markets?limit=1000")) return [{ id: "noidusdt", base_unit: "noid", quote_unit: "usdt" }];
+      if (url.endsWith("/markets/tickers")) return { noidusdt: { ticker: { last: "0.5" } } };
+      if (url.endsWith("/paprika")) return [];
+      fxCalls++;
+      if (fxDown) throw new Error("fx down");
+      return { result: "success", rates: { EUR: 0.9, NGN: 1500 } };
+    },
+  });
+  const p = await feed.get();
+  assert.deepEqual(p?.rates, { EUR: 0.9, NGN: 1500 });
+  assert.equal(p?.ngn, 750);
+  // Price refreshes every few minutes; the FX feed only once an hour.
+  for (let i = 0; i < 5; i++) {
+    now += 3 * 60_000;
+    await feed.get();
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.equal(fxCalls, 1);
+  // Feed down after an hour: the older rates are still served (for up to a day).
+  fxDown = true;
+  now += 60 * 60_000;
+  await feed.get();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual((await feed.get())?.rates, { EUR: 0.9, NGN: 1500 });
+});
+
 test("notifications: validated tokens, once per tx, no dust, no old blocks, owners never locked out", async () => {
   const db = openDb(join(mkdtempSync(join(tmpdir(), "noidpush-")), "t.sqlite"));
   const sent: string[] = [];
@@ -172,6 +211,27 @@ test("push and price endpoints validate input and report when off", async () => 
   assert.equal(r1.statusCode, 404);
   assert.equal((await off.inject({ url: "/v1/price" })).statusCode, 503);
   await off.close();
+
+  // With a feed: rates for the app, the old naira field for older apps, and the age by the server clock.
+  const feed = new PriceFeed({
+    bases: ["https://x"],
+    paprikaUrl: "https://x/paprika",
+    fetchJson: async (url) => {
+      if (url.endsWith("/markets?limit=1000")) return [{ id: "noidusdt", base_unit: "noid", quote_unit: "usdt" }];
+      if (url.endsWith("/markets/tickers")) return { noidusdt: { ticker: { last: "0.5" } } };
+      if (url.endsWith("/paprika")) return [];
+      return { result: "success", rates: { EUR: 0.9, NGN: 1500 } };
+    },
+  });
+  const priced = await buildServer(db, indexer, { trustProxy: false, price: feed });
+  const pr = await priced.inject({ url: "/v1/price" });
+  assert.equal(pr.statusCode, 200);
+  const body = pr.json() as { usd: number; ngn: number; rates: Record<string, number>; ageMs: number };
+  assert.equal(body.usd, 0.5);
+  assert.equal(body.ngn, 750);
+  assert.deepEqual(body.rates, { EUR: 0.9, NGN: 1500 });
+  assert.ok(body.ageMs >= 0 && body.ageMs < 5_000);
+  await priced.close();
 
   const sender: PushSender = { send: async () => "ok", validate: async () => "ok" };
   const on = await buildServer(db, indexer, { trustProxy: false, notifier: new Notifier(db, sender, () => {}) });

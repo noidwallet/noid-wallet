@@ -97,7 +97,13 @@
     },
     "extra": {
       "defaultApiUrl": "https://api.noidusa.com",
-      "linkBaseUrl": "https://noidusa.com"
+      "linkBaseUrl": "https://noidusa.com",
+      "officialLinks": [
+        {
+          "label": "Website",
+          "url": "https://noidusa.com"
+        }
+      ]
     }
   }
 }

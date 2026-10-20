@@ -438,6 +438,7 @@ export function ListRow({
   valueColor,
   onPress,
   chevron,
+  trailing,
   accessibilityLabel,
 }: {
   leading?: ReactNode;
@@ -449,6 +450,8 @@ export function ListRow({
   valueColor?: string;
   onPress?: () => void;
   chevron?: boolean;
+  /** Anything shown at the right edge (e.g. a check mark). */
+  trailing?: ReactNode;
   accessibilityLabel?: string;
 }) {
   return (
@@ -480,6 +483,7 @@ export function ListRow({
           ) : null}
         </View>
       ) : null}
+      {trailing}
       {chevron ? <Icon name="chevron" size={18} color={colors.faint} /> : null}
     </Pressable>
   );

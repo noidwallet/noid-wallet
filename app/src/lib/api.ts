@@ -41,8 +41,14 @@ export interface Status extends FeeContext {
 export interface Price {
   usd: number;
   ngn: number | null;
+  /** Units of each supported currency per 1 USD (see lib/currencies). */
+  rates?: Record<string, number>;
   source: string;
   updatedAt: number;
+  /** How old the price was when the server sent it (ms; server clock, so no phone clock skew). */
+  ageMs?: number;
+  /** When this phone received it (set by the wallet, phone clock). */
+  receivedAt?: number;
 }
 
 export interface Prepared extends FeeContext {

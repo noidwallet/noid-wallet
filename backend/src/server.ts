@@ -158,7 +158,8 @@ export async function buildServer(
       reply.code(503);
       return { error: { code: "price_unavailable", message: "The NOID price is not available right now." } };
     }
-    return p;
+    // Age by the server's own clock, so a phone with a wrong clock still knows how fresh it is.
+    return { ...p, ageMs: Math.max(0, Date.now() - p.updatedAt) };
   });
 
   const pushBody = (body: { address?: string; token?: string } | undefined) => {

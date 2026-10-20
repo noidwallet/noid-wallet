@@ -45,3 +45,7 @@ console.log(`\nNaira rate: ${fx.status}${ngn ? `, 1 USD = ${ngn} NGN` : ""}`);
 
 const p = await new PriceFeed().get();
 console.log(`\nWhat the wallet will show: ${p ? `$${p.usd.toFixed(4)}${p.ngn ? ` / ₦${p.ngn.toFixed(2)}` : ""} (source: ${p.source})` : "no price"}`);
+if (p) {
+  const some = ["EUR", "GBP", "KES", "GHS", "INR"].filter((c) => p.rates[c]).map((c) => `${c} ${(p.usd * p.rates[c]!).toFixed(4)}`);
+  console.log(`Other currencies: ${Object.keys(p.rates).length} available${some.length ? ` (e.g. ${some.join(", ")})` : ""}`);
+}

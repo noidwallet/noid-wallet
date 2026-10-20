@@ -49,14 +49,21 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
   restored wallet can find and take back unclaimed gifts. The secret travels
   after `#` in the link, which browsers never send to a server. Gift numbers
   are never reused, and a gift address is checked unused before it is funded.
-- Payment requests: amount + note as a link or QR; NOID fills in the send.
+- Payment requests: amount + note as a link, QR or a branded card image for
+  WhatsApp, Telegram, Discord or X; NOID fills in the send. The request screen
+  turns to "Paid ✓" when the money is in your own history (screenshots from
+  the payer are never proof).
 - Contacts, with warnings for first-time and look-alike addresses
   (address-poisoning protection).
-- Balances in naira or dollars (price from SafeTrade via your server).
+- Values in 41 currencies (NOID price from SafeTrade via your server, rates
+  from a public FX feed), and amounts can be typed in your currency.
+- First-run safety slides (common scams, official links; the links come from
+  `extra.officialLinks` in `app/app.json`).
 - Opt-in "NOID received" notifications (see SETUP-NOTIFICATIONS.md).
 
 `site/` holds the pages that gift (`/g`) and payment (`/pay`) links open on
-your domain.
+your domain, with link-preview images for chat apps (redraw them with
+`python3 tools/make-og-images.py`).
 
 Build and run: see [SETUP-WINDOWS.md](SETUP-WINDOWS.md).
 

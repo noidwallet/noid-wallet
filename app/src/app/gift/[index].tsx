@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import * as Sharing from 'expo-sharing';
 import { ActivityIndicator, Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { captureRef } from 'react-native-view-shot';
 
 import { GiftCard, RevealGiftCard } from '@/components/GiftCard';
+import { LogoMark } from '@/components/Logo';
 import { Banner, Body, Button, Card, IconAction, KeyValue, Pill, Screen, SuccessMark } from '@/components/ui';
 import { copySensitive } from '@/lib/clip';
 import { formatNoid, shortAddress } from '@/lib/amount';
@@ -17,9 +16,9 @@ import { giftLink, type GiftTheme } from '@/lib/links';
 import { onRelock } from '@/lib/lockEvents';
 import { goBack, goHome } from '@/lib/nav';
 import { executeSweep, FeeChanged, planSweep, SubmitUnknown } from '@/lib/send';
+import { removeSharedFiles, shareViewAsImage } from '@/lib/shareImage';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { File } from 'expo-file-system';
 
 import { colors, fonts, radius, space, type } from '@/theme';
 
@@ -39,11 +38,10 @@ export default function GiftDetail() {
   const shot = useRef<View>(null);
   // Re-locked from the background: the link is like cash, so hide it again.
   useEffect(() => onRelock(() => setLink(null)), []);
-  // Shared card images hold the claim QR. The share sheet can return before
-  // the receiving app has read the file, so they are removed a little later
-  // and, at the latest, when this screen closes.
-  const [sharedFiles] = useState(() => new Set<string>());
-  useEffect(() => () => sharedFiles.forEach(removeFile), [sharedFiles]);
+  // Shared card images hold the claim QR: they are removed a few minutes after
+  // sharing and, at the latest, when this screen closes (see lib/shareImage).
+  useEffect(() => removeSharedFiles, []);
+  const [shotSize, setShotSize] = useState({ width: 0, height: 0 });
   const fresh = !!params.fresh;
 
   // The gift's secret is derived again from your wallet secret, never stored.
@@ -112,22 +110,10 @@ export default function GiftDetail() {
   const canShare = shown === 'funded' || shown === 'waiting';
 
   async function shareImage() {
-    if (!shot.current) return;
-    let uri: string | null = null;
     try {
-      uri = await captureRef(shot, { format: 'png', quality: 1, result: 'tmpfile' });
-      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share gift card' });
+      await shareViewAsImage(shot, { size: shotSize, dialogTitle: 'Share gift card' });
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      if (uri) {
-        const u = uri;
-        sharedFiles.add(u);
-        setTimeout(() => {
-          removeFile(u);
-          sharedFiles.delete(u);
-        }, 5 * 60_000);
-      }
     }
   }
 
@@ -209,16 +195,42 @@ export default function GiftDetail() {
       ) : (
         <Pill text={GIFT_BADGE[shown]} tone={GIFT_TONE[shown]} />
       )}
-      {/* Captured as the shareable image: card, message and the claim QR. */}
-      <View ref={shot} collapsable={false} style={{ backgroundColor: colors.bg, gap: space.md, paddingVertical: space.sm }}>
+      {/* Captured as the shareable image: branded frame, card, message and the claim QR. */}
+      <View
+        ref={shot}
+        collapsable={false}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          if (width !== shotSize.width || height !== shotSize.height) setShotSize({ width, height });
+        }}
+        style={{
+          backgroundColor: '#0B1814',
+          borderRadius: radius.xl,
+          borderWidth: 1,
+          borderColor: colors.lineStrong,
+          padding: space.lg,
+          gap: space.md,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <LogoMark size={22} glow={false} />
+            <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 14, letterSpacing: 2 }}>NOID</Text>
+          </View>
+          <View style={{ backgroundColor: colors.accentTint, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 4 }}>
+            <Text style={{ color: colors.accent, fontFamily: fonts.uiBold, fontSize: 11, letterSpacing: 1.2 }}>GIFT CARD</Text>
+          </View>
+        </View>
         <Card_ theme={g.theme as GiftTheme} amount={amount} from={g.from || undefined} />
-        {g.message ? <Body style={{ fontStyle: 'italic', textAlign: 'center' }}>“{g.message}”</Body> : null}
+        {g.message ? <Body style={{ textAlign: 'center' }}>“{g.message}”</Body> : null}
         {link && canShare ? (
           <View style={{ alignItems: 'center', gap: space.sm }}>
             <View style={{ padding: space.md, backgroundColor: '#fff', borderRadius: radius.lg }}>
               <QRCode value={link} size={180} backgroundColor="#fff" color="#000" />
             </View>
-            <Text style={{ color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 13 }}>Scan with the NOID wallet to claim</Text>
+            <Text style={{ color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 13, textAlign: 'center' }}>
+              Scan with the NOID wallet to claim · {LINK_BASE.replace(/^https?:\/\//, '')}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -259,12 +271,4 @@ export default function GiftDetail() {
       {error ? <Banner tone="danger">{error}</Banner> : null}
     </Screen>
   );
-}
-
-function removeFile(uri: string) {
-  try {
-    new File(uri).delete();
-  } catch {
-    // already gone
-  }
 }

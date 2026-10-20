@@ -1,3 +1,5 @@
+import { fiatValue, type PriceLike } from './currencies';
+
 // Address safety checks shown before a send, and fiat display formatting.
 // Pure functions; unit-tested.
 
@@ -62,24 +64,10 @@ export function groupAddress(address: string): string {
   return address.replace(/(.{4})/g, '$1 ').trim();
 }
 
-export type Currency = 'none' | 'usd' | 'ngn';
-
-function withCommas(s: string): string {
-  const [int, dec] = s.split('.');
-  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return dec ? `${grouped}.${dec}` : grouped;
-}
+/** 'none' or a lower-case ISO currency code ('usd', 'ngn', 'eur'...). See lib/currencies. */
+export type Currency = string;
 
 /** "≈ $1.23" / "≈ ₦1,840" for an amount in μNOID, or null when there is no price. */
-export function fiat(micro: number, price: { usd: number; ngn: number | null } | null, currency: Currency): string | null {
-  if (!price || currency === 'none') return null;
-  const perNoid = currency === 'usd' ? price.usd : price.ngn;
-  if (!perNoid || !Number.isFinite(perNoid)) return null;
-  const value = (micro / 1_000_000) * perNoid;
-  const symbol = currency === 'usd' ? '$' : '₦';
-  if (value === 0) return `${symbol}0`;
-  const smallest = currency === 'usd' ? 0.01 : 1;
-  if (value < smallest) return `< ${symbol}${currency === 'usd' ? '0.01' : '1'}`;
-  const decimals = currency === 'usd' || value < 100 ? 2 : 0;
-  return `≈ ${symbol}${withCommas(value.toFixed(decimals))}`;
+export function fiat(micro: number, price: PriceLike | null, currency: Currency): string | null {
+  return fiatValue(micro, price, currency);
 }

@@ -1,20 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, Switch, Text, View } from 'react-native';
+import { Switch, Text, View } from 'react-native';
 
 import { Avatar, Banner, ListRow, Pill, Screen } from '@/components/ui';
 import { core } from '@/lib/core';
 import { go } from '@/lib/nav';
 import { disablePush, enablePush } from '@/lib/push';
-import type { Currency } from '@/lib/safety';
+import { currencyInfo } from '@/lib/currencies';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
 
 const ORIGIN = { generated: 'Created on this phone', imported: 'Restored from secret', photo: 'Photo Key' } as const;
-const CURRENCIES: { id: Currency; label: string }[] = [
-  { id: 'none', label: 'NOID only' },
-  { id: 'usd', label: 'US dollar' },
-  { id: 'ngn', label: 'Naira' },
-];
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -42,6 +37,7 @@ export default function Settings() {
   const server = w.settings.apiUrl ? w.settings.apiUrl.replace(/^https?:\/\//, '') : 'Not set';
   const online = !!w.settings.apiUrl && !!w.status && !w.error;
   const currency = w.settings.currency ?? 'none';
+  const info = currencyInfo(currency);
   const pushOn = !!w.settings.pushToken;
   const pushAvailable = w.status?.features?.push === true;
   const priceAvailable = w.status?.features?.price !== false;
@@ -76,6 +72,13 @@ export default function Settings() {
           onPress={() => go('/backup')}
         />
         <ListRow leading={<Avatar icon="shield" />} title="Wallet ID" subtitle={`${ORIGIN[meta.origin]} · ${meta.keyId}`} />
+        <ListRow
+          leading={<Avatar icon="warning" tone="info" />}
+          title="Stay safe"
+          subtitle="Common scams and our official links"
+          chevron
+          onPress={() => go('/safety')}
+        />
       </Section>
 
       <Section title="Network">
@@ -89,35 +92,17 @@ export default function Settings() {
       </Section>
 
       <Section title="Preferences">
-        <View style={{ paddingVertical: space.md, paddingHorizontal: space.xs, gap: space.sm }}>
-          <Text style={[type.title, { fontSize: 16 }]}>Show values in</Text>
-          <View style={{ flexDirection: 'row', backgroundColor: colors.s2, borderRadius: radius.md, padding: 4 }}>
-            {CURRENCIES.map((c) => (
-              <Pressable
-                key={c.id}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: currency === c.id }}
-                hitSlop={4}
-                onPress={() => void w.updateSettings({ currency: c.id })}
-                style={{
-                  flex: 1,
-                  minHeight: 40,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: radius.sm,
-                  backgroundColor: currency === c.id ? colors.s3 : 'transparent',
-                }}
-              >
-                <Text style={{ color: currency === c.id ? colors.text : colors.textSecondary, fontFamily: fonts.uiSemi }}>{c.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          {currency !== 'none' ? (
-            <Text style={type.bodySm}>
-              {priceAvailable ? 'Prices come from SafeTrade via your wallet server and are a guide only.' : 'Your wallet server doesn’t provide prices.'}
-            </Text>
-          ) : null}
-        </View>
+        <ListRow
+          leading={<Avatar initials={info ? info.symbol.trim().slice(0, 3) : 'N'} tone={info ? 'success' : 'neutral'} />}
+          title="Show values in"
+          subtitle={
+            info
+              ? `${info.name} (${info.code})${currency !== 'none' && !priceAvailable ? ' · your server has no prices' : ''}`
+              : 'NOID only'
+          }
+          chevron
+          onPress={() => go('/currency')}
+        />
         <View style={{ height: 1, backgroundColor: colors.line }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingHorizontal: space.xs }}>
           <Avatar icon="bell" />
