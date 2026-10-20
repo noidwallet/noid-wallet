@@ -27,6 +27,7 @@ export default function Home() {
   const w = useWallet();
   const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price, lastUpdated } = w;
   const [showAllBanners, setShowAllBanners] = useState(false);
+  const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const now = useNow();
 
   // A gift or payment link (or a code scanned from here) takes the user straight to it.
@@ -242,9 +243,22 @@ export default function Home() {
             overflow: 'hidden',
             borderWidth: 1,
             borderColor: colors.lineStrong,
+            // Same as the gradient's darker end, so the card never shows a gap.
+            backgroundColor: '#0B1814',
+          }}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            if (width !== cardSize.width || height !== cardSize.height) setCardSize({ width, height });
           }}
         >
-          <Svg style={{ position: 'absolute', width: '100%', height: '100%' }} preserveAspectRatio="none">
+          {/* Drawn at the card's measured size: a "100%" SVG doesn't resize when the card grows. */}
+          <Svg
+            key={`${cardSize.width}x${cardSize.height}`}
+            style={{ position: 'absolute', top: 0, left: 0 }}
+            width={cardSize.width || '100%'}
+            height={cardSize.height || '100%'}
+            preserveAspectRatio="none"
+          >
             <Defs>
               <LinearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
                 <Stop offset="0" stopColor="#0F2A22" />
