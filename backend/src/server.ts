@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { LogController, type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { randomBytes } from "node:crypto";
 
@@ -93,7 +93,7 @@ export async function buildServer(
   const app = Fastify({
     // No per-request logs: they would tie client IPs to the addresses they look up.
     logger: { level: "warn" },
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     trustProxy: opts.trustProxy ? "127.0.0.1" : false,
     bodyLimit: MAX_INTENT_HEX + 4096,
   });
