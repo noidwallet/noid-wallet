@@ -7,7 +7,7 @@ import { go } from '@/lib/nav';
 import { disablePush, enablePush } from '@/lib/push';
 import type { Currency } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
-import { colors, radius, space, type } from '@/theme';
+import { colors, fonts, radius, space, type } from '@/theme';
 
 const ORIGIN = { generated: 'Created on this phone', imported: 'Restored from secret', photo: 'Photo Key' } as const;
 const CURRENCIES: { id: Currency; label: string }[] = [
@@ -107,7 +107,7 @@ export default function Settings() {
                   backgroundColor: currency === c.id ? colors.s3 : 'transparent',
                 }}
               >
-                <Text style={{ color: currency === c.id ? colors.text : colors.textSecondary, fontWeight: '600' }}>{c.label}</Text>
+                <Text style={{ color: currency === c.id ? colors.text : colors.textSecondary, fontFamily: fonts.uiSemi }}>{c.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -158,7 +158,7 @@ export default function Settings() {
 
       <View style={{ alignItems: 'center', gap: space.xs, paddingVertical: space.md }}>
         <Pill text="NOID 0.1" />
-        <Text style={{ color: colors.faint, fontSize: 12 }}>{version}</Text>
+        <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>{version}</Text>
       </View>
     </Screen>
   );

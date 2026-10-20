@@ -10,7 +10,7 @@ import { LINK_HOSTS } from '@/lib/config';
 import { parseLink } from '@/lib/links';
 import { goBack } from '@/lib/nav';
 import { scanResult } from '@/lib/scan';
-import { colors, radius, space } from '@/theme';
+import { colors, fonts, radius, space } from '@/theme';
 
 const BOX = 260;
 const DIM = 'rgba(0,0,0,0.6)';
@@ -94,8 +94,8 @@ export default function Scan() {
           <View style={{ width: side, backgroundColor: DIM }} />
         </View>
         <View style={{ flex: 1, backgroundColor: DIM, alignItems: 'center', paddingTop: space.xl }}>
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Point at a NOID QR code</Text>
-          <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, marginTop: 4 }}>Addresses, payment requests or gift cards</Text>
+          <Text style={{ color: '#fff', fontFamily: fonts.uiSemi, fontSize: 16 }}>Point at a NOID QR code</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.7)', fontFamily: fonts.ui, fontSize: 14, marginTop: 4 }}>Addresses, payment requests or gift cards</Text>
         </View>
       </View>
       <View style={{ position: 'absolute', top: insets.top + space.sm, left: space.md, right: space.md, flexDirection: 'row', justifyContent: 'space-between' }}>

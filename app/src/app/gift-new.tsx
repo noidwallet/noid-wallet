@@ -14,7 +14,7 @@ import { fiat } from '@/lib/safety';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage, type GiftRecord } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
-import { colors, space } from '@/theme';
+import { colors, fonts, space } from '@/theme';
 
 type Step = 'form' | 'review' | 'sending';
 
@@ -202,7 +202,7 @@ export default function NewGift() {
             <View style={{ borderRadius: 12, borderWidth: 2, borderColor: t === theme ? colors.accent : 'transparent', padding: 2 }}>
               <GiftCard theme={t} amount="" width={96} />
             </View>
-            <Text style={{ color: t === theme ? colors.text : colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{THEME_LABEL[t]}</Text>
+            <Text style={{ color: t === theme ? colors.text : colors.textSecondary, fontSize: 12, fontFamily: fonts.uiSemi }}>{THEME_LABEL[t]}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -235,7 +235,7 @@ export default function NewGift() {
               backgroundColor: amountText === q ? colors.accentTint : pressed ? colors.s3 : colors.s2,
             })}
           >
-            <Text style={{ color: amountText === q ? colors.accent : colors.text, fontWeight: '700' }}>{q}</Text>
+            <Text style={{ color: amountText === q ? colors.accent : colors.text, fontFamily: fonts.uiBold }}>{q}</Text>
           </Pressable>
         ))}
       </View>

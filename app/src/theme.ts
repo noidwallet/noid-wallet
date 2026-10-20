@@ -33,19 +33,26 @@ export const colors = {
 };
 
 export const fonts = {
+  // Bundled UI font. Some phones' system fonts (Xiaomi's MiSans, for one)
+  // measure bold text too narrow and cut the end off, so the app never relies
+  // on the system font. Each weight is its own family: never add fontWeight.
+  ui: 'Inter_400Regular',
+  uiMedium: 'Inter_500Medium',
+  uiSemi: 'Inter_600SemiBold',
+  uiBold: 'Inter_700Bold',
   mono: 'JetBrainsMono_500Medium',
   monoBold: 'JetBrainsMono_700Bold',
 };
 
-/** Type scale: system font for UI text, mono only for numbers and addresses. */
+/** Type scale: Inter for UI text, mono only for numbers and addresses. */
 export const type = {
   display: { fontFamily: fonts.monoBold, fontSize: 40, lineHeight: 46, letterSpacing: -1, color: colors.text },
-  h1: { fontSize: 28, lineHeight: 34, fontWeight: '700' as const, letterSpacing: -0.4, color: colors.text },
-  h2: { fontSize: 20, lineHeight: 26, fontWeight: '700' as const, color: colors.text },
-  title: { fontSize: 17, lineHeight: 22, fontWeight: '600' as const, color: colors.text },
-  body: { fontSize: 16, lineHeight: 24, color: colors.text },
-  bodySm: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: '600' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, color: colors.textSecondary },
+  h1: { fontFamily: fonts.uiBold, fontSize: 28, lineHeight: 36, letterSpacing: -0.3, color: colors.text },
+  h2: { fontFamily: fonts.uiBold, fontSize: 20, lineHeight: 27, color: colors.text },
+  title: { fontFamily: fonts.uiSemi, fontSize: 17, lineHeight: 23, color: colors.text },
+  body: { fontFamily: fonts.ui, fontSize: 16, lineHeight: 24, color: colors.text },
+  bodySm: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 20, color: colors.textSecondary },
+  caption: { fontFamily: fonts.uiSemi, fontSize: 12, lineHeight: 16, letterSpacing: 0.8, textTransform: 'uppercase' as const, color: colors.textSecondary },
   mono: { fontFamily: fonts.mono, fontSize: 15, lineHeight: 22, color: colors.text },
   monoSm: { fontFamily: fonts.mono, fontSize: 13, lineHeight: 18, color: colors.textSecondary },
 };

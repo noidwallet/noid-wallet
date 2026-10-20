@@ -404,7 +404,7 @@ export default function Send() {
             </>
           ) : (
             <Pressable accessibilityRole="button" onPress={() => setShowDetails(true)} hitSlop={8}>
-              <Text style={{ color: colors.accent, fontWeight: '600' }}>Show details</Text>
+              <Text style={{ color: colors.accent, fontFamily: fonts.uiSemi }}>Show details</Text>
             </Pressable>
           )}
         </Card>
@@ -493,7 +493,7 @@ export default function Send() {
               })}
             >
               <Avatar initials={initialsOf(r.name)} tone={toneFor(r.name)} size={28} />
-              <Text style={{ color: colors.text, fontWeight: '600' }} numberOfLines={1}>
+              <Text style={{ color: colors.text, fontFamily: fonts.uiSemi }} numberOfLines={1}>
                 {r.name}
               </Text>
             </Pressable>
@@ -521,7 +521,7 @@ export default function Send() {
             disabled={!w.status || w.utxos.length === 0}
             style={{ backgroundColor: colors.accentTint, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 6, marginRight: space.sm }}
           >
-            <Text style={{ color: colors.accent, fontWeight: '700' }}>Max</Text>
+            <Text style={{ color: colors.accent, fontFamily: fonts.uiBold }}>Max</Text>
           </Pressable>
         }
       />

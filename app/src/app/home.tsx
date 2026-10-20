@@ -191,7 +191,7 @@ export default function Home() {
                 hitSlop={12}
                 onPress={() => void w.updateSettings({ hideBalance: !hidden })}
               >
-                <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '600' }}>{hidden ? 'Show' : 'Hide'}</Text>
+                <Text style={{ color: colors.textSecondary, fontFamily: fonts.uiSemi, fontSize: 13 }}>{hidden ? 'Show' : 'Hide'}</Text>
               </Pressable>
             </View>
             {loaded ? (
@@ -204,16 +204,16 @@ export default function Home() {
             ) : (
               <Skeleton width={180} height={44} />
             )}
-            {value && !hidden ? <Text style={{ color: colors.textSecondary, fontSize: 15 }}>{value}</Text> : null}
+            {value && !hidden ? <Text style={{ color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 15 }}>{value}</Text> : null}
             {pendingOut > 0 && !hidden ? (
               <View style={{ alignSelf: 'flex-start', backgroundColor: colors.warnTint, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={{ color: colors.warn, fontSize: 12, fontWeight: '700' }}>
+                <Text style={{ color: colors.warn, fontFamily: fonts.uiBold, fontSize: 12 }}>
                   −{formatNoid(pendingOut)} pending{ready > 0 ? ` · ${formatNoid(ready)} ready` : ''}
                 </Text>
               </View>
             ) : null}
             {claimIn > 0 && !hidden ? (
-              <Text style={{ color: colors.accent, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
+              <Text style={{ color: colors.accent, fontFamily: fonts.ui, fontSize: 14 }}>+{formatNoid(claimIn)} from a gift arriving with the next block</Text>
             ) : null}
             <Pressable
               accessibilityRole="button"

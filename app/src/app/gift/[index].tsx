@@ -20,7 +20,7 @@ import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
 import { File } from 'expo-file-system';
 
-import { colors, radius, space, type } from '@/theme';
+import { colors, fonts, radius, space, type } from '@/theme';
 
 export default function GiftDetail() {
   // The gift link is money: keep it out of screenshots and the app switcher.
@@ -197,7 +197,7 @@ export default function GiftDetail() {
       {fresh ? (
         <View style={{ alignItems: 'center', gap: space.sm }}>
           <SuccessMark />
-          <Text style={type.h1}>Your gift card is ready</Text>
+          <Text style={[type.h1, { textAlign: 'center' }]}>Your gift card is ready</Text>
           <Body muted style={{ textAlign: 'center' }}>Share it with the person it’s for. They claim it into their own NOID wallet.</Body>
         </View>
       ) : (
@@ -212,13 +212,13 @@ export default function GiftDetail() {
             <View style={{ padding: space.md, backgroundColor: '#fff', borderRadius: radius.lg }}>
               <QRCode value={link} size={180} backgroundColor="#fff" color="#000" />
             </View>
-            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Scan with the NOID wallet to claim</Text>
+            <Text style={{ color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 13 }}>Scan with the NOID wallet to claim</Text>
           </View>
         ) : null}
       </View>
 
       {!fresh ? (
-        <Text style={{ color: status.color, fontSize: 15, fontWeight: '600', textAlign: 'center' }} accessibilityLiveRegion="polite">
+        <Text style={{ color: status.color, fontFamily: fonts.uiSemi, fontSize: 15, textAlign: 'center' }} accessibilityLiveRegion="polite">
           {status.text}
         </Text>
       ) : null}

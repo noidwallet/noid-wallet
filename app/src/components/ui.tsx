@@ -274,7 +274,7 @@ export function IconAction({ icon, label, onPress, highlight }: { icon: IconName
       >
         <Icon name={icon} size={24} color={highlight ? colors.accentInk : colors.text} />
       </View>
-      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: colors.text, fontSize: 13, fontFamily: fonts.uiSemi }}>{label}</Text>
     </PressScale>
   );
 }
@@ -289,7 +289,7 @@ export function Link({ title, onPress, disabled }: { title: string; onPress: () 
       hitSlop={12}
       style={({ pressed }) => ({ alignSelf: 'flex-start', paddingVertical: 4, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}
     >
-      <Text style={{ color: colors.accent, fontSize: 15, fontWeight: '600' }}>{title}</Text>
+      <Text style={{ color: colors.accent, fontSize: 15, fontFamily: fonts.uiSemi }}>{title}</Text>
     </Pressable>
   );
 }
@@ -347,7 +347,7 @@ export function Pill({ text, tone = 'neutral' }: { text: string; tone?: Tone }) 
   const t = tones[tone];
   return (
     <View style={{ alignSelf: 'flex-start', backgroundColor: t.bg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 }}>
-      <Text style={{ color: t.fg, fontSize: 12, fontWeight: '700' }}>{text}</Text>
+      <Text style={{ color: t.fg, fontSize: 12, fontFamily: fonts.uiBold }}>{text}</Text>
     </View>
   );
 }
@@ -411,7 +411,7 @@ export function Avatar({ icon, initials, tone = 'neutral', size = 40 }: { icon?:
   const t = tones[tone];
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
-      {icon ? <Icon name={icon} size={size / 2} color={t.fg} /> : <Text style={{ color: t.fg, fontWeight: '700', fontSize: size / 2.6 }}>{initials}</Text>}
+      {icon ? <Icon name={icon} size={size / 2} color={t.fg} /> : <Text style={{ color: t.fg, fontFamily: fonts.uiBold, fontSize: size / 2.6 }}>{initials}</Text>}
     </View>
   );
 }
@@ -548,7 +548,7 @@ export function ToastHost() {
     <View pointerEvents="none" style={styles.toastWrap}>
       <View style={styles.toast} accessibilityLiveRegion="polite">
         <Icon name="check" size={18} color={colors.accent} />
-        <Text style={{ color: colors.text, fontWeight: '600' }}>{text}</Text>
+        <Text style={{ color: colors.text, fontFamily: fonts.uiSemi }}>{text}</Text>
       </View>
     </View>
   );
@@ -571,7 +571,7 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: space.lg,
   },
-  buttonText: { fontSize: 16, fontWeight: '700' },
+  buttonText: { fontSize: 16, fontFamily: fonts.uiBold },
   card: {
     backgroundColor: colors.s1,
     borderRadius: radius.lg,
@@ -593,14 +593,15 @@ export const styles = StyleSheet.create({
   input: {
     flex: 1,
     color: colors.text,
+    fontFamily: fonts.ui,
     fontSize: 17,
     paddingHorizontal: space.md,
     paddingVertical: 14,
   },
-  error: { color: colors.danger, fontSize: 13 },
+  error: { color: colors.danger, fontFamily: fonts.ui, fontSize: 13 },
   kv: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md, paddingVertical: 6 },
-  kvLabel: { color: colors.textSecondary, fontSize: 15 },
-  kvValue: { color: colors.text, fontSize: 15, flexShrink: 1, textAlign: 'right' },
+  kvLabel: { color: colors.textSecondary, fontFamily: fonts.ui, fontSize: 15 },
+  kvValue: { color: colors.text, fontFamily: fonts.ui, fontSize: 15, flexShrink: 1, textAlign: 'right' },
   row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, paddingHorizontal: space.xs, borderRadius: radius.md },
   toastWrap: { position: 'absolute', left: 0, right: 0, bottom: 48, alignItems: 'center' },
   toast: {

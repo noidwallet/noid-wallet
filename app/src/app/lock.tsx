@@ -44,7 +44,7 @@ export default function Lock() {
     <Screen>
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: space.lg }}>
         <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 16, letterSpacing: 2 }}>NOID</Text>
-        <Text style={type.h1}>Welcome back</Text>
+        <Text style={[type.h1, { alignSelf: 'stretch', textAlign: 'center' }]}>Welcome back</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Unlock wallet"
