@@ -125,7 +125,7 @@ journalctl -u parano1d -f        # Ctrl+C to stop watching; the node keeps runni
 Check progress (only the node and API users may use the RPC port now):
 ```sh
 sudo -u noidapi curl -s -X POST 127.0.0.1:9601 -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"getChainInfo","params":[]}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"paranoid_getChainInfo","params":[]}'
 ```
 Wait until its height matches your desktop wallet's height.
 
