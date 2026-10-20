@@ -67,7 +67,7 @@ export function noidUsdFromPeatio(markets: unknown, tickers: unknown): number | 
 
 async function defaultFetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "noid-wallet-server/0.1" },
+    headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (noid-wallet-server)" },
     signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
