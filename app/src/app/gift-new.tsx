@@ -10,7 +10,7 @@ import { formatNoid, parseNoid } from '@/lib/amount';
 import { core, type SendPlan } from '@/lib/core';
 import { claimFee, freshGiftIndex, newGiftRecord, pickGiftIndex } from '@/lib/gifts';
 import { GIFT_THEMES, MAX_GIFT_FROM, MAX_GIFT_MESSAGE, type GiftTheme } from '@/lib/links';
-import { useHardwareBack } from '@/lib/nav';
+import { useArmed, useHardwareBack } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage, type GiftRecord } from '@/lib/storage';
@@ -33,6 +33,8 @@ export default function NewGift() {
   const [fee, setFee] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // "Create gift card" sits where "Review" was: no tap-through (see useArmed).
+  const armed = useArmed(step === 'review' ? plan : null);
 
   useHardwareBack(
     useCallback(() => {
@@ -78,7 +80,7 @@ export default function NewGift() {
   }
 
   async function create() {
-    if (!plan || !amount) return;
+    if (!plan || !amount || !armed) return;
     if (!(await w.confirmUser(`Create a ${formatNoid(amount)} NOID gift card`))) return;
     setStep('sending');
     setError(null);
@@ -151,7 +153,7 @@ export default function NewGift() {
             setStep('form');
           },
         }}
-        footer={<Button title="Create gift card" icon="gift" onPress={create} />}
+        footer={<Button title="Create gift card" icon="gift" disabled={!armed} onPress={create} />}
       >
         <GiftCard theme={theme} amount={shownAmount} from={from.trim() || undefined} />
         {message.trim() ? <Body style={{ fontStyle: 'italic', textAlign: 'center' }}>“{message.trim()}”</Body> : null}

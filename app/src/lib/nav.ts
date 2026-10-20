@@ -67,6 +67,21 @@ export function useHardwareBack(handler: () => boolean) {
 }
 
 /** Current time that updates on its own, for "updated 3 min ago" labels. */
+/**
+ * True once `key` (a review's plan) has been on screen for a moment. A confirm
+ * button that appears where the previous button was must not catch a second
+ * tap meant for that one and skip the review.
+ */
+export function useArmed(key: object | null, ms = 800): boolean {
+  const [armed, setArmed] = useState<object | null>(null);
+  useEffect(() => {
+    if (!key) return;
+    const t = setTimeout(() => setArmed(key), ms);
+    return () => clearTimeout(t);
+  }, [key, ms]);
+  return !!key && armed === key;
+}
+
 export function useNow(everyMs = 30_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

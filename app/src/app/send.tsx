@@ -27,7 +27,7 @@ import { LINK_HOSTS } from '@/lib/config';
 import { core, type SendPlan } from '@/lib/core';
 import { inbox } from '@/lib/inbox';
 import { parseLink, type ParsedLink } from '@/lib/links';
-import { go, goHandoff, goHome, useHardwareBack } from '@/lib/nav';
+import { go, goHandoff, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
 import { contactPick, scanResult } from '@/lib/scan';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
@@ -112,6 +112,11 @@ export default function Send() {
       }
     }, [fill]),
   );
+
+  // The Send button sits where Continue was. A second tap on Continue (easy
+  // while the server answers) must not land on Send and skip the review, so
+  // Send only takes taps once the review has been on screen for a moment.
+  const armed = useArmed(step === 'review' ? plan : null);
 
   if (!w.meta) return null;
   const meta = w.meta;
@@ -198,7 +203,7 @@ export default function Send() {
   }
 
   async function confirmAndSend() {
-    if (!plan) return;
+    if (!plan || !armed) return;
     const ok = await w.confirmUser(`Send ${formatNoid(plan.amount)} NOID`);
     if (!ok) return;
     setStep('sending');
@@ -375,7 +380,7 @@ export default function Send() {
           <Button
             title={`Send ${formatNoid(plan.amount)} NOID`}
             icon="send"
-            disabled={safety.kind === 'lookalike' && !checkedLookalike}
+            disabled={!armed || (safety.kind === 'lookalike' && !checkedLookalike)}
             onPress={confirmAndSend}
           />
         }
