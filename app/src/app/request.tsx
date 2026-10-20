@@ -65,7 +65,7 @@ export default function Request() {
           ) : (
             <Text style={type.h2}>Any amount</Text>
           )}
-          {value ? <Text style={type.bodySm}>≈ {value}</Text> : null}
+          {value ? <Text style={type.bodySm}>{value}</Text> : null}
           {cleanNote ? <Body style={{ textAlign: 'center' }}>“{cleanNote}”</Body> : null}
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: space.xxl }}>
@@ -96,7 +96,7 @@ export default function Request() {
         keyboardType="decimal-pad"
         placeholder="0.0"
         right={<Text style={[type.title, { color: colors.textSecondary }]}>NOID</Text>}
-        hint={value ? `≈ ${value}` : null}
+        hint={value}
         error={amountOk ? null : 'Use a positive number with at most 6 decimal places.'}
       />
       <Field

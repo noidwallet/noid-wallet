@@ -2,7 +2,8 @@ import { Avatar, ListRow } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import type { HistoryItem } from '@/lib/api';
 import { go } from '@/lib/nav';
-import type { PendingTx } from '@/lib/storage';
+import { fiat } from '@/lib/safety';
+import type { Currency, PendingTx } from '@/lib/storage';
 import { colors } from '@/theme';
 import type { IconName } from '@/components/Icon';
 
@@ -29,8 +30,23 @@ export function when(unixSeconds: number) {
 
 /** Contact name for an address, or its short form. */
 export type NameOf = (address: string) => string;
+/** Value of an amount in the chosen currency ("≈ ₦755"), or null when off. */
+export type FiatOf = (micro: number) => string | null;
 
-export function HistoryRow({ item, nameOf }: { item: HistoryItem; nameOf: NameOf }) {
+export function makeFiatOf(price: { usd: number; ngn: number | null } | null, currency: Currency | undefined): FiatOf {
+  return (micro) => fiat(micro, price, currency ?? 'none');
+}
+
+const HIDDEN = '••••';
+
+interface RowOpts {
+  nameOf: NameOf;
+  fiatOf?: FiatOf;
+  /** Balance hidden: amounts are masked too. */
+  hidden?: boolean;
+}
+
+export function HistoryRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: HistoryItem }) {
   const outgoing = item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract';
   const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee : 0);
   const who = item.counterparty && item.direction !== 'self' ? nameOf(item.counterparty) : null;
@@ -40,10 +56,11 @@ export function HistoryRow({ item, nameOf }: { item: HistoryItem; nameOf: NameOf
       leading={<Avatar icon={TX_ICON[item.direction]} tone={outgoing ? 'neutral' : 'success'} />}
       title={who && item.direction !== 'mined' ? `${TX_LABEL[item.direction]} · ${who}` : TX_LABEL[item.direction]}
       subtitle={when(item.time)}
-      value={`${sign}${formatNoid(shown)}`}
+      value={hidden ? HIDDEN : `${sign}${formatNoid(shown)}`}
+      valueSub={hidden ? null : fiatOf?.(shown)}
       valueColor={outgoing ? colors.text : colors.accent}
       onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
-      accessibilityLabel={`${TX_LABEL[item.direction]} ${formatNoid(shown)} NOID${who ? `, ${who}` : ''}, ${when(item.time)}`}
+      accessibilityLabel={`${TX_LABEL[item.direction]}${hidden ? '' : ` ${formatNoid(shown)} NOID`}${who ? `, ${who}` : ''}, ${when(item.time)}`}
     />
   );
 }
@@ -55,11 +72,10 @@ const PENDING_LABEL: Record<PendingTx['kind'], string> = {
   claim: 'Claiming gift',
 };
 
-export function PendingRow({ item, nameOf }: { item: PendingTx; nameOf: NameOf }) {
+export function PendingRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: PendingTx }) {
   const incoming = item.kind === 'claim';
-  const value = incoming
-    ? `+${formatNoid(item.amount)}`
-    : `−${formatNoid(item.kind === 'consolidate' ? item.fee : item.amount + item.fee)}`;
+  const micro = incoming ? item.amount : item.kind === 'consolidate' ? item.fee : item.amount + item.fee;
+  const value = `${incoming ? '+' : '−'}${formatNoid(micro)}`;
   const where =
     item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? nameOf(item.to) : 'To yourself';
   const state = item.state === 'submitting' ? 'Checking with the network' : 'Waiting for a block';
@@ -68,7 +84,8 @@ export function PendingRow({ item, nameOf }: { item: PendingTx; nameOf: NameOf }
       leading={<Avatar icon="clock" tone="warn" />}
       title={`${PENDING_LABEL[item.kind]} · ${where}`}
       subtitle={state}
-      value={value}
+      value={hidden ? HIDDEN : value}
+      valueSub={hidden ? null : fiatOf?.(micro)}
       valueColor={incoming ? colors.accent : colors.text}
       onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
     />

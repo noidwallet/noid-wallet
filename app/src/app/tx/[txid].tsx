@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Text, View } from 'react-native';
 
-import { makeNameOf, TX_LABEL, when } from '@/components/TxRow';
+import { makeFiatOf, makeNameOf, TX_LABEL, when } from '@/components/TxRow';
 import { Avatar, Banner, Card, IconButton, KeyValue, Pill, Screen, Skeleton, toast } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
@@ -20,12 +20,13 @@ async function copy(text: string, what: string) {
 
 export default function TxDetail() {
   const { txid } = useLocalSearchParams<{ txid: string }>();
-  const { api, history, pending, contacts } = useWallet();
+  const { api, history, pending, contacts, price, settings } = useWallet();
   const [status, setStatus] = useState<TxStatus | null>(null);
   const [lookupDone, setLookupDone] = useState(false);
   const item = history.find((h) => h.txid === txid);
   const pend = pending.find((p) => p.txid === txid);
   const nameOf = makeNameOf(contacts);
+  const fiatOf = makeFiatOf(price, settings.currency);
 
   useEffect(() => {
     if (!txid) return;
@@ -52,6 +53,7 @@ export default function TxDetail() {
         ? pend.fee
         : pend.amount
       : null;
+  const fiatValue = amount !== null ? fiatOf(amount) : null;
   const label = item ? TX_LABEL[item.direction] : pend
       ? pend.kind === 'claim'
         ? 'Gift claim'
@@ -78,6 +80,7 @@ export default function TxDetail() {
           <Skeleton width={160} height={40} />
         ) : null}
         {amount !== null ? <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>NOID</Text> : null}
+        {amount !== null && fiatValue ? <Text style={type.bodySm}>{fiatValue} at today’s price</Text> : null}
         <Pill text={pill.text} tone={pill.tone} />
       </View>
 

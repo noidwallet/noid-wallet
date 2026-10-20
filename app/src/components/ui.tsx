@@ -434,6 +434,7 @@ export function ListRow({
   title,
   subtitle,
   value,
+  valueSub,
   valueColor,
   onPress,
   chevron,
@@ -443,6 +444,8 @@ export function ListRow({
   title: string;
   subtitle?: string;
   value?: string;
+  /** Small line under the value, e.g. its naira or dollar worth. */
+  valueSub?: string | null;
   valueColor?: string;
   onPress?: () => void;
   chevron?: boolean;
@@ -467,7 +470,16 @@ export function ListRow({
           </Text>
         ) : null}
       </View>
-      {value ? <Text style={[type.mono, { color: valueColor ?? colors.text }]}>{value}</Text> : null}
+      {value ? (
+        <View style={{ alignItems: 'flex-end', gap: 2 }}>
+          <Text style={[type.mono, { color: valueColor ?? colors.text }]}>{value}</Text>
+          {valueSub ? (
+            <Text style={[type.bodySm, { fontSize: 12, lineHeight: 16 }]} numberOfLines={1}>
+              {valueSub}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       {chevron ? <Icon name="chevron" size={18} color={colors.faint} /> : null}
     </Pressable>
   );

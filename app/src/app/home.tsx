@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { Icon } from '@/components/Icon';
-import { HistoryRow, makeNameOf, PendingRow } from '@/components/TxRow';
+import { HistoryRow, makeFiatOf, makeNameOf, PendingRow } from '@/components/TxRow';
 import { Banner, Button, EmptyState, IconAction, IconButton, Link, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { LINK_HOSTS } from '@/lib/config';
@@ -60,6 +60,7 @@ export default function Home() {
     void w.updateSettings({ hideBalance: !settings.hideBalance });
   };
   const nameOf = makeNameOf(w.contacts);
+  const fiatOf = makeFiatOf(price, settings.currency);
   const hidden = !!settings.hideBalance;
 
   // Only count a pending transaction while its coins are still in the live
@@ -143,8 +144,8 @@ export default function Home() {
   const shownBanners = showAllBanners ? banners : banners.slice(0, 2);
 
   const activity = [
-    ...pending.map((p) => ({ key: `p-${p.txid}`, node: <PendingRow item={p} nameOf={nameOf} /> })),
-    ...history.map((h) => ({ key: h.txid, node: <HistoryRow item={h} nameOf={nameOf} /> })),
+    ...pending.map((p) => ({ key: `p-${p.txid}`, node: <PendingRow item={p} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} /> })),
+    ...history.map((h) => ({ key: h.txid, node: <HistoryRow item={h} nameOf={nameOf} fiatOf={fiatOf} hidden={hidden} /> })),
   ];
 
   return (
