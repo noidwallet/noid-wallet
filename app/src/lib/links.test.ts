@@ -5,6 +5,8 @@ import { giftLink, parseLink, payLink, payUri } from './links';
 
 const ADDR = 'o1tseu9yag3yuz0tlfcuvleqppl9q4adr0pql3tqdyugsztj9e46dqqyfj6z';
 const KEY = 'ab'.repeat(32);
+/** Right-to-left override, used to disguise text. */
+const RLO = String.fromCharCode(0x202e);
 
 test('gift links round-trip and keep the secret after #', () => {
   const link = giftLink('https://noidusa.com', { secretHex: KEY, amount: '2.5', message: 'Happy birthday, Tolu!', theme: 'birthday', from: 'David' });
@@ -24,10 +26,10 @@ test('gift links from other sites, bad keys and bare secrets are refused', () =>
 });
 
 test('messages are cleaned: no control or bidi characters, capped length', () => {
-  const p = parseLink(`https://noidusa.com/g#k=${KEY}&m=${encodeURIComponent('hi‮evil\n\tthere' + 'x'.repeat(300))}&t=nope`);
+  const p = parseLink(`https://noidusa.com/g#k=${KEY}&m=${encodeURIComponent(`hi${RLO}evil\n\tthere` + 'x'.repeat(300))}&t=nope`);
   assert.ok(p?.kind === 'gift');
   if (p?.kind !== 'gift') return;
-  assert.ok(!/[‮\n\t]/.test(p.message));
+  assert.ok(!p.message.includes(RLO) && !/[\n\t]/.test(p.message));
   assert.equal(p.message.length, 120);
   assert.equal(p.theme, 'vault', 'unknown theme falls back');
 });

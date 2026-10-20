@@ -67,7 +67,7 @@ export class Indexer {
       pollMs: number;
       log: (msg: string) => void;
       /** Called after each live block is stored (used for notifications). */
-      onBlock?: (height: number, rows: { address: string; txid: string; direction: string; amount: number }[]) => Promise<void> | void;
+      onBlock?: (height: number, time: number, rows: { address: string; txid: string; direction: string; amount: number }[]) => void;
     },
   ) {}
 
@@ -126,7 +126,11 @@ export class Indexer {
       if (!block.retained) this.opts.log(`indexer: body for ${h} already pruned; history gap`);
       const rows = this.store(block);
       if (this.opts.onBlock && h >= this.liveFrom && rows.length > 0) {
-        await Promise.resolve(this.opts.onBlock(h, rows)).catch((e: Error) => this.opts.log(`indexer: notify failed: ${e.message}`));
+        try {
+          this.opts.onBlock(h, block.header.timestamp, rows);
+        } catch (e) {
+          this.opts.log(`indexer: notify failed: ${(e as Error).message}`);
+        }
       }
     }
   }

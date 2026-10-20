@@ -59,7 +59,7 @@ export default function Settings() {
 
       <Card>
         <KeyValue label="Wallet" value={ORIGIN[w.meta.origin]} mono={false} />
-        <KeyValue label="Fingerprint" value={w.meta.keyId} />
+        <KeyValue label="Wallet ID" value={w.meta.keyId} />
         <KeyValue label="Backup" value={w.meta.backedUp ? 'Confirmed' : 'Not confirmed'} mono={false} />
       </Card>
       <Button title={w.meta.backedUp ? 'Show my secret' : 'Back up my secret'} kind="secondary" onPress={() => go('/backup')} />

@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +9,8 @@ import { ActionNotice, Button, Notice } from '@/components/ui';
 import { HistoryRow, PendingRow } from '@/components/TxRow';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { inbox } from '@/lib/inbox';
-import { go } from '@/lib/nav';
+import { nextRoute } from '@/lib/scan';
+import { ago, go, useNow } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
@@ -18,18 +19,30 @@ import { colors, fonts, radius, space } from '@/theme';
 const MERGE_HINT_AT = 20;
 
 export default function Home() {
-  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price } = useWallet();
+  const { meta, balance, utxos, pending, history, status, error, refreshing, refresh, lockState, settings, price, lastUpdated } =
+    useWallet();
   const [copied, setCopied] = useState(false);
+  const now = useNow();
 
   // A gift or payment link opened the app: take the user straight to it.
   const handleInbox = useCallback(() => {
+    const route = nextRoute.take();
+    if (route === '/backup') {
+      go('/backup');
+      return;
+    }
     const link = inbox.peek();
     if (!link) return;
     if (link.kind === 'gift') go('/claim');
     else go('/send');
   }, []);
-  useFocusEffect(handleInbox);
-  useEffect(() => inbox.subscribe(handleInbox), [handleInbox]);
+  // Only while home is on screen: a link never jumps over a send in progress.
+  useFocusEffect(
+    useCallback(() => {
+      handleInbox();
+      return inbox.subscribe(handleInbox);
+    }, [handleInbox]),
+  );
 
   if (!meta) return null;
 
@@ -71,7 +84,15 @@ export default function Home() {
               style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: online ? (status?.synced ? colors.ok : colors.warn) : colors.danger }}
             />
             <Text style={{ color: colors.muted, fontFamily: fonts.mono, fontSize: 12 }}>
-              {!hasServer ? 'no server' : !online ? 'offline' : status?.synced ? `block ${status.height.toLocaleString()}` : `syncing · ${status?.syncStage}`}
+              {!hasServer
+                ? 'no server'
+                : !online
+                  ? lastUpdated
+                    ? `offline · updated ${ago(lastUpdated, now)}`
+                    : 'offline'
+                  : status?.synced
+                    ? `block ${status.height.toLocaleString()}`
+                    : `syncing · ${status?.syncStage}`}
             </Text>
           </View>
           <Pressable
@@ -89,7 +110,7 @@ export default function Home() {
           <Text style={{ color: colors.muted, fontSize: 13, letterSpacing: 0.8, textTransform: 'uppercase' }}>Balance</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
             <Text adjustsFontSizeToFit numberOfLines={1} style={{ color: colors.text, fontFamily: fonts.monoBold, fontSize: 44, flexShrink: 1 }}>
-              {formatNoid(shownBalance, { maxDecimals: 4 })}
+              {lastUpdated === null && !online ? '—' : formatNoid(shownBalance, { maxDecimals: 4 })}
             </Text>
             <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 18 }}>NOID</Text>
           </View>
@@ -161,11 +182,11 @@ export default function Home() {
         ) : null}
         {!hasServer ? (
           <ActionNotice tone="warn" onPress={() => go('/server')}>
-            No wallet server is set, so your balance cannot load. Tap to add one.
+            NOID isn’t connected to a wallet server yet, so your balance can’t load. Tap to add one.
           </ActionNotice>
         ) : error ? (
           <ActionNotice tone="danger" onPress={() => go('/server')}>
-            {error} Tap to check your wallet server.
+            {lastUpdated ? 'Showing your last known balance. ' : ''}Cannot reach your wallet server. Tap to check it.
           </ActionNotice>
         ) : null}
         {utxos.length >= MERGE_HINT_AT && pending.length === 0 ? (

@@ -1,60 +1,74 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 
 import { GiftCard } from '@/components/GiftCard';
 import { Body, Button, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import { core } from '@/lib/core';
-import { findLostGifts } from '@/lib/gifts';
+import { findLostGifts, GIFT_STATUS, GIFTS_PER_DAY, giftState, newGiftRecord, type GiftState } from '@/lib/gifts';
 import type { GiftTheme } from '@/lib/links';
 import { go, goBack } from '@/lib/nav';
 import { storage } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
 import { colors, space } from '@/theme';
 
-const STATUS: Record<string, { text: string; color: string }> = {
-  draft: { text: 'Not sent', color: colors.muted },
-  funded: { text: 'Waiting to be claimed', color: colors.warn },
-  claimed: { text: 'Claimed', color: colors.accent },
-  takenBack: { text: 'Taken back', color: colors.muted },
-};
-
-/** How many gift numbers "Find my gifts" checks after a restore. */
-const SCAN = 40;
+/** "Find gifts" checks the first few gifts of each recent day. */
+const SCAN_DAYS = 120;
+const SCAN_PER_DAY = 5;
 
 export default function Gifts() {
   const w = useWallet();
   const [note, setNote] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null);
+  const [live, setLive] = useState<Record<number, GiftState>>({});
+  const [scanning, setScanning] = useState<string | null>(null);
   const visible = w.gifts.filter((g) => !g.hidden);
+
+  // Re-check open gifts whenever the list is shown, so statuses are current.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      for (const g of w.gifts.filter((x) => !x.hidden && x.status !== 'claimed' && x.status !== 'takenBack')) {
+        giftState(w.api, g)
+          .then((s) => {
+            if (!alive) return;
+            setLive((prev) => ({ ...prev, [g.index]: s }));
+            if (w.status?.synced && (s === 'claimed' || s === 'takenBack')) w.saveGift({ ...g, status: s });
+          })
+          .catch(() => {});
+      }
+      return () => {
+        alive = false;
+      };
+    }, [w]),
+  );
 
   async function findGifts() {
     setNote(null);
+    setScanning('Looking for your gifts…');
     try {
       const secret = await storage.readSecret();
-      const addresses = await core.giftAddresses(secret, 0, SCAN);
-      const found = await findLostGifts(w.api, addresses, w.gifts);
+      const found = await findLostGifts(
+        w.api,
+        (day) => core.giftAddresses(secret, day * GIFTS_PER_DAY, SCAN_PER_DAY),
+        w.gifts,
+        { days: SCAN_DAYS, onProgress: (done, total) => setScanning(`Looking for your gifts… ${Math.round((done / total) * 100)}%`) },
+      );
       for (const f of found) {
-        w.saveGift({
-          index: f.index,
-          address: f.address,
-          amount: f.balance,
-          message: '',
-          theme: 'vault',
-          from: '',
-          createdAt: Date.now(),
-          fundTxid: null,
-          // Empty but used before: keep the number reserved, out of sight.
-          status: f.balance > 0 ? 'funded' : 'claimed',
-          hidden: f.balance === 0,
-        });
+        w.saveGift({ ...newGiftRecord({ index: f.index, address: f.address, amount: f.balance, message: '', theme: 'vault', from: '' }), status: 'funded' });
+        await storage.raiseGiftHighWater(f.index);
       }
-      const funded = found.filter((f) => f.balance > 0).length;
       setNote({
         tone: 'info',
-        text: funded > 0 ? `Found ${funded} unclaimed gift${funded === 1 ? '' : 's'}. You can share or take them back.` : 'No unclaimed gifts found.',
+        text:
+          found.length > 0
+            ? `Found ${found.length} unclaimed gift${found.length === 1 ? '' : 's'}. Open one to share it again or take it back.`
+            : `No unclaimed gifts found from the last ${SCAN_DAYS} days.`,
       });
     } catch (e) {
       setNote({ tone: 'danger', text: (e as Error).message });
+    } finally {
+      setScanning(null);
     }
   }
 
@@ -72,7 +86,8 @@ export default function Gifts() {
         <View style={{ gap: space.lg }}>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>Gifts you sent</Text>
           {visible.map((g) => {
-            const s = STATUS[g.status] ?? STATUS.funded!;
+            const state: GiftState = live[g.index] ?? (g.status === 'funded' ? 'funded' : g.status);
+            const s = GIFT_STATUS[state];
             return (
               <Pressable
                 key={g.index}
@@ -83,7 +98,7 @@ export default function Gifts() {
               >
                 <GiftCard theme={g.theme as GiftTheme} amount={formatNoid(g.amount)} from={g.from || undefined} />
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ color: s.color, fontWeight: '600' }}>{s.text}</Text>
+                  <Text style={{ color: s.color, fontWeight: '600', flex: 1 }}>{s.text}</Text>
                   <Text style={{ color: colors.muted }}>{new Date(g.createdAt).toLocaleDateString()}</Text>
                 </View>
               </Pressable>
@@ -92,7 +107,7 @@ export default function Gifts() {
         </View>
       ) : null}
 
-      <Button title="Find gifts from a restored wallet" kind="ghost" onPress={findGifts} />
+      <Button title={scanning ?? 'Find gifts from a restored wallet'} kind="ghost" disabled={!!scanning} onPress={findGifts} />
       {note ? <Notice tone={note.tone}>{note.text}</Notice> : null}
       <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>

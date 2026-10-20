@@ -18,6 +18,18 @@ const INSTALL_ID = 'noid.install.v1';
 const PENDING_FILE = 'pending-v2.json';
 const CONTACTS_FILE = 'contacts-v1.json';
 const GIFTS_FILE = 'gifts-v1.json';
+const SNAPSHOT_FILE = 'snapshot-v1.json';
+const RECIPIENTS_FILE = 'recipients-v1.json';
+/** Highest gift number ever used on this phone; never reset, never reused. */
+const GIFT_HIGH_WATER = 'noid.gifthw.v1';
+
+/** Last balance and activity seen, shown while offline. Public chain data only. */
+export interface Snapshot {
+  address: string;
+  utxos: { slotIndex: number; value: number; creationId: string }[];
+  history: unknown[];
+  at: number;
+}
 
 export type WalletOrigin = 'generated' | 'imported' | 'photo';
 
@@ -166,6 +178,32 @@ export const storage = {
     f.write(JSON.stringify(p));
   },
 
+  loadSnapshot(address: string): Snapshot | null {
+    const s = readFileJson<Snapshot | null>(SNAPSHOT_FILE, null);
+    return s && s.address === address && Array.isArray(s.utxos) ? s : null;
+  },
+  /** Returns the time it was saved. */
+  saveSnapshot(s: Omit<Snapshot, 'at'>): number {
+    const at = Date.now();
+    writeFileJson(SNAPSHOT_FILE, { ...s, at });
+    return at;
+  },
+  /** Addresses this wallet has paid (used to spot look-alike addresses). */
+  loadRecipients(): string[] {
+    const r = readFileJson<string[]>(RECIPIENTS_FILE, []);
+    return Array.isArray(r) ? r.filter((x) => typeof x === 'string') : [];
+  },
+  saveRecipients(r: string[]) {
+    writeFileJson(RECIPIENTS_FILE, r.slice(-500));
+  },
+  async giftHighWater(): Promise<number> {
+    const raw = await SecureStore.getItemAsync(GIFT_HIGH_WATER);
+    const n = raw ? Number(raw) : -1;
+    return Number.isInteger(n) ? n : -1;
+  },
+  async raiseGiftHighWater(index: number) {
+    if (index > (await storage.giftHighWater())) await SecureStore.setItemAsync(GIFT_HIGH_WATER, String(index));
+  },
   loadContacts(): Contact[] {
     const c = readFileJson<Contact[]>(CONTACTS_FILE, []);
     return Array.isArray(c) ? c : [];
@@ -183,7 +221,7 @@ export const storage = {
 
   async wipe() {
     await Promise.all([SECRET, META].map((k) => SecureStore.deleteItemAsync(k)));
-    for (const name of [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE]) {
+    for (const name of [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE]) {
       try {
         const f = new File(Paths.document, name);
         if (f.exists) f.delete();

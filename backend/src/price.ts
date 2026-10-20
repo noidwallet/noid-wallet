@@ -27,6 +27,16 @@ interface Market {
   quote_unit?: string;
 }
 
+/** Anything outside this range is treated as a broken feed, not a price. */
+const MIN_USD = 1e-9;
+const MAX_USD = 1e6;
+/** A move bigger than this from the last good price must be seen twice in a row. */
+const MAX_JUMP = 0.5;
+
+export function sanePrice(n: number | null | undefined): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= MIN_USD && n <= MAX_USD;
+}
+
 function lastPrice(tickers: Record<string, unknown>, marketId: string): number | null {
   const entry = tickers[marketId] as { ticker?: { last?: unknown }; last?: unknown } | undefined;
   const raw = entry?.ticker?.last ?? entry?.last;
@@ -43,14 +53,14 @@ export function noidUsdFromPeatio(markets: unknown, tickers: unknown): number | 
   for (const m of noidMarkets) {
     if (USD_LIKE.has((m.quote_unit ?? "").toLowerCase())) {
       const p = lastPrice(t, m.id!);
-      if (p) return p;
+      if (sanePrice(p)) return p;
     }
   }
   for (const m of noidMarkets) {
     const quote = (m.quote_unit ?? "").toLowerCase();
     const p = lastPrice(t, m.id!);
     const conv = lastPrice(t, `${quote}usdt`);
-    if (p && conv) return p * conv;
+    if (p && conv && sanePrice(p * conv)) return p * conv;
   }
   return null;
 }
@@ -67,6 +77,9 @@ async function defaultFetchJson(url: string): Promise<unknown> {
 export class PriceFeed {
   private cached: Price | null = null;
   private inflight: Promise<Price | null> | null = null;
+  private retryAfter = 0;
+  /** A large jump waits here until a second fetch agrees with it. */
+  private suspect: number | null = null;
   private readonly fetchJson: FetchJson;
   private readonly ttlMs: number;
   private readonly maxStaleMs: number;
@@ -91,22 +104,42 @@ export class PriceFeed {
     return this.opts.now?.() ?? Date.now();
   }
 
+  /**
+   * Serves the cached price at once while a refresh runs in the background
+   * (no request waits on a slow exchange), and only waits when nothing is
+   * cached yet. After a failure it waits a minute before trying again.
+   */
   async get(): Promise<Price | null> {
-    if (this.cached && this.now() - this.cached.updatedAt < this.ttlMs) return this.cached;
-    this.inflight ??= this.refresh().finally(() => {
-      this.inflight = null;
-    });
-    return this.inflight;
+    const fresh = this.cached !== null && this.now() - this.cached.updatedAt < this.ttlMs;
+    if (!fresh && this.now() >= this.retryAfter) {
+      this.inflight ??= this.refresh().finally(() => {
+        this.inflight = null;
+      });
+    }
+    if (this.cached && this.now() - this.cached.updatedAt < this.maxStaleMs) return this.cached;
+    return this.inflight ?? null;
   }
 
   private async refresh(): Promise<Price | null> {
     try {
-      const usd = await this.fetchUsd();
-      const ngn = await this.fetchNgnRate().then((r) => (r ? usd * r : null)).catch(() => null);
-      this.cached = { usd, ngn, source: "SafeTrade", updatedAt: this.now() };
+      let usd = await this.fetchUsd();
+      const last = this.cached?.usd ?? null;
+      if (last !== null && Math.abs(usd - last) / last > MAX_JUMP) {
+        // One odd trade on a thin market should not move every wallet's display:
+        // accept a big jump only when the next fetch confirms it.
+        const confirmed = this.suspect !== null && Math.abs(usd - this.suspect) / this.suspect <= 0.1;
+        if (!confirmed) {
+          this.suspect = usd;
+          usd = last;
+        } else this.suspect = null;
+      } else this.suspect = null;
+      const rate = await this.fetchNgnRate().catch(() => null);
+      const ngn = rate ? usd * rate : null;
+      this.cached = { usd, ngn: ngn !== null && Number.isFinite(ngn) && ngn > 0 ? ngn : null, source: "SafeTrade", updatedAt: this.now() };
       return this.cached;
     } catch (e) {
       this.opts.log?.(`price: ${(e as Error).message}`);
+      this.retryAfter = this.now() + 60_000;
       if (this.cached && this.now() - this.cached.updatedAt < this.maxStaleMs) return this.cached;
       return null;
     }
@@ -133,6 +166,7 @@ export class PriceFeed {
   private async fetchNgnRate(): Promise<number | null> {
     const fx = (await this.fetchJson(FX_URL)) as { result?: string; rates?: Record<string, number> };
     const r = fx?.rates?.NGN;
-    return fx?.result === "success" && typeof r === "number" && r > 0 ? r : null;
+    // Sanity range for naira per dollar.
+    return fx?.result === "success" && typeof r === "number" && Number.isFinite(r) && r > 10 && r < 1e6 ? r : null;
   }
 }

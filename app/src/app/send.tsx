@@ -22,7 +22,7 @@ type Step = 'form' | 'review' | 'sending' | 'done';
 
 const STAGE_TEXT: Record<Stage, string> = {
   preparing: 'Getting the latest network state…',
-  forging: 'Forging your zero-knowledge proof on this phone…',
+  forging: 'Securing your payment on this phone… This can take up to a minute.',
   submitting: 'Sending to the network…',
   retrying: 'A new block arrived. Rebuilding with fresh data…',
 };
@@ -43,6 +43,7 @@ export default function Send() {
   const [checkedLookalike, setCheckedLookalike] = useState(false);
   const [contactName, setContactName] = useState('');
   const [savedContact, setSavedContact] = useState(false);
+  const [fromLink, setFromLink] = useState(false);
 
   const fill = useCallback((p: ParsedLink) => {
     if (p.kind === 'gift') {
@@ -77,7 +78,10 @@ export default function Send() {
   useFocusEffect(
     useCallback(() => {
       const incoming = inbox.peek();
-      if (incoming && incoming.kind !== 'gift') fill(inbox.take()!);
+      if (incoming && incoming.kind !== 'gift') {
+        fill(inbox.take()!);
+        setFromLink(true);
+      }
       const scanned = scanResult.take();
       if (scanned) {
         const p = parseLink(scanned, LINK_HOSTS);
@@ -96,12 +100,10 @@ export default function Send() {
   const meta = w.meta;
   const amount = parseNoid(amountText);
   const currency = w.settings.currency ?? 'none';
-  const known = [
-    ...w.history.map((h) => h.counterparty).filter((a): a is string => !!a),
-    ...w.pending.map((p) => p.to).filter((a): a is string => !!a),
-  ];
+  const lockedSlots = new Set(w.pending.flatMap((p) => p.inputSlots));
+  const available = w.utxos.filter((u) => !lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
   const cleanTo = to.trim().toLowerCase();
-  const safety = checkAddress(cleanTo, w.contacts, known);
+  const safety = checkAddress(cleanTo, w.contacts, w.sentTo);
   const contactForTo = safety.kind === 'contact' ? safety.name : null;
 
   async function review() {
@@ -247,7 +249,7 @@ export default function Send() {
               <Button
                 title="Save contact"
                 kind="secondary"
-                disabled={!contactName.trim()}
+                disabled={!contactName.trim() || safety.kind === 'lookalike'}
                 onPress={() => {
                   w.saveContact(contactName.trim(), to);
                   setSavedContact(true);
@@ -313,10 +315,9 @@ export default function Send() {
         <Card>
           <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           {plan.feeBreakdown.stateGrowth > 0 ? (
-            <KeyValue label="  of which burned" value={`${formatNoid(plan.feeBreakdown.stateGrowth)} NOID`} />
+            <KeyValue label="  includes storage fee" value={`${formatNoid(plan.feeBreakdown.stateGrowth)} NOID`} />
           ) : null}
           <KeyValue label="Total" value={`${formatNoid(plan.totalSpend)} NOID`} />
-          <KeyValue label="Coins used" value={String(plan.inputCount)} />
           {plan.change > 0 ? <KeyValue label="Change back to you" value={`${formatNoid(plan.change)} NOID`} /> : null}
         </Card>
         {plan.fee > Math.max(50_000, plan.amount / 100) ? (
@@ -328,7 +329,7 @@ export default function Send() {
         <Notice>Check the address carefully. NOID sends cannot be reversed.</Notice>
         {error ? <Notice tone="danger">{error}</Notice> : null}
         <View style={{ flex: 1 }} />
-        <Button title="Forge proof and send" disabled={safety.kind === 'lookalike' && !checkedLookalike} onPress={confirmAndSend} />
+        <Button title={`Send ${formatNoid(plan.amount)} NOID`} disabled={safety.kind === 'lookalike' && !checkedLookalike} onPress={confirmAndSend} />
         <Button
           title="Edit"
           kind="ghost"
@@ -392,6 +393,9 @@ export default function Send() {
           <Button title="Contacts" kind="secondary" onPress={() => go({ pathname: '/contacts', params: { pick: '1' } })} />
         </View>
       </View>
+      {fromLink ? (
+        <Notice tone="warn">Filled in from a link someone sent you. Check the address and amount before you send.</Notice>
+      ) : null}
       {note ? <Notice>Payment request: {note}</Notice> : null}
       <Field
         label="Amount (NOID)"
@@ -404,9 +408,9 @@ export default function Send() {
         keyboardType="decimal-pad"
         placeholder="0.0"
       />
-      {amount && fiat(amount, w.price, currency) ? (
-        <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.sm }}>{fiat(amount, w.price, currency)}</Text>
-      ) : null}
+      <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.sm }}>
+        {amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: {formatNoid(available)} NOID
+      </Text>
       <Link title="Send everything" onPress={sendMax} disabled={!w.status || w.utxos.length === 0} />
       {error ? <Notice tone="danger">{error}</Notice> : null}
       <View style={{ flex: 1 }} />

@@ -8,11 +8,9 @@ import { parseLink } from '@/lib/links';
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string | null {
   try {
     const link = parseLink(path, LINK_HOSTS);
-    if (link) {
-      inbox.set(link);
-      return '/';
-    }
-    return path;
+    if (link) inbox.set(link);
+    // Never let another app deep-link into an arbitrary screen.
+    return '/';
   } catch {
     return '/';
   }

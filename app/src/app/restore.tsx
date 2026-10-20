@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { Pressable, Text, View } from 'react-native';
 
-import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
+import { ActionNotice, Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { core } from '@/lib/core';
-import { goBack, goRoot } from '@/lib/nav';
+import { go, goBack, goRoot } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space } from '@/theme';
 
@@ -91,9 +91,9 @@ export default function Restore() {
       ) : (
         <>
           <Card>
-            <KeyValue label="Key fingerprint" value={keyId} />
+            <KeyValue label="Wallet ID" value={keyId} />
           </Card>
-          <Notice>Compare the fingerprint with the one your desktop wallet shows before you continue.</Notice>
+          <Notice>Compare this Wallet ID with the key fingerprint your desktop wallet shows before you continue.</Notice>
           <Body muted style={{ fontSize: 14 }}>
             Choose the address to use. The desktop wallet calls the one you were using your active address.
           </Body>
@@ -143,7 +143,10 @@ export default function Restore() {
         <Body muted style={{ fontSize: 14 }}>{clean.length} of 64 characters</Body>
       ) : null}
       {candidates.length > 0 && candidates.every((c) => c.balance === null) ? (
-        <Notice tone="warn">Balances could not load because no wallet server is reachable. You can still restore, or set a server first from the welcome screen.</Notice>
+        <ActionNotice tone="warn" onPress={() => go('/server')}>
+          Balances could not load because no wallet server is reachable. You can still restore, or tap here to check the
+          server first.
+        </ActionNotice>
       ) : null}
       <Button title="Back" kind="ghost" onPress={() => goBack()} />
     </Screen>

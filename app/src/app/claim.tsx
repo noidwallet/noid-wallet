@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { usePreventScreenCapture } from 'expo-screen-capture';
 import { ActivityIndicator, Text, View } from 'react-native';
 
 import { GiftCard } from '@/components/GiftCard';
@@ -19,16 +20,18 @@ import { useWallet } from '@/state/wallet';
 import { colors, fonts, space } from '@/theme';
 
 type Gift = Extract<ParsedLink, { kind: 'gift' }>;
-type View_ = 'enter' | 'loading' | 'ready' | 'empty' | 'claiming' | 'done';
+type View_ = 'enter' | 'loading' | 'ready' | 'empty' | 'failed' | 'claiming' | 'done';
 
 const STAGE_TEXT: Record<Stage, string> = {
   preparing: 'Opening the gift…',
-  forging: 'Forging the proof on this phone…',
+  forging: 'Securing the transfer on this phone…',
   submitting: 'Moving the NOID into your wallet…',
   retrying: 'A new block arrived. Trying again…',
 };
 
 export default function Claim() {
+  // The gift secret is on this screen: no screenshots or app-switcher previews.
+  usePreventScreenCapture();
   const w = useWallet();
   const [gift, setGift] = useState<Gift | null>(null);
   const [giftAddress, setGiftAddress] = useState<string | null>(null);
@@ -56,12 +59,17 @@ export default function Claim() {
         const code = (e as { code?: string }).code;
         if (code === 'empty') setView('empty');
         else {
-          setError((e as Error).message);
-          setView('enter');
+          // Keep the gift on screen so the user can simply try again.
+          setError(
+            !w.settings.apiUrl
+              ? 'NOID is not connected to a wallet server yet. Add one in Settings, then try again.'
+              : (e as Error).message,
+          );
+          setView('failed');
         }
       }
     },
-    [w.api, w.pending],
+    [w.api, w.pending, w.settings.apiUrl],
   );
 
   // A gift link that opened the app, or one scanned with the camera.
@@ -168,7 +176,7 @@ export default function Claim() {
     );
   }
 
-  if ((view === 'ready' || view === 'empty' || view === 'loading') && gift) {
+  if ((view === 'ready' || view === 'empty' || view === 'loading' || view === 'failed') && gift) {
     const amount = plan ? formatNoid(plan.amount) : gift.amount ?? '…';
     return (
       <Screen>
@@ -194,6 +202,7 @@ export default function Claim() {
         {view === 'ready' ? (
           <Button title={`Claim ${formatNoid(plan?.amount ?? 0)} NOID`} disabled={hasUnresolvedSend(w.pending)} onPress={claim} />
         ) : null}
+        {view === 'failed' ? <Button title="Try again" onPress={() => open(gift)} /> : null}
         {view === 'ready' && hasUnresolvedSend(w.pending) ? (
           <Body muted style={{ fontSize: 14 }}>Your last transaction is still being checked. Claim once it shows as sent.</Body>
         ) : null}

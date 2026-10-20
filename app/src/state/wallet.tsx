@@ -37,8 +37,12 @@ interface WalletState {
   refreshing: boolean;
   /** NOID price for display; null when off or unavailable. */
   price: Price | null;
+  /** When balance and activity were last loaded from the server (ms), or null if never. */
+  lastUpdated: number | null;
   contacts: Contact[];
   gifts: GiftRecord[];
+  /** Addresses this wallet has sent to: the trusted set for look-alike checks. */
+  sentTo: string[];
 }
 
 interface WalletActions {
@@ -95,7 +99,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [price, setPrice] = useState<Price | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [recipients, setRecipients] = useState<string[]>([]);
   const [gifts, setGifts] = useState<GiftRecord[]>([]);
   const giftsRef = useRef<GiftRecord[]>([]);
   const backgroundedAt = useRef<number | null>(null);
@@ -124,9 +130,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       pendingRef.current = p;
       setPending(p);
       setContacts(storage.loadContacts());
+      setRecipients(storage.loadRecipients());
       const g = storage.loadGifts();
       giftsRef.current = g;
       setGifts(g);
+      if (m) {
+        const snap = storage.loadSnapshot(m.address);
+        if (snap) {
+          setUtxos(snap.utxos);
+          setHistory(snap.history as HistoryItem[]);
+          setLastUpdated(snap.at);
+        }
+      }
       setMeta(m);
       setSettings(s);
       setInstallId(id);
@@ -169,6 +184,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setPrice(px);
       setUtxos(coins.utxos);
       if (hist) setHistory(hist.items);
+      setLastUpdated(storage.saveSnapshot({ address: meta.address, utxos: coins.utxos, history: hist?.items ?? [] }));
 
       // Check every saved transaction; re-send the identical one if the network lost it.
       for (const p of pendingRef.current) {
@@ -186,6 +202,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setRefreshing(false);
     }
   }, [api, meta, settings.apiUrl, settings.currency, updatePending]);
+
+  // The server forgets notification subscriptions the app does not renew.
+  useEffect(() => {
+    if (!meta || !settings.pushToken || !settings.apiUrl) return;
+    void api.pushSubscribe(meta.address, settings.pushToken).catch(() => {});
+  }, [api, meta, settings.apiUrl, settings.pushToken]);
 
   // Firebase can rotate a phone's push token; keep the server's copy current.
   useEffect(() => {
@@ -233,6 +255,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       updatePending(() => []);
       setHistory([]);
       setUtxos([]);
+      setLastUpdated(null);
       giftsRef.current = [];
       storage.saveGifts([]);
       setGifts([]);
@@ -264,8 +287,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       error,
       refreshing,
       price,
+      lastUpdated,
       contacts,
       gifts,
+      sentTo: [
+        ...new Set([
+          ...recipients,
+          ...history.filter((h) => h.direction === 'sent' && h.counterparty).map((h) => h.counterparty!),
+          ...pending.filter((p) => p.kind === 'send' && p.to).map((p) => p.to!),
+        ]),
+      ],
       refresh,
       createWallet,
       async markBackedUp() {
@@ -278,6 +309,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (meta && settings.pushToken) await api.pushUnsubscribe(meta.address, settings.pushToken).catch(() => {});
         await storage.wipe();
         setContacts([]);
+        setRecipients([]);
         giftsRef.current = [];
         setGifts([]);
         const s = { ...settings, pushToken: null };
@@ -331,6 +363,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setGifts(next);
       },
       recordPending(p: PendingTx) {
+        if (p.kind === 'send' && p.to && p.state === 'submitted') {
+          const to = p.to;
+          setRecipients((prev) => {
+            if (prev.includes(to)) return prev;
+            const next = [...prev, to];
+            storage.saveRecipients(next);
+            return next;
+          });
+        }
         updatePending((prev) => [...prev.filter((x) => x.txid !== p.txid), p]);
       },
       discardPending(txid: string) {
@@ -339,7 +380,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       unlock,
       confirmUser: authenticate,
     }),
-    [loading, meta, settings, api, locked, lockState, status, utxos, pending, history, error, refreshing, price, contacts, gifts, refresh, createWallet, unlock, updatePending],
+    [loading, meta, settings, api, locked, lockState, status, utxos, pending, history, error, refreshing, price, lastUpdated, contacts, recipients, gifts, refresh, createWallet, unlock, updatePending],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -55,7 +55,7 @@ export default function Contacts() {
       return;
     }
     const others = w.contacts.filter((c) => c.address !== check.address);
-    const safety = checkAddress(check.address, others, []);
+    const safety = checkAddress(check.address, others, w.sentTo);
     if (safety.kind === 'lookalike') {
       setError(
         `This looks like ${safety.name ?? 'another saved address'} but is different. Check every character before saving.`,
@@ -78,7 +78,8 @@ export default function Contacts() {
       {sorted.map((c) => (
         <Pressable
           key={c.id}
-          accessibilityRole="button"
+          accessibilityRole={pick ? 'button' : undefined}
+          disabled={!pick}
           onPress={() => {
             if (pick) {
               contactPick.set(c.address);
@@ -94,7 +95,9 @@ export default function Contacts() {
           })}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600' }}>{c.name}</Text>
+            <Text numberOfLines={1} style={{ color: colors.text, fontSize: 16, fontWeight: '600', flex: 1, marginRight: space.md }}>
+              {c.name}
+            </Text>
             {!pick ? (
               confirmRemove === c.id ? (
                 <View style={{ flexDirection: 'row', gap: space.lg }}>

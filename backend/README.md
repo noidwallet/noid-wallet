@@ -27,9 +27,13 @@ npm test
 ## Deploy (Ubuntu 24.04, e.g. Contabo Cloud VPS 20)
 ```sh
 # 1. user + folders
+# The node and the API run as different users, so the API cannot read the
+# node's files.
 sudo useradd --system --create-home noid
-sudo mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend
-sudo chown noid:noid /var/lib/parano1d /var/lib/noid-wallet
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin noidapi
+sudo mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend /var/www/noid-site
+sudo chown noid:noid /var/lib/parano1d
+sudo chown noidapi:noidapi /var/lib/noid-wallet
 
 # 2. node: download the official Core release + SHA256SUMS from
 #    https://github.com/proof-native/parano1d/releases and verify
@@ -48,8 +52,13 @@ sudo systemctl daemon-reload && sudo systemctl enable --now parano1d noid-wallet
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edit the domain first
 sudo systemctl reload caddy
 
-# 5. firewall: only SSH, HTTPS and P2P
-sudo ufw allow OpenSSH && sudo ufw allow 443/tcp && sudo ufw allow 9600/tcp && sudo ufw enable
+# 5. firewall: only SSH, HTTP(S) and P2P; and only noid/noidapi may use the RPC port
+sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 9600/tcp && sudo ufw enable
+sudo mkdir -p /etc/nftables.d && sudo cp deploy/nftables-noid-rpc.nft /etc/nftables.d/
+sudo nft -f /etc/nftables.d/nftables-noid-rpc.nft
+
+# 6. link pages (gift and payment links open these)
+sudo cp -r ../site/. /var/www/noid-site/
 ```
 
 Check: `curl https://api.yourdomain.com/v1/status` shows `"synced": true` once the node catches up.

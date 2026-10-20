@@ -1,0 +1,11 @@
+# Only the node itself (user noid) and the wallet API (user noidapi) may talk
+# to the node's RPC port. The node gives owner rights to any local caller.
+# Install: sudo cp deploy/nftables-noid-rpc.nft /etc/nftables.d/ (or include
+# it from /etc/nftables.conf), then: sudo nft -f /etc/nftables.d/nftables-noid-rpc.nft
+table inet noid_rpc {
+	chain output {
+		type filter hook output priority 0; policy accept;
+		ip daddr 127.0.0.1 tcp dport 9601 meta skuid != { "noid", "noidapi" } reject
+		ip6 daddr ::1 tcp dport 9601 meta skuid != { "noid", "noidapi" } reject
+	}
+}

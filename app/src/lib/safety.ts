@@ -13,27 +13,46 @@ export type AddressCheck =
   | { kind: 'known' }
   | { kind: 'new' };
 
-const EDGE = 4;
-
-function looksAlike(a: string, b: string): boolean {
+/**
+ * Two different addresses look alike when their ends are close: at least 3
+ * of the first 6 and 3 of the last 6 characters match by position, or 5+
+ * leading or trailing characters match exactly. For random addresses that
+ * happens by chance less than once in a million pairs; an attacker who
+ * mines a look-alike has to beat it.
+ */
+export function looksAlike(a: string, b: string): boolean {
   if (a === b) return false;
   const x = a.slice(2);
   const y = b.slice(2);
-  return x.slice(0, EDGE) === y.slice(0, EDGE) && x.slice(-EDGE) === y.slice(-EDGE);
+  const same = (i: number, j: number) => x[i] !== undefined && x[i] === y[j];
+  let head = 0;
+  let tail = 0;
+  for (let i = 0; i < 6; i++) {
+    if (same(i, i)) head++;
+    if (same(x.length - 1 - i, y.length - 1 - i)) tail++;
+  }
+  let prefix = 0;
+  while (prefix < Math.min(x.length, y.length) && x[prefix] === y[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < Math.min(x.length, y.length) && x[x.length - 1 - suffix] === y[y.length - 1 - suffix]) suffix++;
+  return (head >= 3 && tail >= 3) || prefix >= 5 || suffix >= 5;
 }
 
 /**
  * @param contacts saved contacts
- * @param known addresses this wallet has sent to or received from
+ * @param sentTo addresses this wallet has sent to (NOT ones that only paid
+ *   you: anyone can make their address "known" by sending you dust)
  */
-export function checkAddress(address: string, contacts: NamedAddress[], known: string[]): AddressCheck {
-  const contact = contacts.find((c) => c.address === address);
-  if (contact) return { kind: 'contact', name: contact.name };
+export function checkAddress(address: string, contacts: NamedAddress[], sentTo: string[]): AddressCheck {
   const similarContact = contacts.find((c) => looksAlike(address, c.address));
+  const contact = contacts.find((c) => c.address === address);
+  // Even an exact contact is checked against the others, in case a poisoned
+  // address was saved as a contact earlier.
+  if (contact && !similarContact) return { kind: 'contact', name: contact.name };
   if (similarContact) return { kind: 'lookalike', similarTo: similarContact.address, name: similarContact.name };
-  const similarKnown = known.find((k) => looksAlike(address, k));
-  if (similarKnown) return { kind: 'lookalike', similarTo: similarKnown, name: null };
-  if (known.includes(address)) return { kind: 'known' };
+  const similarSent = sentTo.find((k) => looksAlike(address, k));
+  if (similarSent) return { kind: 'lookalike', similarTo: similarSent, name: null };
+  if (sentTo.includes(address)) return { kind: 'known' };
   return { kind: 'new' };
 }
 

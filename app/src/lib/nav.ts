@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BackHandler } from 'react-native';
 import { router, useFocusEffect, type Href } from 'expo-router';
 
@@ -54,4 +54,23 @@ export function useHardwareBack(handler: () => boolean) {
       return () => sub.remove();
     }, [handler]),
   );
+}
+
+/** Current time that updates on its own, for "updated 3 min ago" labels. */
+export function useNow(everyMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(t);
+  }, [everyMs]);
+  return now;
+}
+
+export function ago(ms: number, now: number): string {
+  const min = Math.max(0, Math.round((now - ms) / 60_000));
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
 }

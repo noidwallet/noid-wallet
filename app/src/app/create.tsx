@@ -51,7 +51,7 @@ export default function Create() {
           they are the only way back in. There is no recovery service.
         </Body>
         <SecretView secretHex={key.secretHex} />
-        <KeyValue label="Key fingerprint" value={key.keyId} />
+        <KeyValue label="Wallet ID" value={key.keyId} />
         <Notice tone="warn">
           Write it on paper and keep it offline. Do not screenshot it or paste it into chats or cloud notes.
         </Notice>

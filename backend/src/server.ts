@@ -57,13 +57,25 @@ export function classifySubmitError(message: string): SubmitOutcome {
     };
   if (m.startsWith("mempool full") || m.startsWith("mempool byte cap"))
     return { kind: "rejected", code: "busy", retryable: false, message: "The network is busy. Try again in a minute." };
-  return { kind: "rejected", code: "rejected", retryable: false, message: `The network rejected the transaction: ${m}` };
+  return { kind: "rejected", code: "rejected", retryable: false, message: "The network rejected the transaction." };
 }
 
 /** Pending in the mempool or already in a block? */
 async function txKnown(txid: string): Promise<boolean> {
   if (await rpc<unknown | null>("getMempoolEntry", [txid])) return true;
   return (await rpc<TxInfo | null>("getTx", [txid])) !== null;
+}
+
+/** Rate-limit key: IPv4 as is, IPv6 by its /64 network (one customer's block). */
+export function clientKey(ip: string): string {
+  const v4 = /^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (v4) return v4[1]!;
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail = ""] = ip.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const full = [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return full.slice(0, 4).map((x) => x.toLowerCase().replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 
 function intParam(raw: string | undefined, fallback: number, min: number, max: number): number {
@@ -79,7 +91,9 @@ export async function buildServer(
 ): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
   const app = Fastify({
-    logger: { level: "info" },
+    // No per-request logs: they would tie client IPs to the addresses they look up.
+    logger: { level: "warn" },
+    disableRequestLogging: true,
     trustProxy: opts.trustProxy ? "127.0.0.1" : false,
     bodyLimit: MAX_INTENT_HEX + 4096,
   });
@@ -88,7 +102,9 @@ export async function buildServer(
   await app.register(rateLimit, {
     max: 900,
     timeWindow: "1 minute",
-    keyGenerator: (req) => `${req.ip}|${String(req.headers["x-install-id"] ?? "").slice(0, 64)}`,
+    // Keyed on the client IP only (IPv6 grouped by /64). The app's install id
+    // is client-chosen, so it must never widen a limit.
+    keyGenerator: (req) => clientKey(req.ip),
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -157,10 +173,10 @@ export async function buildServer(
     { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { notifier, a, token } = pushBody(req.body);
-      const r = notifier.subscribe(a, token);
+      const r = await notifier.subscribe(a, token);
       if (!r.ok) {
-        reply.code(429);
-        return { error: { code: "push_limit", message: r.message } };
+        reply.code(r.status);
+        return { error: { code: "push_refused", message: r.message } };
       }
       return { ok: true };
     },
@@ -235,6 +251,7 @@ export async function buildServer(
           if (outcome.kind === "accepted") return { txid, already: true };
           // A spent-input rejection can also mean our own earlier submit already confirmed.
           if (outcome.code === "inputs_spent" && (await txKnown(txid).catch(() => false))) return { txid, already: true };
+          req.log.warn({ reason: e.message.slice(0, 300) }, "submit rejected");
           reply.code(422);
           return { error: { code: outcome.code, message: outcome.message, retryable: outcome.retryable } };
         }

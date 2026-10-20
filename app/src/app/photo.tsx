@@ -7,6 +7,7 @@ import { Body, Button, Card, KeyValue, Notice, Screen, Title } from '@/component
 import { shortAddress } from '@/lib/amount';
 import { core, type NewKey } from '@/lib/core';
 import { goBack, goRoot } from '@/lib/nav';
+import { nextRoute } from '@/lib/scan';
 import { useWallet } from '@/state/wallet';
 
 export default function Photo() {
@@ -72,7 +73,7 @@ export default function Photo() {
           <Card>
             <KeyValue label="Photo" value={key.name} mono={false} />
             <KeyValue label="Size" value={`${key.width} × ${key.height}`} />
-            <KeyValue label="Key fingerprint" value={key.keyId} />
+            <KeyValue label="Wallet ID" value={key.keyId} />
             <KeyValue label="First address" value={shortAddress(key.address)} />
           </Card>
           <Button
@@ -82,6 +83,8 @@ export default function Photo() {
               setBusy(true);
               try {
                 await createWallet(key.secretHex, 'photo');
+                // The written backup is the safe one: ask for it right away.
+                nextRoute.set('/backup');
                 goRoot();
               } catch (e) {
                 setError((e as Error).message);

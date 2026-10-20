@@ -7,7 +7,8 @@ export const colors = {
   line: '#1E2D29',
   text: '#E6EFEC',
   muted: '#8A9C96',
-  faint: '#5A6B66',
+  // 4.5:1 on bg, so placeholders and small labels stay readable.
+  faint: '#768882',
   accent: '#3FD1A0',
   accentInk: '#04140F',
   danger: '#FF7A6E',

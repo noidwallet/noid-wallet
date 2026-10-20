@@ -15,3 +15,5 @@ function handoff() {
 
 export const scanResult = handoff();
 export const contactPick = handoff();
+/** A screen to open once home is showing (e.g. backup right after a Photo Key wallet). */
+export const nextRoute = handoff();

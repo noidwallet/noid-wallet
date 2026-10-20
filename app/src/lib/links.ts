@@ -27,7 +27,7 @@ const AMOUNT = /^\d{1,12}(\.\d{1,6})?$/;
 function clean(text: string | null | undefined, max: number): string {
   // Plain text only: drop control characters, collapse whitespace, cap length.
   return (text ?? '')
-    .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);

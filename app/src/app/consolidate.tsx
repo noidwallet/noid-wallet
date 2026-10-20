@@ -84,7 +84,7 @@ export default function Consolidate() {
       {shownError ? <Notice tone="danger">{shownError}</Notice> : null}
       {done ? <Notice>Merging. It confirms with the next block.</Notice> : null}
       <View style={{ flex: 1, minHeight: space.lg }} />
-      {sending ? <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Forging your proof. Keep the app open.</Body> : null}
+      {sending ? <Body muted style={{ textAlign: 'center', fontSize: 14 }}>Securing the merge on this phone. Keep the app open.</Body> : null}
       {done ? (
         <Button title="Done" onPress={goHome} />
       ) : (

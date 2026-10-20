@@ -2,6 +2,8 @@
 // it only reads public chain data and submits finished, proven transactions.
 import type { FeeContext, Utxo } from './core';
 
+const DEFINITE_REJECTIONS = new Set(['fee_too_low', 'stale_anchor', 'stale_inputs', 'inputs_spent', 'busy', 'rejected']);
+
 export class ApiError extends Error {
   constructor(
     readonly code: string,
@@ -17,7 +19,13 @@ export class ApiError extends Error {
    * gone through and must never be rebuilt.
    */
   get ambiguous(): boolean {
-    return this.status === 0 || this.status >= 500;
+    // Only answers our own server gives BEFORE relaying count as a definite
+    // "not sent". Anything else (a proxy's 4xx, a timeout, a 5xx) might have
+    // reached the network, so the saved transaction must be kept and re-sent.
+    if (this.status === 422 && DEFINITE_REJECTIONS.has(this.code)) return false;
+    if (this.status === 400 && this.code === 'bad_request') return false;
+    if (this.status === 429) return false;
+    return true;
   }
 }
 

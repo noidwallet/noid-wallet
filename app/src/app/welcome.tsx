@@ -11,9 +11,14 @@ export default function Welcome() {
     <Screen>
       <View style={{ flex: 1, justifyContent: 'center', gap: space.lg }}>
         {incoming?.kind === 'gift' ? (
-          <Notice tone="warn">
-            Someone sent you a NOID gift card{incoming.from ? ` from ${incoming.from}` : ''}. Create or restore a wallet first,
-            then you can claim it.
+          <Notice>
+            {incoming.from ? `${incoming.from} sent you` : 'You received'} a NOID gift card. Create a wallet (or restore yours)
+            and it opens right after.
+          </Notice>
+        ) : incoming ? (
+          <Notice>
+            Someone asked you to pay{incoming.amount ? ` ${incoming.amount} NOID` : ''}. Create or restore a wallet first, then
+            the payment opens.
           </Notice>
         ) : null}
         <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: 15, letterSpacing: 1 }}>NOID</Text>
@@ -21,8 +26,8 @@ export default function Welcome() {
           Your Parano1d wallet, in your pocket.
         </Text>
         <Body muted>
-          Your secret stays on this phone. Every send is proven here with a zero-knowledge proof, so no signature
-          and no key ever leaves the device.
+          Your secret never leaves this phone. Every payment is secured on the phone itself, so nothing that can spend
+          your NOID is ever sent anywhere.
         </Body>
       </View>
       <View style={{ gap: space.md }}>

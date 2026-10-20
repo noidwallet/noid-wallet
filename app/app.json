@@ -42,6 +42,16 @@
               "scheme": "https",
               "host": "noidusa.com",
               "pathPrefix": "/pay"
+            },
+            {
+              "scheme": "https",
+              "host": "www.noidusa.com",
+              "pathPrefix": "/g"
+            },
+            {
+              "scheme": "https",
+              "host": "www.noidusa.com",
+              "pathPrefix": "/pay"
             }
           ],
           "category": [
@@ -86,7 +96,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "defaultApiUrl": "",
+      "defaultApiUrl": "https://api.noidusa.com",
       "linkBaseUrl": "https://noidusa.com"
     }
   }

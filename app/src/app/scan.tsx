@@ -15,7 +15,7 @@ export default function Scan() {
   if (!permission.granted) {
     return (
       <Screen>
-        <Title>Scan an address</Title>
+        <Title>Scan a NOID QR code</Title>
         <Body muted>Allow camera access to scan a NOID address QR code. The camera is only used on this screen.</Body>
         {permission.canAskAgain ? (
           <Button title="Allow camera" onPress={requestPermission} />
@@ -45,7 +45,7 @@ export default function Scan() {
       />
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 48, alignItems: 'center', gap: space.md }}>
         <Text style={{ color: '#fff', fontSize: 16, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.sm }}>
-          Point at a NOID address QR code
+          Point at a NOID QR code
         </Text>
         <Pressable accessibilityRole="button" onPress={() => goBack()} hitSlop={16}>
           <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600', padding: 12 }}>Cancel</Text>

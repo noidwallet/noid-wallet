@@ -6,7 +6,7 @@ import { GiftCard, THEME_LABEL } from '@/components/GiftCard';
 import { Body, Button, Card, Field, KeyValue, Notice, Screen, Title } from '@/components/ui';
 import { formatNoid, parseNoid } from '@/lib/amount';
 import { core, type SendPlan } from '@/lib/core';
-import { claimFee, freshGiftIndex, newGiftRecord, nextGiftIndex } from '@/lib/gifts';
+import { claimFee, freshGiftIndex, newGiftRecord, pickGiftIndex } from '@/lib/gifts';
 import { GIFT_THEMES, MAX_GIFT_FROM, MAX_GIFT_MESSAGE, type GiftTheme } from '@/lib/links';
 import { goBack, useHardwareBack } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
@@ -19,7 +19,7 @@ type Step = 'form' | 'review' | 'sending';
 
 const STAGE_TEXT: Record<Stage, string> = {
   preparing: 'Getting the latest network state…',
-  forging: 'Forging your zero-knowledge proof on this phone…',
+  forging: 'Securing your payment on this phone… This can take up to a minute.',
   submitting: 'Sending your gift to the network…',
   retrying: 'A new block arrived. Rebuilding with fresh data…',
 };
@@ -52,6 +52,8 @@ export default function NewGift() {
   const meta = w.meta;
   const amount = parseNoid(amountText);
   const currency = w.settings.currency ?? 'none';
+  const lockedSlots = new Set(w.pending.flatMap((p) => p.inputSlots));
+  const available = w.utxos.filter((u) => !lockedSlots.has(u.slotIndex)).reduce((s, u) => s + u.value, 0);
 
   async function review() {
     setError(null);
@@ -82,15 +84,18 @@ export default function NewGift() {
     if (!(await w.confirmUser(`Create a ${formatNoid(amount)} NOID gift card`))) return;
     setStep('sending');
     setError(null);
-    let index = nextGiftIndex(w.gifts);
+    let index = -1;
     let record: GiftRecord | null = null;
     try {
       const secretHex = await storage.readSecret();
-      const fresh = await freshGiftIndex(w.api, index, async (i) => (await core.giftKey(secretHex, i)).address);
+      const start = pickGiftIndex(w.gifts, await storage.giftHighWater());
+      const fresh = await freshGiftIndex(w.api, start, async (i) => (await core.giftKey(secretHex, i)).address);
       index = fresh.index;
       const gift = await core.giftKey(secretHex, index);
-      // Saved before any coins move, so the gift can always be found again.
+      // Saved before any coins move, so the gift can always be found again,
+      // and the number is burned for good even if this send fails.
       record = newGiftRecord({ index, address: gift.address, amount, message, theme, from });
+      await storage.raiseGiftHighWater(index);
       w.saveGift(record);
       const { pending } = await executeSend({
         api: w.api,
@@ -154,6 +159,12 @@ export default function NewGift() {
           <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           <KeyValue label="Total from your wallet" value={`${formatNoid(plan.totalSpend)} NOID`} />
         </Card>
+        {fee > 20_000 ? (
+          <Notice tone="danger">
+            The claim fee is unusually high ({formatNoid(fee)} NOID). If the network is not busy, check your wallet server in
+            Settings before you create this gift.
+          </Notice>
+        ) : null}
         <Notice tone="warn">
           Anyone who has the gift link can claim it, so send it only to the person it is for. Until they claim it, you can
           take it back from Gift cards.
@@ -195,6 +206,8 @@ export default function NewGift() {
             accessibilityState={{ selected: t === theme }}
             onPress={() => setTheme(t)}
             style={{
+              minHeight: 44,
+              justifyContent: 'center',
               paddingHorizontal: space.md,
               paddingVertical: space.sm,
               borderRadius: radius.md,
@@ -218,11 +231,11 @@ export default function NewGift() {
         keyboardType="decimal-pad"
         placeholder="0.0"
       />
-      {amount && fiat(amount, w.price, currency) ? (
-        <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.sm }}>{fiat(amount, w.price, currency)}</Text>
-      ) : null}
+      <Text style={{ color: colors.muted, fontSize: 14, marginTop: -space.sm }}>
+        {amount && fiat(amount, w.price, currency) ? `${fiat(amount, w.price, currency)} · ` : ''}Available: {formatNoid(available)} NOID
+      </Text>
       <Field
-        label="Message (optional)"
+        label={`Message (optional) · ${message.length}/${MAX_GIFT_MESSAGE}`}
         value={message}
         onChangeText={setMessage}
         maxLength={MAX_GIFT_MESSAGE}

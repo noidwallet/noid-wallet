@@ -16,6 +16,21 @@ test('contacts, known, new and look-alike addresses', () => {
   assert.deepEqual(checkAddress(OTHER, contacts, []), { kind: 'new' });
 });
 
+test('look-alikes beyond exact 4+4: partial ends, long prefix, poisoned contacts', () => {
+  // 3 of the first 6 and 3 of the last 6 match by position.
+  // 'tseu9y' -> 'tsxuxy' (4 of 6 kept) and 'qyfj6z' -> 'qxfxxz' (3 of 6 kept), middle all different.
+  const partial = 'o1tsxuxy' + 'x'.repeat(REAL.length - 14) + 'qxfxxz';
+  assert.equal(checkAddress(partial, [], [REAL]).kind, 'lookalike');
+  // Only the start matches, but for 5+ characters.
+  const prefix = 'o1tseu9zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+  assert.equal(checkAddress(prefix, [], [REAL]).kind, 'lookalike');
+  // A saved contact that imitates another contact is still flagged.
+  const contacts = [{ name: 'Tolu', address: REAL }, { name: 'Tolu 2', address: FAKE }];
+  assert.equal(checkAddress(FAKE, contacts, []).kind, 'lookalike');
+  // Unrelated random addresses are not flagged.
+  assert.equal(checkAddress(OTHER, [{ name: 'Tolu', address: REAL }], [REAL]).kind, 'new');
+});
+
 test('address grouping', () => {
   assert.equal(groupAddress('o1abcdefgh'), 'o1ab cdef gh');
 });

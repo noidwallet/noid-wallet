@@ -17,7 +17,7 @@ use noid_tx::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::fees::{fee_breakdown, FeeBreakdown};
+use crate::fees::{fee_breakdown, FeeBreakdown, FEE_PER_INPUT};
 use crate::keys::MasterSecret;
 use crate::Error;
 
@@ -326,12 +326,17 @@ pub fn plan_consolidation(
 /// (gift claims and gift take-backs). One output, so no change and no state
 /// growth: spending n >= 1 coins into 1 never adds a slot.
 pub fn plan_sweep(utxos: &[Utxo], pending_inputs: &HashSet<u32>, ctx: FeeContext) -> Result<SendPlan, Error> {
-    let available = spendable_utxos(utxos, pending_inputs);
+    // Anyone can send coins to a public gift address. Coins worth no more than
+    // the fee they add are skipped, and at most the largest MAX_SEND_INPUTS are
+    // taken, so dust cannot freeze or drain a gift.
+    let mut available: Vec<&Utxo> = spendable_utxos(utxos, pending_inputs)
+        .into_iter()
+        .filter(|u| u.value > FEE_PER_INPUT)
+        .collect();
+    available.sort_by(|a, b| b.value.cmp(&a.value).then(a.slot_index.cmp(&b.slot_index)));
+    available.truncate(MAX_SEND_INPUTS);
     if available.is_empty() {
         return Err(Error::coded("empty", "There is nothing to claim here. It may have been claimed already."));
-    }
-    if available.len() > MAX_SEND_INPUTS {
-        return Err(Error::msg(format!("This holds more than {MAX_SEND_INPUTS} coins; it cannot be moved in one go.")));
     }
     let spendable = sum(available.iter().map(|u| u.value))?;
     let (fee, breakdown) = ctx.minimum(available.len(), 1);
@@ -482,6 +487,21 @@ pub fn take_selected(utxos: &[Utxo], slots: &[u32]) -> Result<Vec<Utxo>, Error> 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sweep_ignores_dust_and_caps_inputs() {
+        let ctx = FeeContext { active_slot_count: 0, log_slots: 24, relay_floor: 5_000 };
+        let mut utxos: Vec<Utxo> = (0..600).map(|i| Utxo { slot_index: i, value: 50, creation_id: i as u64 }).collect();
+        utxos.push(Utxo { slot_index: 10_000, value: 2_000_000, creation_id: 9 });
+        let plan = plan_sweep(&utxos, &HashSet::new(), ctx).unwrap();
+        assert_eq!(plan.selected_slots, vec![10_000], "dust coins worth less than their fee are left behind");
+        assert_eq!(plan.amount, 2_000_000 - 5_800);
+
+        let many: Vec<Utxo> = (0..600).map(|i| Utxo { slot_index: i, value: 10_000 + i as u64, creation_id: i as u64 }).collect();
+        let p2 = plan_sweep(&many, &HashSet::new(), ctx).unwrap();
+        assert_eq!(p2.input_count, MAX_SEND_INPUTS);
+        assert!(p2.selected_slots.contains(&599) && !p2.selected_slots.contains(&0), "largest coins first");
+    }
 
     #[test]
     fn sweep_spends_everything_into_one_output() {

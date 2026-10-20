@@ -14,7 +14,7 @@ const indexer = new Indexer(db, {
   indexFrom: config.indexFrom,
   pollMs: config.pollMs,
   log,
-  onBlock: notifier ? (h, rows) => notifier.onRows(h, rows) : undefined,
+  onBlock: notifier ? (h, t, rows) => notifier.onRows(h, t, rows) : undefined,
 });
 const app = await buildServer(db, indexer, { trustProxy: config.trustProxy, price, notifier });
 

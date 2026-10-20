@@ -136,9 +136,14 @@ export function GiftCard({
   const { width: screen } = useWindowDimensions();
   const w = Math.min(width ?? screen - 32, 420);
   const p = PALETTES[theme];
-  const amountSize = amount.length > 9 ? 30 : amount.length > 6 ? 36 : 42;
+  const amountSize = amount.length > 13 ? 22 : amount.length > 9 ? 30 : amount.length > 6 ? 36 : 42;
   return (
-    <View style={{ width: w, aspectRatio: W / H, alignSelf: 'center' }}>
+    <View
+      style={{ width: w, aspectRatio: W / H, alignSelf: 'center' }}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={`Gift card, ${amount} NOID${from ? ` from ${from}` : ''}`}
+    >
       <Svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`}>
         <Defs>
           <LinearGradient id={`bg-${theme}`} x1="0" y1="0" x2="1" y2="1">

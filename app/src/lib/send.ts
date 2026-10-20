@@ -187,6 +187,12 @@ export async function planSweep(api: Api, address: string, pending: PendingTx[])
     logSlots: ctx.logSlots,
     relayFloor: ctx.relayFloor,
   });
+  // A server-reported fee floor far above the network minimum would let fees
+  // eat the gift: refuse instead (see gifts.sweepFeeTooHigh).
+  const minimum = 5_000 + 100 * plan.inputCount + 700;
+  if (plan.fee > Math.max(3 * minimum, 20_000)) {
+    throw Object.assign(new Error('The network fee looks wrong. Check your wallet server in Settings.'), { code: 'fee_suspicious' });
+  }
   return { plan, utxos };
 }
 

@@ -1,6 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,13 +21,16 @@ export function Screen({ children, scroll = true, style }: { children: ReactNode
   const inner = <View style={[styles.inner, style]}>{children}</View>;
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      {scroll ? (
-        <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-          {inner}
-        </ScrollView>
-      ) : (
-        inner
-      )}
+      {/* Keeps fields and the main button above the keyboard (Android draws edge to edge). */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {scroll ? (
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+            {inner}
+          </ScrollView>
+        ) : (
+          inner
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -145,13 +150,18 @@ export function Field(props: TextInputProps & { label?: string; error?: string |
     <View style={{ gap: space.xs }}>
       {label ? <Label>{label}</Label> : null}
       <TextInput
+        accessibilityLabel={label}
         placeholderTextColor={colors.faint}
         autoCorrect={false}
         autoCapitalize="none"
         {...rest}
         style={[styles.input, mono && { fontFamily: fonts.mono, fontSize: 14 }, error ? { borderColor: colors.danger } : null, style]}
       />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.error} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -159,7 +169,7 @@ export function Field(props: TextInputProps & { label?: string; error?: string |
 export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'warn' | 'danger' }) {
   const color = tone === 'warn' ? colors.warn : tone === 'danger' ? colors.danger : colors.muted;
   return (
-    <View style={[styles.notice, { borderColor: color }]}>
+    <View style={[styles.notice, { borderColor: color }]} accessibilityLiveRegion={tone === 'info' ? 'none' : 'polite'}>
       <Text style={[styles.body, { color, fontSize: 14 }]}>{children}</Text>
     </View>
   );
