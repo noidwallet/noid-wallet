@@ -4,7 +4,7 @@
     "target": {
       "namespace": "android_app",
       "package_name": "com.dpeluola.noid",
-      "sha256_cert_fingerprints": ["REPLACE_WITH_RELEASE_SIGNING_SHA256"]
+      "sha256_cert_fingerprints": ["2B:DC:35:EA:06:B7:C9:AB:F3:E1:23:E2:91:B1:E5:1C:0B:3C:D9:59:43:23:E9:5A:59:6E:5C:C4:7B:82:93:5B"]
     }
   }
 ]
