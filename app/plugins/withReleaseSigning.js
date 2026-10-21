@@ -64,6 +64,14 @@ module.exports = function withReleaseSigning(config) {
     // fetch over mobile data (they are unpacked once, at install).
     c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key === 'expo.useLegacyPackaging'));
     c.modResults.push({ type: 'property', key: 'expo.useLegacyPackaging', value: 'true' });
+    // More room for the build itself: with Firebase added, the default 512 MB
+    // metaspace runs out ("Metaspace" / "Not enough memory to run compilation").
+    const memory = {
+      'org.gradle.jvmargs': '-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8',
+      'kotlin.daemon.jvmargs': '-Xmx2048m -XX:MaxMetaspaceSize=1024m',
+    };
+    c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key in memory));
+    for (const [key, value] of Object.entries(memory)) c.modResults.push({ type: 'property', key, value });
     return c;
   });
   // "NOID Dev" on the home screen for development builds.
