@@ -64,6 +64,15 @@
     "plugins": [
       "expo-router",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#060B0A"
+        }
+      ],
+      [
         "expo-secure-store",
         {
           "configureAndroidBackup": true
