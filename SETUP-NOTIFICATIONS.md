@@ -6,8 +6,12 @@ Android delivers push messages through Firebase Cloud Messaging (FCM).
 ## 1. Create the Firebase project (once)
 1. Go to https://console.firebase.google.com and create a project (e.g. `noid-wallet`).
    Google Analytics is not needed.
-2. Add an **Android app** with package name `com.dpeluola.noid`.
-3. Download **google-services.json** and put it in `app\` (next to `app.json`).
+2. Add an **Android app** with package name `com.dpeluola.noid` (the release app).
+3. Add a second **Android app** with package name `com.dpeluola.noid.dev`
+   (NOID Dev, the development build). Without it, development builds fail with
+   "No matching client found for package name".
+4. Download **google-services.json** (after adding both apps, so it lists both)
+   and put it in `app\` (next to `app.json`).
    It is listed in `.gitignore`. It is not a secret, but keep it out of public repos.
 
 ## 2. Server key for sending (once)
@@ -21,18 +25,22 @@ Android delivers push messages through Firebase Cloud Messaging (FCM).
    ```
    This file IS secret: it can send notifications as your app. Never commit it.
 3. In `/etc/systemd/system/noid-wallet-api.service`, uncomment the
-   `FCM_SERVICE_ACCOUNT` line, then:
+   `LoadCredential` and `FCM_SERVICE_ACCOUNT` lines, then:
    ```sh
    sudo systemctl daemon-reload && sudo systemctl restart noid-wallet-api
    ```
    `GET /v1/status` then shows `"features": { "push": true, ... }`.
 
 ## 3. Rebuild the app (google-services.json is read at build time)
+Release APK (raise `android.versionCode` in `app/app.json` first, see
+SETUP-RELEASE.md):
 ```powershell
 cd C:\dev\noid\app
-npx expo prebuild --platform android --clean
-npx expo run:android --device
+npx expo prebuild -p android --clean
+cd android
+.\gradlew assembleRelease
 ```
+Development build (NOID Dev): `npm run android -- --device`.
 
 In the app: **Settings → Notifications → Turn on notifications**.
 
