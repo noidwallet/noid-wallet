@@ -41,6 +41,8 @@ export default function Claim() {
   const open = useCallback(
     async (g: Gift) => {
       setGift(g);
+      setPlan(null); // never show the last gift's amount on this one
+      setGiftAddress(null);
       setError(null);
       setView('loading');
       try {
@@ -167,7 +169,9 @@ export default function Claim() {
 
   if ((view === 'ready' || view === 'empty' || view === 'loading' || view === 'failed') && gift) {
     const empty = view === 'empty';
-    const amount = plan ? formatNoid(plan.amount) : gift.amount ?? '…';
+    // Only the amount actually in the gift is shown: the link's own figure is
+    // the sender's claim and may not match (or the gift may be spent).
+    const amount = plan ? formatNoid(plan.amount) : view === 'loading' ? '…' : '?';
     const value = plan ? fiat(plan.amount, w.price, w.settings.currency ?? 'none') : null;
     return (
       <Screen

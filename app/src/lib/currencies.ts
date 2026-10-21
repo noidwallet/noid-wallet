@@ -80,16 +80,25 @@ export interface PriceLike {
   rates?: Record<string, number>;
   ageMs?: number;
   receivedAt?: number;
+  typingOk?: boolean;
 }
 
 /** Typing amounts in a currency needs a recent price; showing "≈" values does not. */
 export const PRICE_FRESH_MS = 15 * 60_000;
 
+/** "≈" values are hidden once the price is this old: an old value is misleading. */
+export const PRICE_SHOW_MS = 60 * 60_000;
+
+/** Total age of a price on this phone (server age plus time since it arrived). */
+function priceAge(price: PriceLike, now: number): number {
+  if (price.receivedAt === undefined) return 0; // tests and older callers
+  return (price.ageMs ?? 0) + Math.max(0, now - price.receivedAt);
+}
+
 /** Is this price recent enough to convert typed currency into NOID? */
 export function priceIsFresh(price: PriceLike | null, now: number): boolean {
-  if (!price) return false;
-  if (price.receivedAt === undefined) return true; // tests and older callers
-  return (price.ageMs ?? 0) + Math.max(0, now - price.receivedAt) < PRICE_FRESH_MS;
+  if (!price || price.typingOk === false) return false;
+  return priceAge(price, now) < PRICE_FRESH_MS;
 }
 
 /** Value of 1 NOID in the chosen currency, or null when it isn't available. */
@@ -125,7 +134,14 @@ export function formatMoney(value: number, info: CurrencyInfo): string {
  * "≈ $1.23" / "≈ ₦1,840" / "< ¥1" for an amount in μNOID, or null when there
  * is no price for the chosen currency.
  */
-export function fiatValue(micro: number, price: PriceLike | null, setting: string | undefined | null): string | null {
+export function fiatValue(
+  micro: number,
+  price: PriceLike | null,
+  setting: string | undefined | null,
+  now: number = Date.now(),
+): string | null {
+  // No "≈" value from a price that is too old, or far off the one this phone trusted.
+  if (price && (price.typingOk === false || priceAge(price, now) >= PRICE_SHOW_MS)) return null;
   const info = currencyInfo(setting);
   const per = perNoid(price, setting);
   if (!info || per === null) return null;

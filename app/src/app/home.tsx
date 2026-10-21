@@ -42,7 +42,7 @@ export default function Home() {
     if (scanned) {
       const p = parseLink(scanned, LINK_HOSTS);
       if (p) inbox.set(p);
-      else toast('That is not a NOID code');
+      else toast('That is not a NOID code', 'danger');
     }
     const link = inbox.peek();
     if (!link) return;

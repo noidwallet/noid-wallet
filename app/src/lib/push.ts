@@ -8,6 +8,24 @@ import type { Api } from './api';
 
 let handlerSet = false;
 
+/**
+ * The notification channel. "-v2": amounts are hidden on a locked screen
+ * (Android won't change that on an existing channel, so it has a new id; the
+ * server sends to this id).
+ */
+export const PUSH_CHANNEL = 'payments-v2';
+
+export async function ensurePushChannel() {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(PUSH_CHANNEL, {
+    name: 'Payments received',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+  });
+  // The first version's channel showed amounts on the lock screen.
+  await Notifications.deleteNotificationChannelAsync('payments').catch(() => {});
+}
+
 /** Show notifications while the app is open too. */
 export function setupNotificationHandler() {
   if (handlerSet) return;
@@ -23,12 +41,7 @@ export function setupNotificationHandler() {
 }
 
 export async function enablePush(api: Api, address: string): Promise<string> {
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('payments', {
-      name: 'Payments received',
-      importance: Notifications.AndroidImportance.HIGH,
-    });
-  }
+  await ensurePushChannel();
   const perm = await Notifications.requestPermissionsAsync();
   if (!perm.granted) throw new Error('Notifications are off for NOID. Turn them on in your phone’s app settings.');
   let token: string;
@@ -41,8 +54,13 @@ export async function enablePush(api: Api, address: string): Promise<string> {
   return token;
 }
 
+/**
+ * Tell the server, then retire the phone's token itself: even if the server
+ * missed the message (no signal), it can never notify this phone again.
+ */
 export async function disablePush(api: Api, address: string, token: string) {
   await api.pushUnsubscribe(address, token).catch(() => {});
+  await Notifications.unregisterForNotificationsAsync().catch(() => {});
 }
 
 /** Re-register if Firebase rotates the token. */

@@ -15,6 +15,8 @@ export default function Backup() {
   const { meta, confirmUser, markBackedUp } = useWallet();
   const [secret, setSecret] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
+  // Why the secret is hidden: the unlock was cancelled, or the app re-locked.
+  const [relocked, setRelocked] = useState(false);
   const [step, setStep] = useState<'show' | 'check' | 'done'>('show');
   // One random early group plus the last one, so a partial copy is caught.
   const [askGroup] = useState(() => 1 + Math.floor(Math.random() * 7));
@@ -28,6 +30,7 @@ export default function Backup() {
       onRelock(() => {
         setSecret(null);
         setDenied(true);
+        setRelocked(true);
         setStep((s) => (s === 'done' ? s : 'show'));
       }),
     [],
@@ -45,6 +48,7 @@ export default function Backup() {
   async function reveal() {
     if (!(await confirmUser('Show your wallet secret'))) {
       setDenied(true);
+      setRelocked(false);
       return;
     }
     setSecret(await storage.readSecret());
@@ -156,7 +160,13 @@ export default function Backup() {
           write it down too.
         </Banner>
       ) : null}
-      {denied ? <Body muted>Unlock was cancelled. Your secret stays hidden until you confirm it’s you.</Body> : null}
+      {denied ? (
+        <Body muted>
+          {relocked
+            ? 'NOID locked while you were away, so your secret is hidden again. Confirm it’s you to see it.'
+            : 'Unlock was cancelled. Your secret stays hidden until you confirm it’s you.'}
+        </Body>
+      ) : null}
       {!secret && !denied ? (
         <View style={{ alignItems: 'center', gap: space.md, paddingVertical: space.xxl }}>
           <ActivityIndicator color={colors.accent} />

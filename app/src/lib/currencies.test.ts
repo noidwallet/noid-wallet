@@ -75,3 +75,12 @@ test('typing in a currency needs a recent price (server age + time since it arri
   assert.equal(priceIsFresh({ usd: 1, ngn: null, ageMs: 14 * 60_000, receivedAt: now - 2 * 60_000 }, now), false);
   assert.equal(priceIsFresh({ usd: 1, ngn: null, ageMs: 0, receivedAt: now - 20 * 60_000 }, now), false);
 });
+
+test('"≈" values disappear when the price is old or distrusted', () => {
+  const now = 10_000_000_000;
+  const base = { usd: 0.6, ngn: null, rates: {}, source: 't', updatedAt: 0 };
+  assert.equal(fiatValue(10_000_000, { ...base, receivedAt: now - 30 * 60_000, ageMs: 0 }, 'usd', now), '≈ $6.00');
+  assert.equal(fiatValue(10_000_000, { ...base, receivedAt: now - 61 * 60_000, ageMs: 0 }, 'usd', now), null);
+  assert.equal(fiatValue(10_000_000, { ...base, receivedAt: now, ageMs: 2 * 3600_000 }, 'usd', now), null);
+  assert.equal(fiatValue(10_000_000, { ...base, receivedAt: now, typingOk: false }, 'usd', now), null);
+});

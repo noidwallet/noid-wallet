@@ -20,49 +20,133 @@ import { WALLET_FEE_ADDRESS, walletFeeFor } from './walletFee';
  * When the server says a payment was refused, its coins become free again and
  * the user usually tries once more. A dishonest server could relay the first
  * payment anyway and hide its coins, so the retry picks other coins and both
- * confirm. So for a while after a refusal:
+ * confirm. So after a refusal:
  *  - every coin of the refused payment must still be listed as unspent, and
  *  - the next payment must spend at least one of them,
  * which makes the two payments mutually exclusive: at most one can confirm.
+ *
+ * Every refusal is remembered, whatever reason the server gives, on disk (so a
+ * restart doesn't forget it), for at least 12 hours, and longer while the
+ * chain height says the refused transaction could still be mined (until the
+ * end of the epoch after the one it was built in; an epoch is 144 blocks,
+ * about 72 minutes). Heights come from the server, so they can only extend
+ * the 12 hours, never shorten them. When the refused coins have vanished, the
+ * user can override after checking Activity.
  */
-const REFUSED_FOR_MS = 30 * 60_000;
-let refused: { address: string; slots: number[]; at: number }[] = [];
+export interface Refusal {
+  address: string;
+  slots: number[];
+  at: number;
+  /** Chain height the refused transaction was built at. */
+  height?: number;
+}
+const REFUSED_MIN_MS = 12 * 3600_000;
+const EPOCH_BLOCKS = 144;
+let refused: Refusal[] = [];
+let refusalStore: { load: () => Refusal[]; save: (r: Refusal[]) => void } | null = null;
 
-function noteRefused(address: string, slots: number[], code: string) {
-  // "inputs_spent" means those coins really are gone (spent elsewhere), so the
-  // next payment cannot reuse them; remembering it would block sending for no reason.
-  if (code === 'inputs_spent' || !slots.length) return;
-  refused.push({ address, slots, at: Date.now() });
+/** Keep refusals on disk (the wallet sets this at start). */
+export function setRefusalStore(store: { load: () => Refusal[]; save: (r: Refusal[]) => void }) {
+  refusalStore = store;
+  try {
+    refused = store.load().filter((r) => r && typeof r.address === 'string' && Array.isArray(r.slots));
+  } catch {
+    refused = [];
+  }
+}
+
+function persist() {
+  try {
+    refusalStore?.save(refused);
+  } catch {
+    // Memory still holds it for this session.
+  }
+}
+
+/** Could the refused transaction still be mined? Exported for tests. */
+export function refusalLive(r: Refusal, now: number, height?: number): boolean {
+  if (now - r.at < REFUSED_MIN_MS) return true;
+  if (r.height === undefined || height === undefined) return false;
+  // Valid until the end of the epoch after the one it was built in.
+  return height < (Math.floor(r.height / EPOCH_BLOCKS) + 2) * EPOCH_BLOCKS;
+}
+
+function noteRefused(address: string, slots: number[], height?: number) {
+  if (!slots.length) return;
+  refused.push({ address, slots, at: Date.now(), ...(height !== undefined ? { height } : {}) });
+  persist();
 }
 
 export class RefusedButSpent extends Error {
   readonly code = 'refused_but_spent';
-  constructor() {
+  /**
+   * True when the refused payment's coins are no longer listed (it may have
+   * gone through). False when they are, but this payment can't use them.
+   */
+  readonly missing: boolean;
+  constructor(missing = true) {
     super(
-      'Your last payment was reported as refused, but the money it used is no longer in your balance. It may have gone through. Check Activity before paying again.',
+      missing
+        ? 'Your last payment was reported as refused, but the money it used is no longer in your balance. It may have gone through. Check Activity before paying again.'
+        : 'Your last payment was refused a short while ago. To be safe, the next payment must reuse the same money, and this one can’t. Try a different amount, or try again in a few hours.',
     );
+    this.missing = missing;
   }
 }
 
+/** Live refusals for `address` (pure read; used to steer coin choice). */
+function liveRefusals(address: string, now: number, height?: number): Refusal[] {
+  return refused.filter((r) => r.address === address && refusalLive(r, now, height));
+}
+
+/**
+ * Coins to leave out of the next plan so the core (which takes the largest
+ * coins first) starts with a refused coin: every other coin at least as large
+ * as the largest refused one. Null when nothing needs steering.
+ */
+export function steerToRefused(address: string, utxos: Utxo[], now = Date.now(), height?: number): number[] | null {
+  const live = liveRefusals(address, now, height);
+  if (!live.length) return null;
+  const listed = new Map(utxos.map((u) => [u.slotIndex, u.value]));
+  const refusedSlots = new Set(live.flatMap((r) => r.slots));
+  if ([...refusedSlots].some((s) => !listed.has(s))) return null; // checkRefusals reports it
+  const top = Math.max(...[...refusedSlots].map((s) => listed.get(s)!));
+  return utxos.filter((u) => !refusedSlots.has(u.slotIndex) && u.value >= top).map((u) => u.slotIndex);
+}
+
 /** Throws unless a new spend from `address` is safe given recent refusals. Exported for tests. */
-export function checkRefusals(address: string, utxos: Utxo[], inputSlots: number[], now = Date.now()) {
-  refused = refused.filter((r) => now - r.at < REFUSED_FOR_MS);
+export function checkRefusals(address: string, utxos: Utxo[], inputSlots: number[], now = Date.now(), height?: number) {
+  const before = refused.length;
+  refused = refused.filter((r) => refusalLive(r, now, height));
+  if (refused.length !== before) persist();
   const listed = new Set(utxos.map((u) => u.slotIndex));
   for (const r of refused) {
     if (r.address !== address) continue;
-    if (r.slots.some((s) => !listed.has(s))) throw new RefusedButSpent();
-    if (!r.slots.some((s) => inputSlots.includes(s))) throw new RefusedButSpent();
+    if (r.slots.some((s) => !listed.has(s))) throw new RefusedButSpent(true);
+    if (!r.slots.some((s) => inputSlots.includes(s))) throw new RefusedButSpent(false);
   }
+}
+
+/**
+ * The user checked Activity and wants to pay anyway (for example the coins
+ * really were spent from another wallet with the same secret).
+ */
+export function overrideRefusals(address: string) {
+  refused = refused.filter((r) => r.address !== address);
+  persist();
 }
 
 function clearRefusals(address: string, inputSlots: number[]) {
   // The new payment shares coins with these, so only one of them can ever confirm.
+  const before = refused.length;
   refused = refused.filter((r) => r.address !== address || !r.slots.some((s) => inputSlots.includes(s)));
+  if (refused.length !== before) persist();
 }
 
 /** For tests only. */
 export function resetRefusals() {
   refused = [];
+  refusalStore = null;
 }
 
 /**
@@ -125,16 +209,24 @@ export async function planSend(api: Api, address: string, pending: PendingTx[], 
   const [{ utxos }, ctx] = await Promise.all([api.utxos(address), api.status()]);
   const core = await getCore();
   const walletFee = walletFeeFor(amount);
-  const plan = await core.planSend({
-    utxos,
-    pendingInputSlots: pendingInputs(pending),
-    amount,
-    fee: null,
-    walletFee,
-    activeSlotCount: ctx.activeSlotCount,
-    logSlots: ctx.logSlots,
-    relayFloor: ctx.relayFloor,
-  });
+  const request = (skip: number[]) =>
+    core.planSend({
+      utxos,
+      pendingInputSlots: [...pendingInputs(pending), ...skip],
+      amount,
+      fee: null,
+      walletFee,
+      activeSlotCount: ctx.activeSlotCount,
+      logSlots: ctx.logSlots,
+      relayFloor: ctx.relayFloor,
+    });
+  let plan = await request([]);
+  // After a refusal the next payment must reuse one of its coins (see
+  // checkRefusals). If the usual choice doesn't, plan again starting from one.
+  const skip = steerToRefused(address, utxos, Date.now(), ctx.height);
+  if (skip && skip.length && !liveRefusals(address, Date.now(), ctx.height).every((r) => r.slots.some((s) => plan.selectedSlots.includes(s)))) {
+    plan = await request(skip).catch(() => plan);
+  }
   if (plan.walletFee !== walletFee) throw new Error('The wallet core planned a different wallet fee. Update NOID.');
   if (feeLooksWrong(plan.fee, amount)) throw suspiciousFee();
   return { plan, utxos };
@@ -188,7 +280,7 @@ export async function submitLoop(
     });
 
     // Claims spend the gift's coins, not this wallet's: tracked under the gift's address.
-    checkRefusals(c.address, utxos, built.inputSlots);
+    checkRefusals(c.address, utxos, built.inputSlots, Date.now(), prep.height);
 
     const record: PendingTx = {
       txid: built.txid,
@@ -202,6 +294,7 @@ export async function submitLoop(
       inputSlots: built.inputSlots,
       outputSlots: built.outputSlots,
       createdAt: Date.now(),
+      builtAtHeight: prep.height,
     };
     // Saved before sending: from here on, this exact transaction is the only one.
     await c.record(record);
@@ -213,7 +306,7 @@ export async function submitLoop(
       if (!(e instanceof ApiError) || e.ambiguous) throw new SubmitUnknown(built.txid);
       // The node clearly refused it, so it was never relayed and cannot confirm.
       await c.discard(built.txid);
-      noteRefused(c.address, built.inputSlots, e.code);
+      noteRefused(c.address, built.inputSlots, prep.height);
       lastError = e;
       if (!e.retryable) throw e;
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
@@ -296,7 +389,7 @@ export async function reconcileOne(api: Api, p: PendingTx, walletAddress?: strin
     return { ...p, state: 'submitted' };
   } catch (e) {
     if (e instanceof ApiError && !e.ambiguous && DEAD.has(e.code)) {
-      if (walletAddress && p.kind !== 'claim') noteRefused(walletAddress, p.inputSlots, e.code);
+      if (walletAddress && p.kind !== 'claim') noteRefused(walletAddress, p.inputSlots, p.builtAtHeight);
       return null;
     }
     return p;

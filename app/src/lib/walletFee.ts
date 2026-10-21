@@ -33,6 +33,14 @@ export function walletFeeFor(amount: number, rule: FeeRule = WALLET_FEE): number
   return Math.min(rule.max, Math.max(rule.min, pct));
 }
 
+/** Review-screen label: says when the minimum or maximum applies instead of the 0.25%. */
+export function walletFeeLabel(amount: number, fee: number, rule: FeeRule = WALLET_FEE): string {
+  const pct = Math.floor((amount * rule.bps) / 10_000);
+  if (fee === rule.min && pct < rule.min) return 'NOID wallet fee (minimum)';
+  if (fee === rule.max && pct > rule.max) return 'NOID wallet fee (maximum)';
+  return `NOID wallet fee (${rule.bps / 100}%)`;
+}
+
 /** "0.25%, at least 0.005 NOID, at most 0.5 NOID", for help text. */
 export const WALLET_FEE_TEXT = '0.25% of the amount (at least 0.005 NOID, at most 0.5 NOID)';
 

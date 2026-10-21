@@ -59,3 +59,20 @@ test("node HTTP errors on submit are never reported as a definite refusal", asyn
   assert.equal(e.transport, true);
   assert.equal(new RpcError("consensus: BadStateRoot").transport, false);
 });
+
+test("addresses/used: which of a batch have history, validated and capped", async () => {
+  const db = openDb(join(mkdtempSync(join(tmpdir(), "noidused-")), "t.sqlite"));
+  db.prepare(
+    "INSERT INTO address_txs (address, txid, height, time, direction, amount, fee, counterparty) VALUES (?, ?, 1, 0, 'received', 1, 0, NULL)",
+  ).run(A, "f".repeat(64));
+  const B = "o1e7mkgm5cm9ngrexup6wpgkzzy9qzp25fwl223epu2llkpa7ftz9sx0fcsx";
+  const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false });
+  const ok = await app.inject({ method: "POST", url: "/v1/addresses/used", payload: { addresses: [A, B, A] } });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual((ok.json() as { used: string[] }).used, [A]);
+  for (const addresses of [[], Array(201).fill(A), ["nope"], "x"]) {
+    const bad = await app.inject({ method: "POST", url: "/v1/addresses/used", payload: { addresses } });
+    assert.equal(bad.statusCode, 400);
+  }
+  await app.close();
+});

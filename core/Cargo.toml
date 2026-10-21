@@ -29,7 +29,7 @@ png = "=0.18.1"
 gif = "=0.14.2"
 tiff = "=0.11.3"
 image-webp = "=0.2.4"
-blake3 = { version = "=1.8.5", features = ["pure"] }  # pure Rust: same hashes, no C toolchain needed
+blake3 = { version = "=1.8.5", features = ["pure", "zeroize"] }  # pure Rust: same hashes, no C toolchain needed
 
 hex = "0.4"
 rand = "0.8"

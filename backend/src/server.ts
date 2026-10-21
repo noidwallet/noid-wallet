@@ -217,6 +217,25 @@ export async function buildServer(
     },
   );
 
+  /**
+   * Which of these addresses have any history (up to 200 at once). Used by
+   * "Find gifts" to check a whole day of gift addresses in one request.
+   */
+  app.post<{ Body: { addresses?: unknown } }>(
+    "/v1/addresses/used",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req) => {
+      const raw = req.body?.addresses;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.length > 200) throw badRequest("Send between 1 and 200 addresses.");
+      const list = [...new Set(raw.map((a) => address(String(a))))];
+      const marks = list.map(() => "?").join(",");
+      const rows = db.prepare(`SELECT DISTINCT address FROM address_txs WHERE address IN (${marks})`).all(...list) as {
+        address: string;
+      }[];
+      return { used: rows.map((r) => r.address) };
+    },
+  );
+
   /** Live coins of one address, straight from the node's verified State. */
   app.get<{ Params: { address: string } }>("/v1/address/:address/utxos", async (req) => {
     const a = address(req.params.address);

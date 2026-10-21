@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
 import { createDirectPrice } from '@/lib/directPrice';
 import { emitRelock } from '@/lib/lockEvents';
-import { onPushTokenChange } from '@/lib/push';
-import { reconcileOne } from '@/lib/send';
+import { disablePush, ensurePushChannel, onPushTokenChange } from '@/lib/push';
+import { reconcileOne, setRefusalStore } from '@/lib/send';
+import { perNoid } from '@/lib/currencies';
+import { judgePrice, type GuardState } from '@/lib/priceGuard';
 import {
   storage,
   type Contact,
@@ -89,12 +91,28 @@ export async function screenLockState(): Promise<LockState> {
 export async function authenticate(reason: string): Promise<boolean> {
   if ((await screenLockState()) === 'no-screen-lock') return true;
   // Strong (class 3) biometrics only; weaker face unlock falls back to the PIN.
-  const res = await LocalAuthentication.authenticateAsync({
-    promptMessage: reason,
-    disableDeviceFallback: false,
-    biometricsSecurityLevel: 'strong',
-  });
-  return res.success;
+  // Android 9 and 10 can't combine strong biometrics with the PIN fallback in
+  // one prompt (the prompt refuses to build), so there the standard
+  // "biometric or PIN" prompt is used.
+  const level = Platform.OS === 'android' && Number(Platform.Version) < 30 ? 'weak' : 'strong';
+  try {
+    const res = await LocalAuthentication.authenticateAsync({
+      promptMessage: reason,
+      disableDeviceFallback: false,
+      biometricsSecurityLevel: level,
+    });
+    return res.success;
+  } catch {
+    if (level === 'weak') return false;
+    // A phone that refuses the strong prompt for any other reason still gets
+    // asked for its lock, never let through.
+    const res = await LocalAuthentication.authenticateAsync({
+      promptMessage: reason,
+      disableDeviceFallback: false,
+      biometricsSecurityLevel: 'weak',
+    }).catch(() => ({ success: false }));
+    return res.success;
+  }
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -139,6 +157,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         storage.installId(),
         screenLockState().catch(() => 'secure' as LockState),
       ]);
+      setRefusalStore({ load: storage.loadRefusals, save: storage.saveRefusals });
       const p = storage.loadPending();
       pendingRef.current = p;
       setPending(p);
@@ -211,7 +230,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setStatus(st);
       // A failed price check keeps the last good price (it carries its own age),
       // so a value never flickers away mid-typing.
-      if (px) setPrice({ ...px, receivedAt: Date.now() });
+      if (px) {
+        // Typed currency amounts use this price: only if it isn't wildly off
+        // the last value this phone trusted (see lib/priceGuard).
+        let typingOk = true;
+        const per = perNoid(px, settings.currency);
+        if (per !== null && settings.currency) {
+          try {
+            const verdict = judgePrice(storage.loadPriceGuard() as GuardState, settings.currency, per, Date.now());
+            storage.savePriceGuard(verdict.next);
+            typingOk = verdict.ok;
+          } catch {
+            typingOk = false;
+          }
+        }
+        setPrice({ ...px, receivedAt: Date.now(), typingOk });
+      }
       else if (!wantPrice) setPrice(null);
       setUtxos(coins.utxos);
       if (hist) setHistory(hist.items);
@@ -246,6 +280,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // The server forgets notification subscriptions the app does not renew.
   useEffect(() => {
     if (!meta || !settings.pushToken || !settings.apiUrl) return;
+    void ensurePushChannel().catch(() => {});
     void api.pushSubscribe(meta.address, settings.pushToken).catch(() => {});
   }, [api, meta, settings.apiUrl, settings.pushToken]);
 
@@ -347,7 +382,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setMeta(m);
       },
       async removeWallet() {
-        if (meta && settings.pushToken) await api.pushUnsubscribe(meta.address, settings.pushToken).catch(() => {});
+        if (meta && settings.pushToken) await disablePush(api, meta.address, settings.pushToken);
         await storage.wipe();
         setContacts([]);
         setRecipients([]);
@@ -366,6 +401,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       },
       async setApiUrl(url: string) {
         const s = { ...settings, apiUrl: url.trim().replace(/\/+$/, '') };
+        // Moving to another server: the old one stops notifying this phone.
+        if (meta && settings.pushToken && s.apiUrl !== settings.apiUrl) {
+          await api.pushUnsubscribe(meta.address, settings.pushToken).catch(() => {});
+        }
         await storage.saveSettings(s);
         setSettings(s);
       },

@@ -22,7 +22,9 @@ export default function Server() {
     if (!isAllowedServerUrl(clean)) {
       setNote({
         tone: 'danger',
-        text: 'Use an https:// address. Plain http:// is only allowed for a test server on your own Wi-Fi.',
+        text: __DEV__
+          ? 'Use an https:// address. Plain http:// is only allowed for a test server on your own Wi-Fi.'
+          : 'Use an https:// address. This app only talks to servers over an encrypted connection.',
       });
       return;
     }

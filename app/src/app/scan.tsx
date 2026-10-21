@@ -67,7 +67,7 @@ export default function Scan() {
           if (!parseLink(r.data, LINK_HOSTS)) {
             cooldownUntil.current = Date.now() + 1500;
             void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            toast('That is not a NOID code');
+            toast('That is not a NOID code', 'danger');
             return;
           }
           done.current = true;

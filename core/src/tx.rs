@@ -306,7 +306,12 @@ pub fn plan_consolidation(
     if !(2..=MAX_CONSOLIDATION_INPUTS).contains(&max_inputs) {
         return Err(Error::msg(format!("Merge between 2 and {MAX_CONSOLIDATION_INPUTS} coins at a time.")));
     }
-    let mut available = spendable_utxos(utxos, &HashSet::new());
+    // Dust worth no more than the fee it adds is left alone, so someone
+    // sending many tiny coins can't make merging impossible.
+    let mut available: Vec<&Utxo> = spendable_utxos(utxos, &HashSet::new())
+        .into_iter()
+        .filter(|u| u.value > FEE_PER_INPUT)
+        .collect();
     available.sort_by_key(|u| (u.value, u.slot_index));
     if available.len() < 2 {
         return Err(Error::msg("You need at least two coins to consolidate."));
@@ -607,6 +612,17 @@ mod tests {
         assert_eq!(p.selected_input_slots, vec![1, 3, 2]);
         assert_eq!(p.fee, 5_000 + 300 + 700);
         assert_eq!(p.output_value, 900 + 20_000 + 50_000 - 6_000);
+    }
+
+    #[test]
+    fn consolidation_skips_dust() {
+        // 64 coins of 1 μNOID would otherwise be picked first and never cover the fee.
+        let mut utxos: Vec<Utxo> = (0..64).map(|i| u(i + 1, 1)).collect();
+        utxos.push(u(500, 40_000));
+        utxos.push(u(501, 60_000));
+        let p = plan_consolidation(&utxos, &HashSet::new(), 64, ctx()).unwrap();
+        assert_eq!(p.selected_input_slots, vec![500, 501]);
+        assert_eq!(p.output_value, 100_000 - (5_000 + 200 + 700));
     }
 
     #[test]

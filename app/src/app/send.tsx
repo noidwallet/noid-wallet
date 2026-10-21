@@ -30,9 +30,9 @@ import { parseLink, type ParsedLink } from '@/lib/links';
 import { go, goHandoff, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
 import { contactPick, scanResult } from '@/lib/scan';
-import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
+import { executeSend, FeeChanged, hasUnresolvedSend, overrideRefusals, planSend, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
-import { maxSendable, WALLET_FEE_TEXT } from '@/lib/walletFee';
+import { maxSendable, WALLET_FEE_TEXT, walletFeeLabel } from '@/lib/walletFee';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
 
@@ -61,6 +61,9 @@ export default function Send() {
   const [savedContact, setSavedContact] = useState(false);
   const [fromLink, setFromLink] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  // The plan whose review offered the override: a new review (new plan) hides it.
+  const [refusedFor, setRefusedFor] = useState<unknown>(null);
+  const refusedBlock = refusedFor !== null && refusedFor === plan;
 
   const fill = useCallback((p: ParsedLink) => {
     if (p.kind === 'gift') {
@@ -189,8 +192,13 @@ export default function Send() {
 
   function sendMax() {
     setError(null);
-    const coins = w.utxos.filter((u) => !lockedSlots.has(u.slotIndex));
-    if (!w.status || coins.length === 0) return;
+    // Coins worth no more than the network fee they add (100 μNOID each) would
+    // only lower the total, so "everything" leaves them out.
+    const coins = w.utxos.filter((u) => !lockedSlots.has(u.slotIndex) && u.value > 100);
+    if (!w.status || coins.length === 0) {
+      if (w.status && w.utxos.some((u) => !lockedSlots.has(u.slotIndex))) setError('Your balance is smaller than the fees.');
+      return;
+    }
     if (coins.length > 504) {
       setError('Your balance is in more than 504 pieces. Combine them first (Settings), then send everything.');
       return;
@@ -235,9 +243,12 @@ export default function Send() {
         return;
       }
       if (e instanceof FeeChanged && 'selectedSlots' in e.newPlan) {
+        setRefusedFor(null);
         setPlan(e.newPlan);
         setError(`The network fee is now ${formatNoid(e.newPlan.fee)} NOID. Review and confirm again.`);
       } else {
+        // Only when the refused coins vanished: otherwise the payment can be fixed by waiting.
+        setRefusedFor(e instanceof RefusedButSpent && e.missing ? plan : null);
         setError((e as Error).message);
       }
       setStep('review');
@@ -459,7 +470,7 @@ export default function Send() {
           <Banner tone="warn">First time paying this address. Confirm it with the person you are paying.</Banner>
         ) : null}
         <Card>
-          {plan.walletFee > 0 ? <KeyValue label="NOID wallet fee (0.25%)" value={withFiat(plan.walletFee)} /> : null}
+          {plan.walletFee > 0 ? <KeyValue label={walletFeeLabel(plan.amount, plan.walletFee)} value={withFiat(plan.walletFee)} /> : null}
           <KeyValue label="Network fee" value={withFiat(plan.fee)} />
           <KeyValue label="Total" value={withFiat(plan.totalSpend)} />
           {showDetails ? (
@@ -483,8 +494,25 @@ export default function Send() {
             before you send.
           </Banner>
         ) : null}
+        {available > 0 && plan.totalSpend >= available / 2 ? (
+          <Banner tone="warn" icon="warning">
+            This sends {Math.min(100, Math.round((plan.totalSpend / available) * 100))}% of your balance. Check the NOID amount above, not
+            only its value in your currency.
+          </Banner>
+        ) : null}
         <Banner tone="danger">Payments can’t be reversed. Check the address and amount.</Banner>
         {error ? <Banner tone="danger">{error}</Banner> : null}
+        {refusedBlock ? (
+          <Button
+            title="I checked Activity: allow this payment"
+            kind="secondary"
+            onPress={() => {
+              overrideRefusals(meta.address);
+              setRefusedFor(null);
+              setError(null);
+            }}
+          />
+        ) : null}
       </Screen>
     );
   }

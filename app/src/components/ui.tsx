@@ -534,37 +534,38 @@ export function SuccessMark({ tone = 'success' }: { tone?: Tone }) {
 
 // ---------------------------------------------------------------- toast
 
-let toastText: string | null = null;
+let toastState: { text: string; tone: 'success' | 'danger' } | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const toastListeners = new Set<() => void>();
 
-/** Short confirmation at the bottom of the screen ("Address copied"). */
-export function toast(text: string) {
-  toastText = text;
+/** Short note at the bottom of the screen: "Address copied", or a problem with `tone: 'danger'`. */
+export function toast(text: string, tone: 'success' | 'danger' = 'success') {
+  toastState = { text, tone };
   toastListeners.forEach((l) => l());
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
-    toastText = null;
+    toastState = null;
     toastListeners.forEach((l) => l());
-  }, 1800);
+  }, tone === 'danger' ? 2600 : 1800);
 }
 
 export function ToastHost() {
-  const text = useSyncExternalStore(
+  const state = useSyncExternalStore(
     (l) => {
       toastListeners.add(l);
       return () => {
         toastListeners.delete(l);
       };
     },
-    () => toastText,
+    () => toastState,
   );
-  if (!text) return null;
+  if (!state) return null;
+  const danger = state.tone === 'danger';
   return (
     <View pointerEvents="none" style={styles.toastWrap}>
-      <View style={styles.toast} accessibilityLiveRegion="polite">
-        <Icon name="check" size={18} color={colors.accent} />
-        <Text style={{ color: colors.text, fontFamily: fonts.uiSemi }}>{text}</Text>
+      <View style={styles.toast} accessibilityLiveRegion={danger ? 'assertive' : 'polite'}>
+        <Icon name={danger ? BANNER_ICON.danger : 'check'} size={18} color={danger ? tones.danger.fg : colors.accent} />
+        <Text style={{ color: colors.text, fontFamily: fonts.uiSemi }}>{state.text}</Text>
       </View>
     </View>
   );

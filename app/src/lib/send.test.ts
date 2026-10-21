@@ -2,7 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ApiError, type Api } from './api';
-import { checkRefusals, feeLooksWrong, hasUnresolvedSend, reconcileOne, RefusedButSpent, resetRefusals, submitLoop, SubmitUnknown } from './send';
+import {
+  checkRefusals,
+  feeLooksWrong,
+  hasUnresolvedSend,
+  overrideRefusals,
+  reconcileOne,
+  RefusedButSpent,
+  refusalLive,
+  resetRefusals,
+  setRefusalStore,
+  steerToRefused,
+  submitLoop,
+  SubmitUnknown,
+  type Refusal,
+} from './send';
 import type { BuiltTx, SendPlan, Utxo } from './core';
 import type { PendingTx } from './storage';
 import { WALLET_FEE_ADDRESS } from './walletFee';
@@ -165,11 +179,46 @@ test('refusal memory: a retry must share a coin with the refused payment', () =>
   const h = harness(['rejected']);
   return assert.rejects(submitLoop(h.common, 'send', 'o1to', 9000, h.build), /rejected/).then(() => {
     const utxos = [{ slotIndex: 7 }, { slotIndex: 8 }] as unknown as Utxo[];
-    assert.throws(() => checkRefusals('o1me', utxos, [8]), RefusedButSpent);
+    assert.throws(
+      () => checkRefusals('o1me', utxos, [8]),
+      (e: unknown) => e instanceof RefusedButSpent && !e.missing,
+      'coins still there but unused: no override offered',
+    );
+    assert.throws(() => checkRefusals('o1me', [{ slotIndex: 8 }] as unknown as Utxo[], [8]), (e: unknown) => e instanceof RefusedButSpent && e.missing);
     assert.doesNotThrow(() => checkRefusals('o1me', utxos, [7, 8]));
     assert.doesNotThrow(() => checkRefusals('o1other', [], [1]), 'other addresses unaffected');
-    assert.doesNotThrow(() => checkRefusals('o1me', [], [], Date.now() + 31 * 60_000), 'expires');
+    assert.throws(() => checkRefusals('o1me', [], [], Date.now() + 31 * 60_000), RefusedButSpent, 'still guarded after 30 min');
+    assert.throws(() => checkRefusals('o1me', [], [], Date.now() + 11 * 3600_000), RefusedButSpent, 'still guarded after 11 hours');
+    assert.doesNotThrow(() => checkRefusals('o1me', [], [], Date.now() + 13 * 3600_000), 'expires without a known height');
   });
+});
+
+test('refusal memory: every reason counts, survives a restart, lasts until the epoch is over', async () => {
+  // A server can claim "coins already spent" while relaying the payment anyway.
+  const h = harness(['spent']);
+  let disk: Refusal[] = [];
+  setRefusalStore({ load: () => disk, save: (r) => (disk = [...r]) });
+  await assert.rejects(submitLoop(h.common, 'send', 'o1to', 9000, h.build), /spent/);
+  assert.equal(disk.length, 1, 'saved to disk');
+  assert.equal(disk[0]!.height, 1, 'with the height it was built at');
+
+  // App restarted: memory reloads from disk and still blocks a payment that avoids coin 7.
+  resetRefusals();
+  setRefusalStore({ load: () => disk, save: (r) => (disk = [...r]) });
+  assert.throws(() => checkRefusals('o1me', [{ slotIndex: 9 }] as unknown as Utxo[], [9]), RefusedButSpent);
+
+  // At least 12 hours; longer while the next epoch (144 blocks) isn't over.
+  const r = disk[0]!;
+  assert.equal(refusalLive(r, r.at + 13 * 3600_000, 200), true, 'next epoch not over');
+  assert.equal(refusalLive(r, r.at + 13 * 3600_000, 288), false, 'two epochs on');
+  assert.equal(refusalLive(r, r.at + 11 * 3600_000, 10_000), true, 'a server height can never cut the 12 hours short');
+  assert.equal(refusalLive(r, r.at + 13 * 3600_000), false, 'no height: 12 hours');
+
+  // The user checked Activity and allows the payment.
+  overrideRefusals('o1me');
+  assert.deepEqual(disk, []);
+  assert.doesNotThrow(() => checkRefusals('o1me', [{ slotIndex: 9 }] as unknown as Utxo[], [9]));
+  resetRefusals();
 });
 
 test('fee sanity cap', () => {
@@ -197,4 +246,20 @@ test('a send with a wallet fee forges the fee output and records it', async () =
   assert.equal(forged.walletFee, 5_000);
   assert.equal(forged.walletFeeTo, WALLET_FEE_ADDRESS);
   assert.equal(res.pending.walletFee, 5_000);
+});
+
+test('refusal memory: the next plan is steered to start from a refused coin', () => {
+  resetRefusals();
+  let disk: Refusal[] = [{ address: 'o1me', slots: [7], at: Date.now(), height: 1 }];
+  setRefusalStore({ load: () => disk, save: (r) => (disk = [...r]) });
+  const utxos = [
+    { slotIndex: 7, value: 500, creationId: '1' },
+    { slotIndex: 8, value: 900, creationId: '2' },
+    { slotIndex: 9, value: 500, creationId: '3' },
+    { slotIndex: 10, value: 100, creationId: '4' },
+  ] as Utxo[];
+  assert.deepEqual(steerToRefused('o1me', utxos, Date.now(), 2), [8, 9], 'skip coins as large as the refused one');
+  assert.equal(steerToRefused('o1other', utxos), null);
+  assert.equal(steerToRefused('o1me', utxos.slice(1)), null, 'refused coin gone: nothing to steer, the check reports it');
+  resetRefusals();
 });

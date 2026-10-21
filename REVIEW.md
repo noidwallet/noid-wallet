@@ -1,4 +1,4 @@
-# Security review brief: NOID wallet 1.0.0
+# Security review brief: NOID wallet 1.0.1
 
 NOID is an Android wallet for Parano1d. Keys stay on the phone; the phone
 builds and proves every transaction itself (the official GKR authorization
@@ -63,7 +63,9 @@ cd backend && npm ci && npm test
 - `app/src/lib/storage.ts`: secret in Android Keystore-backed SecureStore,
   excluded from backups (`configureAndroidBackup`).
 - Unlock and confirmation: `app/src/state/wallet.tsx` (`authenticate`: strong
-  biometrics or device PIN), relock after 60 s in the background.
+  biometrics or device PIN; weak biometrics on Android 10 and older, where
+  the strong class isn't offered), relock after 60 s in the background, with
+  the screen hidden from screen readers while the lock cover is up.
 - Screens that show secrets block screenshots: `backup.tsx`, `gift/[index].tsx`.
 - Gift links carry the gift secret after `#` (`app/src/lib/links.ts`,
   `site/assets/gift.js`), which browsers never send to a server. Anyone with
@@ -77,9 +79,25 @@ fees, or withhold transactions; it can't spend. Defences in
 
 - Every built transaction is saved before it is submitted. If the answer is
   lost, the same intent is re-sent, never a new one (no double payment).
-- A refused payment's coins must be reused by the next payment for 30 min,
-  so a server that secretly relays a "refused" payment can't make two
-  confirm (`checkRefusals`).
+- A refused payment's coins must be reused by the next payment for at least
+  12 h, and longer while the chain height says the refused transaction could
+  still be mined (saved on disk; server heights can only extend it), so a
+  server that secretly relays a "refused" payment can't make two confirm
+  (`checkRefusals`). The next plan is steered to start from a refused coin
+  (`steerToRefused`). Only when the refused coins have vanished can the user
+  override, after checking Activity. Known gap: the guard covers 12 h or the
+  server's reported height, so if blocks slowed to over ~2.5 min on average a
+  hidden refused payment could still confirm after it lapses.
+- Server answers are checked before use (whole, non-negative amounts; a coin
+  list that adds up to the balance) and the server's own error text is never
+  shown; the app shows its own (`app/src/lib/api.ts`).
+- Amounts typed in a currency use the server's price only while it is fresh
+  and within 50% of an anchor price kept on the phone, which follows the
+  market at most once a day; a far-off price must hold for 24 h first
+  (`app/src/lib/priceGuard.ts`). A server could still walk the price down by
+  half a day. The review screen always
+  shows the NOID amount and warns when a payment is half the balance or more.
+- Release builds talk to servers over https only.
 - Fee sanity cap (`feeLooksWrong`); a fee that changes after review is never
   paid silently (`FeeChanged`).
 - The wallet fee address and rates are constants in the signed app
@@ -95,11 +113,13 @@ fees, or withhold transactions; it can't spend. Defences in
 - `indexer.ts`: history from retained block bodies.
 - Rate limits per IP; behind Caddy (`backend/deploy/Caddyfile`).
 
-## Known limits (accepted for 1.0.0)
+## Known limits (accepted for 1.0.1)
 
 - Privacy: the server sees which addresses a phone asks about and its IP.
 - The NOID price can come from CoinPaprika directly from the phone when the
-  server is blocked (display only; never used for amounts).
+  server is blocked. Like the server's price it converts typed currency
+  amounts only when fresh and passing the guard above; "≈" values hide after
+  an hour.
 - Android 7+ on 64-bit phones only.
 
 ## For the Parano1d developers

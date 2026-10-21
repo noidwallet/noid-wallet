@@ -94,6 +94,8 @@ impl MasterSecret {
         hasher.update(&self.0);
         hasher.update(&index.to_le_bytes());
         let mut out = *hasher.finalize().as_bytes();
+        // The hasher's state holds the master secret's bytes: wipe it too.
+        hasher.zeroize();
         let secret = MasterSecret(out);
         out.zeroize();
         secret
@@ -105,6 +107,7 @@ impl MasterSecret {
         let mut hasher = blake3::Hasher::new_derive_key(KEY_ID_CONTEXT);
         hasher.update(&self.0);
         let digest = hasher.finalize();
+        hasher.zeroize();
         let encoded = hex::encode(&digest.as_bytes()[..8]);
         format!("{}·{}·{}·{}", &encoded[..4], &encoded[4..8], &encoded[8..12], &encoded[12..])
     }
@@ -235,7 +238,9 @@ pub(crate) fn derive_image_secret(width: u32, height: u32, rgba: &[u8]) -> [u8; 
     hasher.update(&height.to_le_bytes());
     hasher.update(&(rgba.len() as u64).to_le_bytes());
     hasher.update(rgba);
-    *hasher.finalize().as_bytes()
+    let out = *hasher.finalize().as_bytes();
+    hasher.zeroize();
+    out
 }
 
 pub fn parse_address(address: &str) -> Result<Address, Error> {

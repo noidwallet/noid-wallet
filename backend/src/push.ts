@@ -115,7 +115,7 @@ export function fcmSender(path: string | undefined, log: (m: string) => void): P
   return {
     send: (token, title, body, data) =>
       post(
-        { token, notification: { title, body }, data, android: { priority: "high", notification: { channel_id: "payments" } } },
+        { token, notification: { title, body }, data, android: { priority: "high", notification: { channel_id: "payments-v2" } } },
         false,
       ),
     validate: (token) => post({ token, data: { check: "1" } }, true),

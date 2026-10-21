@@ -137,7 +137,9 @@ export function AmountField({
   if (inMoney && info) {
     const frozen = !priceOk;
     const shownNoid = frozen
-      ? 'Can’t get a current price right now. Switch to NOID to type the amount.'
+      ? price?.typingOk === false
+        ? 'The price moved sharply, so it can’t be trusted for typing amounts yet. Switch to NOID to type the amount.'
+        : 'Can’t get a current price right now. Switch to NOID to type the amount.'
       : micro !== null && micro > 0
         ? `= ${formatNoid(micro)} NOID at today’s price`
         : 'The NOID amount is worked out at today’s price';

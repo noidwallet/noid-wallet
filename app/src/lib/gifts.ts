@@ -9,7 +9,7 @@
 // The sender pays the claim fee up front, so the recipient gets exactly the
 // amount on the card.
 import { colors } from '../theme';
-import type { Api } from './api';
+import { ApiError, type Api } from './api';
 import type { GiftRecord } from './storage';
 
 /** Claim = 1 coin in, 1 coin out: base 5000 + 100 + 700, never state growth. */
@@ -41,10 +41,28 @@ export function giftDay(nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - GIFT_EPOCH_MS) / 86_400_000));
 }
 
+/**
+ * A phone that has never made a gift (new install or restore) starts halfway
+ * through today's numbers: the same wallet on another phone may have used
+ * today's first numbers already, and its newest gift may not be on the server
+ * yet. "Find gifts" scans every number of a day, so nothing is missed.
+ */
+export const FRESH_PHONE_OFFSET = 50;
+/** Plus a random 0-39, so two phones restored the same day rarely pick the same number. */
+export const FRESH_PHONE_SPREAD = 40;
+
 /** Next unused gift number: today's slots, above anything used before on this phone. */
-export function pickGiftIndex(gifts: GiftRecord[], highWater: number, nowMs: number = Date.now()): number {
+export function pickGiftIndex(
+  gifts: GiftRecord[],
+  highWater: number,
+  nowMs: number = Date.now(),
+  random: () => number = Math.random,
+): number {
   const used = new Set(gifts.map((g) => g.index));
-  let index = Math.max(giftDay(nowMs) * GIFTS_PER_DAY, highWater + 1, ...gifts.map((g) => g.index + 1));
+  const freshPhone = highWater < 0 && gifts.length === 0;
+  const spread = Math.min(FRESH_PHONE_SPREAD - 1, Math.floor(random() * FRESH_PHONE_SPREAD));
+  const dayStart = giftDay(nowMs) * GIFTS_PER_DAY + (freshPhone ? FRESH_PHONE_OFFSET + spread : 0);
+  let index = Math.max(dayStart, highWater + 1, ...gifts.map((g) => g.index + 1));
   while (used.has(index)) index++;
   return index;
 }
@@ -126,40 +144,83 @@ export async function giftState(api: Api, g: GiftRecord): Promise<GiftState> {
   return takeBack?.status === 'confirmed' ? 'takenBack' : 'claimed';
 }
 
+/** Retry when the server says "too many requests", waiting a little longer each time. */
+async function withBackoff<T>(fn: () => Promise<T>, sleep: (ms: number) => Promise<void>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 429 || attempt >= 5) throw e;
+      await sleep(10_000 * (attempt + 1));
+    }
+  }
+}
+
 /**
- * "Find gifts" after a restore: walk every day since gift numbers began. Each
- * day's numbers are used in order (day x 100, +1, +2 ...), so a day is done
- * after `gap` numbers in a row that never had any activity. Any used number
- * not already on this phone that still holds NOID is returned.
+ * "Find gifts" after a restore: check every gift number of every day since
+ * gift numbers began (and tomorrow's, which a busy day spills into). Each day
+ * is one request to the server; any used number not already on this phone
+ * that still holds NOID is returned. Servers without that request are asked
+ * address by address, up to 10 unused numbers in a row per day.
  */
 export async function findLostGifts(
   api: Api,
   addressesFrom: (start: number, count: number) => Promise<{ index: number; address: string }[]>,
   known: GiftRecord[],
-  opts: { nowMs?: number; gap?: number; onProgress?: (done: number, total: number) => void } = {},
+  opts: {
+    nowMs?: number;
+    gap?: number;
+    onProgress?: (done: number, total: number) => void;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<{ index: number; address: string; balance: number }[]> {
-  const gap = opts.gap ?? 2;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const gap = opts.gap ?? 10;
   const today = giftDay(opts.nowMs ?? Date.now());
   const have = new Set(known.map((g) => g.address));
   const found: { index: number; address: string; balance: number }[] = [];
-  for (let d = today; d >= 0; d--) {
-    let misses = 0;
-    for (let k = 0; k < GIFTS_PER_DAY && misses < gap; k += 4) {
-      const batch = await addressesFrom(d * GIFTS_PER_DAY + k, Math.min(4, GIFTS_PER_DAY - k));
-      const used = await Promise.all(batch.map((a) => api.history(a.address).then((h) => h.items.length > 0)));
-      for (let i = 0; i < batch.length && misses < gap; i++) {
-        if (!used[i]) {
+  let oneRequest = true;
+
+  const keepIfFunded = async (a: { index: number; address: string }) => {
+    if (have.has(a.address)) return;
+    const { balance } = await withBackoff(() => api.utxos(a.address), sleep);
+    if (balance > 0) found.push({ ...a, balance });
+  };
+
+  for (let d = today + 1; d >= 0; d--) {
+    const day = await addressesFrom(d * GIFTS_PER_DAY, GIFTS_PER_DAY);
+    if (oneRequest) {
+      try {
+        const { used } = await withBackoff(() => api.addressesUsed(day.map((a) => a.address)), sleep);
+        const usedSet = new Set(used);
+        for (const a of day) if (usedSet.has(a.address)) await keepIfFunded(a);
+        opts.onProgress?.(today + 1 - d + 1, today + 2);
+        continue;
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 404) throw e;
+        oneRequest = false; // older server: ask address by address
+      }
+    }
+    // Two runs per day: from number 0, and from 50, where a freshly
+    // restored phone starts (up to 39 numbers further on).
+    const runs: [typeof day, number][] = [
+      [day.slice(0, FRESH_PHONE_OFFSET), gap],
+      [day.slice(FRESH_PHONE_OFFSET), Math.max(gap, FRESH_PHONE_SPREAD)],
+    ];
+    for (const [run, runGap] of runs) {
+      let misses = 0;
+      for (const a of run) {
+        if (misses >= runGap) break;
+        const h = await withBackoff(() => api.history(a.address), sleep);
+        if (h.items.length === 0) {
           misses++;
           continue;
         }
         misses = 0;
-        const a = batch[i]!;
-        if (have.has(a.address)) continue;
-        const { balance } = await api.utxos(a.address);
-        if (balance > 0) found.push({ ...a, balance });
+        await keepIfFunded(a);
       }
     }
-    opts.onProgress?.(today - d + 1, today + 1);
+    opts.onProgress?.(today + 1 - d + 1, today + 2);
   }
   return found;
 }

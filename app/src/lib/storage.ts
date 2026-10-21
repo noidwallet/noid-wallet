@@ -9,13 +9,17 @@ import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 
+import { isAllowedServerUrl } from './api';
 import type { Currency } from './safety';
+import type { Refusal } from './send';
 
 const SECRET = 'noid.master.v1';
 const META = 'noid.meta.v1';
 const SETTINGS = 'noid.settings.v1';
 const INSTALL_ID = 'noid.install.v1';
 const PENDING_FILE = 'pending-v2.json';
+const REFUSALS_FILE = 'refusals-v1.json';
+const PRICE_GUARD_FILE = 'price-guard-v1.json';
 const CONTACTS_FILE = 'contacts-v1.json';
 const GIFTS_FILE = 'gifts-v1.json';
 const SNAPSHOT_FILE = 'snapshot-v1.json';
@@ -102,6 +106,8 @@ export interface PendingTx {
   fee: number;
   /** NOID wallet fee paid with it (sends and gifts). */
   walletFee?: number;
+  /** Chain height it was built at (it can be mined until its epoch ends). */
+  builtAtHeight?: number;
   inputSlots: number[];
   outputSlots: number[];
   createdAt: number;
@@ -126,25 +132,31 @@ async function readJson<T>(key: string): Promise<T | null> {
   }
 }
 
-function pendingFile() {
-  return new File(Paths.document, PENDING_FILE);
-}
-
-function readFileJson<T>(name: string, fallback: T): T {
+function parseFile<T>(name: string): T | undefined {
   try {
     const f = new File(Paths.document, name);
-    if (!f.exists) return fallback;
-    const parsed = JSON.parse(f.textSync()) as T;
-    return parsed ?? fallback;
+    if (!f.exists) return undefined;
+    return (JSON.parse(f.textSync()) as T) ?? undefined;
   } catch {
-    return fallback;
+    return undefined;
   }
 }
 
+/** The saved copy, or the new copy a write left behind if it was cut off before the swap. */
+function readFileJson<T>(name: string, fallback: T): T {
+  return parseFile<T>(name) ?? parseFile<T>(`${name}.tmp`) ?? fallback;
+}
+
+/**
+ * Write a whole new copy, then swap it in. A crash or a dead battery mid-write
+ * leaves either the old file or the new one intact, never half of each.
+ */
 function writeFileJson(name: string, value: unknown) {
-  const f = new File(Paths.document, name);
-  if (!f.exists) f.create();
-  f.write(JSON.stringify(value));
+  const tmp = new File(Paths.document, `${name}.tmp`);
+  if (tmp.exists) tmp.delete();
+  tmp.create();
+  tmp.write(JSON.stringify(value));
+  tmp.moveSync(new File(Paths.document, name), { overwrite: true });
 }
 
 export const storage = {
@@ -160,7 +172,11 @@ export const storage = {
   loadMeta: () => readJson<WalletMeta>(META),
   saveMeta: (m: WalletMeta) => SecureStore.setItemAsync(META, JSON.stringify(m)),
   async loadSettings(): Promise<Settings> {
-    return { apiUrl: defaultApiUrl, ...((await readJson<Partial<Settings>>(SETTINGS)) ?? {}) };
+    const s: Settings = { apiUrl: defaultApiUrl, ...((await readJson<Partial<Settings>>(SETTINGS)) ?? {}) };
+    // A server address this build no longer accepts (plain http in a release
+    // build) falls back to the built-in one.
+    if (s.apiUrl && !isAllowedServerUrl(s.apiUrl)) s.apiUrl = defaultApiUrl;
+    return s;
   },
   saveSettings: (s: Settings) => SecureStore.setItemAsync(SETTINGS, JSON.stringify(s)),
 
@@ -175,20 +191,23 @@ export const storage = {
   },
 
   loadPending(): PendingTx[] {
-    try {
-      const f = pendingFile();
-      if (!f.exists) return [];
-      const parsed = JSON.parse(f.textSync()) as PendingTx[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+    const parsed = readFileJson<unknown>(PENDING_FILE, []);
+    return Array.isArray(parsed) ? (parsed as PendingTx[]) : [];
   },
   savePending(p: PendingTx[]) {
-    const f = pendingFile();
-    if (!f.exists) f.create();
-    f.write(JSON.stringify(p));
+    writeFileJson(PENDING_FILE, p);
   },
+
+  /** Refused payments still guarded against (see lib/send.ts). */
+  loadRefusals: () => {
+    const r = readFileJson<unknown>(REFUSALS_FILE, []);
+    return Array.isArray(r) ? (r as Refusal[]) : [];
+  },
+  saveRefusals: (r: Refusal[]) => writeFileJson(REFUSALS_FILE, r),
+
+  /** Last trusted value of 1 NOID per currency (see lib/priceGuard.ts). */
+  loadPriceGuard: () => readFileJson<Record<string, unknown>>(PRICE_GUARD_FILE, {}),
+  savePriceGuard: (g: Record<string, unknown>) => writeFileJson(PRICE_GUARD_FILE, g),
 
   loadSnapshot(address: string): Snapshot | null {
     const s = readFileJson<Snapshot | null>(SNAPSHOT_FILE, null);
@@ -233,7 +252,9 @@ export const storage = {
 
   async wipe() {
     await Promise.all([SECRET, META].map((k) => SecureStore.deleteItemAsync(k)));
-    for (const name of [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE]) {
+    const files = [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE, REFUSALS_FILE, PRICE_GUARD_FILE];
+    // Also the half-written copies, so an old wallet's list can never come back.
+    for (const name of [...files, ...files.map((n) => `${n}.tmp`)]) {
       try {
         const f = new File(Paths.document, name);
         if (f.exists) f.delete();

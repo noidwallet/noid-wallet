@@ -12,7 +12,8 @@ import { claimFee, freshGiftIndex, newGiftRecord, pickGiftIndex } from '@/lib/gi
 import { GIFT_THEMES, MAX_GIFT_FROM, MAX_GIFT_MESSAGE, type GiftTheme } from '@/lib/links';
 import { useArmed, useHardwareBack } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
-import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
+import { executeSend, FeeChanged, hasUnresolvedSend, overrideRefusals, planSend, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
+import { walletFeeLabel } from '@/lib/walletFee';
 import { storage, type GiftRecord } from '@/lib/storage';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space } from '@/theme';
@@ -33,6 +34,9 @@ export default function NewGift() {
   const [fee, setFee] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The plan whose review offered the override: a new review (new plan) hides it.
+  const [refusedFor, setRefusedFor] = useState<unknown>(null);
+  const refusedBlock = refusedFor !== null && refusedFor === plan;
   // "Create gift card" sits where "Review" was: no tap-through (see useArmed).
   const armed = useArmed(step === 'review' ? plan : null);
 
@@ -124,9 +128,11 @@ export default function NewGift() {
       // Definitely not sent: forget the draft so its number is reused.
       if (record) w.removeGift(record.index);
       if (e instanceof FeeChanged && 'selectedSlots' in e.newPlan) {
+        setRefusedFor(null);
         setPlan(e.newPlan);
         setError(`The network fee is now ${formatNoid(e.newPlan.fee)} NOID. Review and confirm again.`);
       } else {
+        setRefusedFor(e instanceof RefusedButSpent && e.missing ? plan : null);
         setError((e as Error).message);
       }
       setStep('review');
@@ -161,7 +167,7 @@ export default function NewGift() {
           <KeyValue label="They receive" value={`${shownAmount} NOID`} />
           {value ? <KeyValue label="Worth" value={value} /> : null}
           <KeyValue label="Their claim fee (you cover it)" value={`${formatNoid(fee)} NOID`} />
-          {plan.walletFee > 0 ? <KeyValue label="NOID wallet fee (0.25%)" value={`${formatNoid(plan.walletFee)} NOID`} /> : null}
+          {plan.walletFee > 0 ? <KeyValue label={walletFeeLabel(plan.amount, plan.walletFee)} value={`${formatNoid(plan.walletFee)} NOID`} /> : null}
           <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           <KeyValue label="Total from your wallet" value={`${formatNoid(plan.totalSpend)} NOID`} />
         </Card>
@@ -176,6 +182,17 @@ export default function NewGift() {
           back.
         </Banner>
         {error ? <Banner tone="danger">{error}</Banner> : null}
+        {refusedBlock && w.meta ? (
+          <Button
+            title="I checked Activity: allow this payment"
+            kind="secondary"
+            onPress={() => {
+              if (w.meta) overrideRefusals(w.meta.address);
+              setRefusedFor(null);
+              setError(null);
+            }}
+          />
+        ) : null}
       </Screen>
     );
   }
