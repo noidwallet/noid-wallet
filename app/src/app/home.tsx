@@ -13,6 +13,7 @@ import { formatNoid, shortAddress } from '@/lib/amount';
 import { LINK_HOSTS } from '@/lib/config';
 import { inbox } from '@/lib/inbox';
 import { parseLink } from '@/lib/links';
+import { useCopied } from '@/lib/clip';
 import { ago, go, goHandoff, useNow } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { nextRoute, scanResult } from '@/lib/scan';
@@ -29,6 +30,7 @@ export default function Home() {
   const [showAllBanners, setShowAllBanners] = useState(false);
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const now = useNow();
+  const copied = useCopied();
 
   // A gift or payment link (or a code scanned from here) takes the user straight to it.
   const handleInbox = useCallback(() => {
@@ -366,11 +368,12 @@ export default function Home() {
             ) : null}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Copy your address"
+              accessibilityLabel={copied.isCopied() ? 'Address copied' : 'Copy your address'}
               hitSlop={8}
               onPress={async () => {
                 await Clipboard.setStringAsync(meta.address);
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                copied.mark();
                 toast('Address copied');
               }}
               style={({ pressed }) => ({
@@ -395,7 +398,7 @@ export default function Home() {
               >
                 {shortAddress(meta.address, 8)}
               </Text>
-              <Icon name="copy" size={16} color={colors.textSecondary} />
+              <Icon name={copied.isCopied() ? 'check' : 'copy'} size={16} color={copied.isCopied() ? colors.accent : colors.textSecondary} />
             </Pressable>
           </View>
         </View>

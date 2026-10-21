@@ -4,6 +4,7 @@ import { Share, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Body, IconAction, Screen, toast } from '@/components/ui';
+import { useCopied } from '@/lib/clip';
 import { go } from '@/lib/nav';
 import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
@@ -11,6 +12,7 @@ import { colors, radius, space, type } from '@/theme';
 
 export default function Receive() {
   const { meta } = useWallet();
+  const copied = useCopied();
   if (!meta) return null;
 
   return (
@@ -36,12 +38,13 @@ export default function Receive() {
       </Text>
       <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', paddingTop: space.md }}>
         <IconAction
-          icon="copy"
-          label="Copy"
+          icon={copied.isCopied() ? 'check' : 'copy'}
+          label={copied.isCopied() ? 'Copied' : 'Copy'}
           highlight
           onPress={async () => {
             await Clipboard.setStringAsync(meta.address);
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            copied.mark();
             toast('Address copied');
           }}
         />

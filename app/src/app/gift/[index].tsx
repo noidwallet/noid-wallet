@@ -7,7 +7,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { GiftCard, RevealGiftCard } from '@/components/GiftCard';
 import { LogoMark } from '@/components/Logo';
 import { Banner, Body, Button, Card, IconAction, KeyValue, Pill, Screen, SuccessMark } from '@/components/ui';
-import { copySensitive } from '@/lib/clip';
+import { copySensitive, useCopied } from '@/lib/clip';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { LINK_BASE } from '@/lib/config';
 import { core } from '@/lib/core';
@@ -28,6 +28,7 @@ export default function GiftDetail() {
   const params = useLocalSearchParams<{ index: string; fresh?: string }>();
   const index = Number(params.index);
   const w = useWallet();
+  const copied = useCopied();
   const gift = w.gifts.find((g) => g.index === index);
   const [link, setLink] = useState<string | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);
@@ -245,7 +246,14 @@ export default function GiftDetail() {
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-evenly' }}>
             <IconAction icon="share" label="Share link" highlight onPress={() => Share.share({ message: shareText }).catch(() => {})} />
-            <IconAction icon="copy" label="Copy link" onPress={() => void copySensitive(link, 'Gift link')} />
+            <IconAction
+              icon={copied.isCopied() ? 'check' : 'copy'}
+              label={copied.isCopied() ? 'Copied' : 'Copy link'}
+              onPress={() => {
+                copied.mark();
+                void copySensitive(link, 'Gift link');
+              }}
+            />
             <IconAction icon="image" label="Share image" onPress={() => void shareImage()} />
           </View>
           <Banner tone="warn">The link, the QR code and the card image are the gift. Anyone who gets them can claim it.</Banner>

@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -9,6 +10,30 @@ export async function copyText(text: string, what: string) {
   await Clipboard.setStringAsync(text);
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   toast(`${what} copied`);
+}
+
+/**
+ * Which copy button was just used, for 1.5 s: copy icons turn into a check
+ * where you tapped, so you see it worked without looking for the toast.
+ */
+export function useCopied(ms = 1500) {
+  const [which, setWhich] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const mark = useCallback(
+    (key = 'copy') => {
+      setWhich(key);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setWhich(null), ms);
+    },
+    [ms],
+  );
+  return { isCopied: (key = 'copy') => which === key, mark };
 }
 
 // Something worth money (a gift link) is wiped from the clipboard after a

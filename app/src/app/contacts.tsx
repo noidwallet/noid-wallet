@@ -18,7 +18,7 @@ import {
   toneFor,
 } from '@/components/ui';
 import { shortAddress } from '@/lib/amount';
-import { copyText } from '@/lib/clip';
+import { copyText, useCopied } from '@/lib/clip';
 import { LINK_HOSTS } from '@/lib/config';
 import { core } from '@/lib/core';
 import { parseLink } from '@/lib/links';
@@ -31,6 +31,7 @@ import { space } from '@/theme';
 export default function Contacts() {
   const { pick } = useLocalSearchParams<{ pick?: string }>();
   const w = useWallet();
+  const copied = useCopied();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -177,7 +178,15 @@ export default function Contacts() {
                     }} />
                 </View>
                 <View style={{ flex: 1, minWidth: 96 }}>
-                  <Button title="Copy" icon="copy" kind="secondary" onPress={() => void copyText(c.address, 'Address')} />
+                  <Button
+                    title={copied.isCopied(c.id) ? 'Copied' : 'Copy'}
+                    icon={copied.isCopied(c.id) ? 'check' : 'copy'}
+                    kind="secondary"
+                    onPress={() => {
+                      copied.mark(c.id);
+                      void copyText(c.address, 'Address');
+                    }}
+                  />
                 </View>
                 <View style={{ flex: 1, minWidth: 96 }}>
                   {confirmRemove ? (

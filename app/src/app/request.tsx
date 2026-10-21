@@ -9,7 +9,7 @@ import { RequestCard } from '@/components/RequestCard';
 import { makeNameOf, when } from '@/components/TxRow';
 import { Banner, Body, Button, Field, IconAction, Screen, toast } from '@/components/ui';
 import { formatNoid, parseNoid } from '@/lib/amount';
-import { copyText } from '@/lib/clip';
+import { copyText, useCopied } from '@/lib/clip';
 import { LINK_BASE } from '@/lib/config';
 import { MAX_NOTE, payLink } from '@/lib/links';
 import { go, useHardwareBack } from '@/lib/nav';
@@ -24,6 +24,7 @@ const WATCH_MS = 6_000;
 
 export default function Request() {
   const w = useWallet();
+  const copied = useCopied();
   const [amountText, setAmountText] = useState('');
   // Currency text that can't be turned into an amount (see AmountField).
   const [amountInvalid, setAmountInvalid] = useState(false);
@@ -150,7 +151,14 @@ export default function Request() {
         {shareError ? <Banner tone="danger">{shareError}</Banner> : null}
 
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: space.xxl }}>
-          <IconAction icon="copy" label="Copy link" onPress={() => void copyText(link, 'Request link')} />
+          <IconAction
+            icon={copied.isCopied() ? 'check' : 'copy'}
+            label={copied.isCopied() ? 'Copied' : 'Copy link'}
+            onPress={() => {
+              copied.mark();
+              void copyText(link, 'Request link');
+            }}
+          />
           <IconAction icon="share" label="Share link" onPress={shareLink} />
           <IconAction icon="request" label="Edit" onPress={() => setMade(null)} />
         </View>

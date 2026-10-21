@@ -8,6 +8,7 @@ import { makeFiatOf, makeNameOf, TX_LABEL, when } from '@/components/TxRow';
 import { Avatar, Banner, Card, IconButton, KeyValue, Pill, Screen, Skeleton, toast } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
+import { useCopied } from '@/lib/clip';
 import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
@@ -21,6 +22,7 @@ async function copy(text: string, what: string) {
 export default function TxDetail() {
   const { txid } = useLocalSearchParams<{ txid: string }>();
   const { api, history, pending, contacts, price, settings } = useWallet();
+  const copied = useCopied();
   const [status, setStatus] = useState<TxStatus | null>(null);
   const [lookupDone, setLookupDone] = useState(false);
   const item = history.find((h) => h.txid === txid);
@@ -98,7 +100,15 @@ export default function TxDetail() {
         <Card>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={type.caption}>{partyLabel}</Text>
-            <IconButton icon="copy" label="Copy address" size={36} onPress={() => void copy(counterparty, 'Address')} />
+            <IconButton
+              icon={copied.isCopied('address') ? 'check' : 'copy'}
+              label={copied.isCopied('address') ? 'Address copied' : 'Copy address'}
+              size={36}
+              onPress={() => {
+                copied.mark('address');
+                void copy(counterparty, 'Address');
+              }}
+            />
           </View>
           <Text style={type.title}>{nameOf(counterparty)}</Text>
           <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
@@ -120,7 +130,15 @@ export default function TxDetail() {
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={type.caption}>Transaction ID</Text>
-          {txid ? <IconButton icon="copy" label="Copy transaction ID" size={36} onPress={() => void copy(txid, 'Transaction ID')} /> : null}
+          {txid ? <IconButton
+              icon={copied.isCopied('txid') ? 'check' : 'copy'}
+              label={copied.isCopied('txid') ? 'Transaction ID copied' : 'Copy transaction ID'}
+              size={36}
+              onPress={() => {
+                copied.mark('txid');
+                void copy(txid, 'Transaction ID');
+              }}
+            /> : null}
         </View>
         <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
           {txid}
