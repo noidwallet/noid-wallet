@@ -5,7 +5,8 @@ wallet: no full node on the phone. Keys and zero-knowledge proofs stay on the
 device. A small server you run relays finished transactions and keeps history.
 
 Made by Primal ([@Solid_Primal](https://x.com/Solid_Primal)) and David Peluola
-([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com. NOID is an
+([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com. Official
+X account: [@No1d_Wallet](https://x.com/No1d_Wallet). NOID is an
 independent, open-source wallet; it is not made or endorsed by the Parano1d
 project.
 

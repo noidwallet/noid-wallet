@@ -114,6 +114,14 @@
         {
           "label": "Website",
           "url": "https://noidusa.com"
+        },
+        {
+          "label": "X (Twitter)",
+          "url": "https://x.com/No1d_Wallet"
+        },
+        {
+          "label": "Source code",
+          "url": "https://github.com/noidwallet/noid-wallet"
         }
       ]
     }
