@@ -5,7 +5,9 @@ wallet: no full node on the phone. Keys and zero-knowledge proofs stay on the
 device. A small server you run relays finished transactions and keeps history.
 
 Made by Primal ([@Solid_Primal](https://x.com/Solid_Primal)) and David Peluola
-([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com.
+([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com. NOID is an
+independent, open-source wallet; it is not made or endorsed by the Parano1d
+project.
 
 ```
 core/      Rust wallet core: keys, Photo Key, fee planning, tx building, proof
@@ -76,6 +78,29 @@ your domain, with link-preview images for chat apps (redraw them with
 
 Build and run: see [SETUP-WINDOWS.md](SETUP-WINDOWS.md). Put it online on a
 server and your domain: see [SETUP-SERVER.md](SETUP-SERVER.md).
+
+## Verify your download
+
+Only install NOID from https://noidusa.com. The page lists the APK's SHA-256,
+and every release is signed with the same key, whose SHA-256 certificate
+fingerprint is:
+
+```
+2B:DC:35:EA:06:B7:C9:AB:F3:E1:23:E2:91:B1:E5:1C:0B:3C:D9:59:43:23:E9:5A:59:6E:5C:C4:7B:82:93:5B
+```
+
+(also in `site/.well-known/assetlinks.json`). Check a download with
+`apksigner verify --print-certs noid-<version>.apk`. Android refuses an update
+signed with any other key. To build it yourself, follow SETUP-WINDOWS.md and
+SETUP-RELEASE.md (your own build is signed with your own key, so it installs
+as a separate app only after removing NOID).
+
+## Security
+
+Please report security problems privately, not in public issues: see
+[SECURITY.md](SECURITY.md). [REVIEW.md](REVIEW.md) is a guided tour of the
+parts that matter most (keys, the send flow, an untrusted server) for anyone
+reviewing the code.
 
 ## License
 Apache-2.0. Includes code adapted from Parano1d (Apache-2.0); see NOTICE.

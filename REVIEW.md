@@ -10,8 +10,7 @@ Thank you for looking. The most useful review is of the Rust core (section 1)
 and of the questions in "For the Parano1d developers" below. NOID is made by
 Primal (https://x.com/Solid_Primal) and David Peluola
 (https://x.com/0xdavee_), who wrote the code. Please report findings
-privately to David (Telegram @dpeluola, or 79669430+Adeolu05@users.noreply.github.com), not
-in public channels.
+privately (see SECURITY.md), not in public channels.
 
 ## Layout
 
