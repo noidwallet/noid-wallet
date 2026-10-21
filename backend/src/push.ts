@@ -2,13 +2,16 @@
 //
 // Privacy: a subscription links a phone's push token to a public address on
 // this server. It is opt-in in the app, can be removed at any time, and holds
-// nothing secret. Only the txid is sent through Google; no addresses.
+// nothing secret. Google (FCM) delivers the message: it sees the amount and
+// the txid (which, on the public chain, points to the receiving address), but
+// no address is written in the message itself.
 //
 // Abuse limits: tokens are checked with FCM (validate_only) before they are
-// stored, a token watches at most 5 addresses, an address keeps its 10 most
-// recent tokens (older ones are evicted) and gains at most 3 new phones an
-// hour, while renewing an existing phone is always allowed,
-// rows expire unless the app renews them, and the table has a global cap.
+// stored; a token watches at most 5 addresses; an address holds at most 10
+// phones and never evicts one that is still renewed, so nobody can push an
+// owner's phone out; renewing an existing phone is always allowed; new phones
+// are limited per address (3 an hour) and per client IP (10 an hour); rows
+// expire unless the app renews them, and the table has a global cap.
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -91,16 +94,17 @@ export function fcmSender(path: string | undefined, log: (m: string) => void): P
       });
       if (res.ok) return "ok";
       const text = await res.text();
-      // Uninstalled app, rotated token, made-up token or another app's token: forget it.
+      // Uninstalled app, rotated token, made-up token or another app's token:
+      // forget it. Anything else (wrong project, a bug in our message) is our
+      // problem, not the phone's: keep the token and log it.
       if (
-        res.status === 404 ||
         text.includes("UNREGISTERED") ||
-        text.includes("INVALID_ARGUMENT") ||
-        text.includes("SENDER_ID_MISMATCH")
+        text.includes("SENDER_ID_MISMATCH") ||
+        (text.includes("INVALID_ARGUMENT") && /registration token/i.test(text))
       ) {
         return "gone";
       }
-      log(`push: FCM HTTP ${res.status}`);
+      log(`push: FCM HTTP ${res.status}: ${text.slice(0, 200)}`);
       return "error";
     } catch (e) {
       log(`push: ${(e as Error).message}`);
@@ -122,6 +126,10 @@ export function fcmSender(path: string | undefined, log: (m: string) => void): P
 export const PUSH_TOKEN_RE = /^[A-Za-z0-9_:\-]{20,512}$/;
 const MAX_ADDRESSES_PER_TOKEN = 5;
 const MAX_TOKENS_PER_ADDRESS = 10;
+/** A phone at a full address only gives up its slot after this long without renewing. */
+const STALE_SECONDS = 14 * 24 * 3600;
+const NEW_PER_ADDRESS_HOUR = 3;
+const NEW_PER_CLIENT_HOUR = 10;
 const MAX_ROWS = 200_000;
 /** The app renews its subscription; unrenewed rows are dropped after this long. */
 const EXPIRE_SECONDS = 60 * 24 * 3600;
@@ -148,6 +156,7 @@ export class Notifier {
   private queue: { token: string; title: string; body: string; txid: string }[] = [];
   /** When new phones were added per address, to slow down token churn. */
   private recentNew = new Map<string, number[]>();
+  private recentByClient = new Map<string, number[]>();
   private active = 0;
 
   constructor(
@@ -157,7 +166,7 @@ export class Notifier {
     private readonly now: () => number = () => Math.floor(Date.now() / 1000),
   ) {}
 
-  async subscribe(address: string, token: string): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  async subscribe(address: string, token: string, client = ""): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
     const valid = await this.sender.validate(token);
     if (valid === "gone") return { ok: false, status: 400, message: "This notification token is not valid for NOID." };
     if (valid === "error") return { ok: false, status: 503, message: "Notifications are not reachable right now. Try again later." };
@@ -174,26 +183,37 @@ export class Notifier {
     const now = this.now();
     const known = this.db.prepare("SELECT 1 FROM push_subs WHERE address = ? AND token = ?").get(address, token);
     if (!known) {
-      // At most 3 new phones per address per hour: renewing an existing phone
-      // is always allowed, so an owner who opens the app keeps their slot.
+      // New phones are rate limited per client and per address. Renewing an
+      // existing phone is always allowed, so an owner keeps their slot.
+      const byClient = (this.recentByClient.get(client) ?? []).filter((t) => t > now - 3600);
+      if (client && byClient.length >= NEW_PER_CLIENT_HOUR) {
+        return { ok: false, status: 429, message: "Too many new phones from this connection. Try again in an hour." };
+      }
       const recent = (this.recentNew.get(address) ?? []).filter((t) => t > now - 3600);
-      if (recent.length >= 3) {
+      if (recent.length >= NEW_PER_ADDRESS_HOUR) {
         return { ok: false, status: 429, message: "Too many new phones for this address. Try again in an hour." };
+      }
+      // A full address only frees slots that stopped renewing; a phone that
+      // keeps renewing is never pushed out by someone else's tokens.
+      this.db.prepare("DELETE FROM push_subs WHERE address = ? AND created_at < ?").run(address, now - STALE_SECONDS);
+      const held = this.db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE address = ?").get(address) as { n: number };
+      if (held.n >= MAX_TOKENS_PER_ADDRESS) {
+        return {
+          ok: false,
+          status: 429,
+          message: "This address already notifies the most phones allowed. Turn notifications off on a phone you no longer use.",
+        };
       }
       recent.push(now);
       this.recentNew.set(address, recent);
+      if (client) {
+        byClient.push(now);
+        this.recentByClient.set(client, byClient);
+      }
       if (this.recentNew.size > 50_000) this.recentNew.clear();
+      if (this.recentByClient.size > 50_000) this.recentByClient.clear();
     }
-    this.db.transaction(() => {
-      this.db.prepare("INSERT OR REPLACE INTO push_subs (address, token, created_at) VALUES (?, ?, ?)").run(address, token, now);
-      // Keep only the newest tokens for an address: an owner is never locked out.
-      this.db
-        .prepare(
-          `DELETE FROM push_subs WHERE address = ? AND token NOT IN
-             (SELECT token FROM push_subs WHERE address = ? ORDER BY created_at DESC LIMIT ?)`,
-        )
-        .run(address, address, MAX_TOKENS_PER_ADDRESS);
-    })();
+    this.db.prepare("INSERT OR REPLACE INTO push_subs (address, token, created_at) VALUES (?, ?, ?)").run(address, token, now);
     return { ok: true };
   }
 

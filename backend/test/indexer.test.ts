@@ -86,3 +86,34 @@ test("NOID wallet fee output is shown as the sender's wallet fee, not a second r
   // Without the fee address configured: two recipients, as before.
   assert.equal(classify(pay)[0]!.counterparty, null);
 });
+
+test("a node that is behind (resync, reindex) never makes the indexer delete history", async () => {
+  const db = openDb(join(mkdtempSync(join(tmpdir(), "noidbehind-")), "t.sqlite"));
+  const idx = new Indexer(db, { pollMs: 1000, log: () => {} });
+  for (let h = 80; h <= 100; h++) {
+    idx.store({ header: { height: h, hash: `h${h}`, timestamp: 1_700_000_000 + h }, retained: { transactions: [] } });
+  }
+  let nodeHeight = 5;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    const { method, params } = JSON.parse(String(init?.body)) as { method: string; params: number[] };
+    const result =
+      method === "paranoid_getChainInfo"
+        ? { height: nodeHeight, best_hash: "x", active_slot_count: 0, log_slots: 24 }
+        : method === "paranoid_getBlockHash"
+          ? params[0]! <= nodeHeight
+            ? `h${params[0]}`
+            : null
+          : null;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    for (let i = 0; i < 6; i++) await idx.step();
+    assert.equal(idx.indexedHeight, 100, "node far behind: nothing rolled back");
+    nodeHeight = 98; // caught up partly: blocks above its tip are unknown, not reorged
+    await idx.step();
+    assert.equal(idx.indexedHeight, 100);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

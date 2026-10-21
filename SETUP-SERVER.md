@@ -58,7 +58,7 @@ ufw status
 useradd --system --create-home noid
 useradd --system --no-create-home --shell /usr/sbin/nologin noidapi
 mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend /var/www/noid-site /etc/noid
-chown noid:noid /var/lib/parano1d
+chown noid:noid /var/lib/parano1d && chmod 700 /var/lib/parano1d
 chown noidapi:noidapi /var/lib/noid-wallet
 install -d -o noid -g noid -m 700 /home/noid/.parano1d
 ```
@@ -154,7 +154,7 @@ node is synced, and finish within ~15 minutes:
    ```
 2. **Server**:
    ```sh
-   chown noidapi:noidapi /var/lib/noid-wallet/*
+   chown noidapi:noidapi /var/lib/noid-wallet/* && chmod 600 /var/lib/noid-wallet/*
    ```
 3. Start the API right away (next block).
 
@@ -219,10 +219,12 @@ Open `https://noidusa.com` in a browser. In the app: **Settings → Wallet serve
 
 **Server**:
 ```sh
-mkdir -p /var/backups/noid
+install -d -m 700 -o noidapi -g noidapi /var/backups/noid
 cat > /etc/cron.daily/noid-index-backup <<'EOF'
 #!/bin/sh
-sqlite3 /var/lib/noid-wallet/wallet-index.sqlite ".backup '/var/backups/noid/wallet-index-$(date +%F).sqlite'"
+# Runs as the API's own user, so the database's journal files stay its own,
+# and the copies (which link phones to addresses) are readable by it alone.
+runuser -u noidapi -- sh -c 'umask 077 && sqlite3 /var/lib/noid-wallet/wallet-index.sqlite ".backup /var/backups/noid/wallet-index-$(date +%F).sqlite"'
 find /var/backups/noid -name 'wallet-index-*.sqlite' -mtime +7 -delete
 EOF
 chmod 755 /etc/cron.daily/noid-index-backup
@@ -231,6 +233,9 @@ Now and then, copy the newest one to your PC (**PC**):
 `scp root@SERVER_IP:/var/backups/noid/wallet-index-*.sqlite C:\dev\noid\backups\`
 
 ## Updating later
+
+Before resyncing or reinstalling the node, stop the API first
+(`systemctl stop noid-wallet-api`) and start it again once the node is synced.
 
 New NOID code: repeat step 3, then on the **Server**:
 ```sh

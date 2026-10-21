@@ -14,10 +14,8 @@ Environment=HOST=127.0.0.1
 Environment=PORT=8787
 Environment=DB_PATH=/var/lib/noid-wallet/wallet-index.sqlite
 Environment=TRUST_PROXY=1
-# Notifications (see SETUP-NOTIFICATIONS.md): systemd hands the key file to
-# this service only, at $CREDENTIALS_DIRECTORY/firebase.json.
-#LoadCredential=firebase.json:/etc/noid/firebase-service-account.json
-#Environment=FCM_SERVICE_ACCOUNT=%d/firebase.json
+# Notifications are switched on by a drop-in (deploy/noid-wallet-api-push.conf,
+# see SETUP-NOTIFICATIONS.md), so copying this file again never turns them off.
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
@@ -27,6 +25,10 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/noid-wallet
+# Even if the API were compromised: no node data, backups or other keys.
+InaccessiblePaths=-/var/lib/parano1d -/var/backups/noid -/home/noid
+ProtectProc=invisible
+ProcSubset=pid
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true

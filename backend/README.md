@@ -25,46 +25,8 @@ npm test
 ```
 
 ## Deploy (Ubuntu 24.04, e.g. Contabo Cloud VPS 20)
-```sh
-# 1. user + folders
-# The node and the API run as different users, so the API cannot read the
-# node's files.
-sudo useradd --system --create-home noid
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin noidapi
-sudo mkdir -p /opt/parano1d /var/lib/parano1d /var/lib/noid-wallet /opt/noid-wallet-backend /var/www/noid-site
-sudo chown noid:noid /var/lib/parano1d
-sudo install -d -o noid -g noid -m 700 /home/noid/.parano1d
-sudo chown noidapi:noidapi /var/lib/noid-wallet
-
-# 2. node: download the official Core release + SHA256SUMS from
-#    https://github.com/proof-native/parano1d/releases and verify
-sha256sum -c --ignore-missing SHA256SUMS
-sudo tar xzf parano1d-core-v*-linux-x86_64.tar.gz -C /opt/parano1d
-/opt/parano1d/parano1d --check-hardware        # must end with NODE READY
-
-# 3. API
-sudo apt install -y nodejs npm caddy            # Node 22+ (use NodeSource if the distro's is older)
-# copy this folder to /opt/noid-wallet-backend, then:
-cd /opt/noid-wallet-backend && npm ci && npm run build
-
-# 4. services + HTTPS
-sudo cp deploy/*.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now parano1d noid-wallet-api
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # edit the domain first
-sudo systemctl reload caddy
-
-# 5. firewall: only SSH, HTTP(S) and P2P; and only noid/noidapi may use the RPC port
-sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 9600/tcp && sudo ufw enable
-# RPC-port rule: its own table and its own boot unit, loaded after ufw.
-# (Don't enable nftables.service for it: Ubuntu's /etc/nftables.conf starts
-# with "flush ruleset" and would wipe ufw's rules.)
-sudo mkdir -p /etc/noid && sudo cp deploy/nftables-noid-rpc.nft /etc/noid/
-sudo systemctl daemon-reload && sudo systemctl enable --now noid-rpc-firewall
-sudo nft list table inet noid_rpc   # must show the rule
-sudo ufw status                     # must still be active with the rules above
-
-# 6. link pages (gift and payment links open these)
-sudo cp -r ../site/. /var/www/noid-site/
-```
+Install it on a server by following [SETUP-SERVER.md](../SETUP-SERVER.md):
+it sets up the RPC lock and firewall before the node and API start, the
+users and permissions, HTTPS with Caddy, and backups.
 
 Check: `curl https://api.yourdomain.com/v1/status` shows `"synced": true` once the node catches up.

@@ -64,6 +64,7 @@ export class Indexer {
   private running = false;
   private timer: NodeJS.Timeout | undefined;
   lastError: string | null = null;
+  private lastBehind: number | null = null;
   tip = 0;
 
   /** Blocks at or below this height were indexed as catch-up, not live: no notifications. */
@@ -113,6 +114,16 @@ export class Indexer {
   async step() {
     const chain = await rpc<ChainInfo>("getChainInfo");
     this.tip = chain.height;
+    // A node that is behind us (resyncing, reindexing, or a different node) is
+    // not a reorg: wait for it. Rolling back here would delete history that
+    // can't be rebuilt, since the node keeps only the last 42 block bodies.
+    if (chain.height < this.indexedHeight) {
+      this.lastBehind ??= chain.height;
+      if (this.lastBehind !== chain.height) this.opts.log(`indexer: node at ${chain.height}, behind our ${this.indexedHeight}; waiting`);
+      this.lastBehind = chain.height;
+      return;
+    }
+    this.lastBehind = null;
     this.liveFrom ??= chain.height + 1;
     let from = this.indexedHeight + 1;
     if (from === 0) from = Math.max(0, this.opts.indexFrom ?? chain.height - (RETAINED_BODIES - 2));
@@ -123,6 +134,8 @@ export class Indexer {
       .all(Math.max(0, from - REORG_DEPTH)) as { height: number; hash: string }[];
     for (const b of recent) {
       const hash = await rpc<string | null>("getBlockHash", [b.height]);
+      // No hash means the node doesn't have that block (yet): not a reorg.
+      if (hash === null) return;
       if (hash !== b.hash) {
         this.opts.log(`indexer: reorg at ${b.height}, rolling back`);
         this.rollback(b.height);

@@ -24,9 +24,10 @@ Android delivers push messages through Firebase Cloud Messaging (FCM).
    sudo install -o root -g root -m 600 firebase-service-account.json /etc/noid/
    ```
    This file IS secret: it can send notifications as your app. Never commit it.
-3. In `/etc/systemd/system/noid-wallet-api.service`, uncomment the
-   `LoadCredential` and `FCM_SERVICE_ACCOUNT` lines, then:
+3. Switch notifications on with a drop-in, so copying the main service file
+   again later never turns them off:
    ```sh
+   sudo install -D -m 644 /opt/noid-wallet-backend/deploy/noid-wallet-api-push.conf /etc/systemd/system/noid-wallet-api.service.d/push.conf
    sudo systemctl daemon-reload && sudo systemctl restart noid-wallet-api
    ```
    `GET /v1/status` then shows `"features": { "push": true, ... }`.
@@ -47,4 +48,8 @@ In the app: **Settings → Notifications → Turn on notifications**.
 ## Privacy
 Turning notifications on tells your wallet server which phone to notify for
 your public address. It never receives your secret. Turning them off, or
-removing the wallet from the phone, deletes that link on the server.
+removing the wallet from the phone, deletes that link on the server and
+retires the phone's notification token. If the app is simply uninstalled, the
+link stays until Google reports the token gone or 60 days pass without the
+app renewing it. Google delivers each notification and sees its text (the
+amount); a transaction id in it points to your address on the public chain.

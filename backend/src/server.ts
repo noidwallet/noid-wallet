@@ -131,12 +131,23 @@ export async function buildServer(
 
   app.get("/healthz", async () => ({ ok: true }));
 
+  // Every phone polls /v1/status: answer from a 2-second cache so a burst of
+  // requests can't flood the node's RPC (which the indexer also needs).
+  let statusCache: { at: number; p: Promise<[ChainInfo, NodeStatus, MempoolStats]> } | null = null;
+  const nodeStatus = () => {
+    const now = Date.now();
+    if (!statusCache || now - statusCache.at > 2_000) {
+      const p = Promise.all([rpc<ChainInfo>("getChainInfo"), rpc<NodeStatus>("getNodeStatus"), rpc<MempoolStats>("getMempoolStats")]);
+      statusCache = { at: now, p };
+      p.catch(() => {
+        if (statusCache?.p === p) statusCache = null;
+      });
+    }
+    return statusCache.p;
+  };
+
   app.get("/v1/status", async () => {
-    const [chain, node, mempool] = await Promise.all([
-      rpc<ChainInfo>("getChainInfo"),
-      rpc<NodeStatus>("getNodeStatus"),
-      rpc<MempoolStats>("getMempoolStats"),
-    ]);
+    const [chain, node, mempool] = await nodeStatus();
     return {
       height: chain.height,
       synced: node.synced,
@@ -187,7 +198,7 @@ export async function buildServer(
     { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { notifier, a, token } = pushBody(req.body);
-      const r = await notifier.subscribe(a, token);
+      const r = await notifier.subscribe(a, token, clientKey(req.ip));
       if (!r.ok) {
         reply.code(r.status);
         return { error: { code: "push_refused", message: r.message } };

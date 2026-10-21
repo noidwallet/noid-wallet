@@ -5,6 +5,12 @@
 	servers {
 		protocols h1 h2
 	}
+	# Error and redirect logs would otherwise record client IPs next to the
+	# address a phone asked about (e.g. /v1/address/o1.../utxos) in the journal.
+	log default {
+		output stderr
+		exclude http.log.access http.log.error http.handlers.reverse_proxy
+	}
 }
 
 # HTTPS for the wallet API and the link pages. Point both DNS A records

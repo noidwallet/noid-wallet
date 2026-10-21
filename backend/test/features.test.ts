@@ -175,24 +175,32 @@ test("notifications: validated tokens, once per tx, no dust, no old blocks, owne
   for (let i = 0; i < 4; i++) burst.push((await n.subscribe(A, `burst_token_${i}_abcdefghijklmnopq`)).ok);
   // The owner's phone already used one of this hour's 3 slots.
   assert.deepEqual(burst, [true, true, false, false]);
-  // ...and even a slow attacker filling the slots only evicts older ones,
-  // while the owner renewing an existing phone is always allowed.
-  for (let i = 0; i < 12; i++) {
+  // ...and an attacker filling the slots (slowly, from many IPs, renewing
+  // them all) can never push the owner's phone out.
+  for (let i = 0; i < 30; i++) {
     clock += 1300;
-    await n.subscribe(A, `attacker_token_${i}_abcdefghijklmnop`);
+    await n.subscribe(A, `attacker_token_${i}_abcdefghijklmnop`, `10.0.0.${i}`);
+    if (i % 5 === 0) assert.deepEqual(await n.subscribe(A, TOKEN), { ok: true }, "owner renews now and then");
   }
-  // Even if evicted, the owner's phone gets back in within the hour.
-  clock += 3600;
-  assert.deepEqual(await n.subscribe(A, TOKEN), { ok: true });
   const mine = db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE token = ?").get(TOKEN) as { n: number };
   const count = db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE address = ?").get(A) as { n: number };
-  assert.equal(mine.n, 1);
+  assert.equal(mine.n, 1, "the owner's phone is still subscribed");
   assert.equal(count.n, 10);
+  const full = await n.subscribe(A, "late_token_abcdefghijklmnopqrstu", "10.9.9.9");
+  assert.equal(full.ok, false, "a full address refuses new phones instead of evicting");
+  // Phones that stop renewing free their slot after two weeks.
+  clock += 15 * 24 * 3600;
+  assert.deepEqual(await n.subscribe(A, "late_token_abcdefghijklmnopqrstu", "10.9.9.9"), { ok: true });
+
+  // New phones from one client are limited too.
+  const many = [];
+  for (let i = 0; i < 12; i++) many.push((await n.subscribe(`${A.slice(0, -1)}${i % 2 ? "q" : "p"}`, `ip_token_${i}_abcdefghijklmnopqrs`, "198.51.100.7")).ok);
+  assert.ok(many.filter((ok) => !ok).length > 0, "per-client limit");
 
   gone = true;
   n.onRows(12, clock, [{ address: A, txid: "c".repeat(64), direction: "mined", amount: 16_000_000 }]);
   await n.drain();
-  const left = db.prepare("SELECT COUNT(*) AS n FROM push_subs").get() as { n: number };
+  const left = db.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE address = ?").get(A) as { n: number };
   assert.equal(left.n, 0, "tokens FCM rejects are deleted");
 });
 
