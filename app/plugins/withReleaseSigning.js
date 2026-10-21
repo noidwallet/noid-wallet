@@ -45,6 +45,17 @@ function editGradle(src) {
   const debugSigning = out.indexOf('signingConfig signingConfigs.debug', debugType);
   if (debugType < 0 || debugSigning < 0) throw new Error('withReleaseSigning: debug build type not found');
   out = out.slice(0, debugSigning) + 'applicationIdSuffix ".dev"\n            ' + out.slice(debugSigning);
+
+  // 4. The release APK is for phones (arm64) only; x86_64 is for the emulator
+  //    and would add about 30 MB to every download.
+  out += `
+// NOID: release APK for phones only (arm64); x86_64 is for the emulator.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.add("lib/x86_64/**")
+    }
+}
+`;
   return out;
 }
 
@@ -57,6 +68,10 @@ module.exports = function withReleaseSigning(config) {
   config = withGradleProperties(config, (c) => {
     c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key === 'reactNativeArchitectures'));
     c.modResults.push({ type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,x86_64' });
+    // Compressed native libraries: a much smaller download for an APK people
+    // fetch over mobile data (they are unpacked once, at install).
+    c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key === 'expo.useLegacyPackaging'));
+    c.modResults.push({ type: 'property', key: 'expo.useLegacyPackaging', value: 'true' });
     return c;
   });
   // "NOID Dev" on the home screen for development builds.
