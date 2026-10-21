@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { Pressable, Text, View } from 'react-native';
 
-import { Banner, Body, Button, Card, Field, KeyValue, Screen, Skeleton } from '@/components/ui';
+import { Banner, Body, Button, Card, Field, KeyValue, Screen, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { core } from '@/lib/core';
 import { go, goRoot } from '@/lib/nav';
@@ -30,6 +31,27 @@ export default function Restore() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const clean = secret.replace(/\s+/g, '').toLowerCase();
+
+  function enter(t: string) {
+    setSecret(t);
+    setKeyId(null);
+    setCandidates([]);
+    setError(null);
+  }
+
+  async function paste() {
+    const t = (await Clipboard.getStringAsync()).trim();
+    if (!t) {
+      setError('Nothing to paste. Copy your secret first.');
+      return;
+    }
+    enter(t);
+    // Don't leave the secret on the clipboard, where other apps can read it.
+    if (/^[0-9a-f]{64}$/i.test(t.replace(/\s+/g, ''))) {
+      await Clipboard.setStringAsync('');
+      toast('Secret pasted. Clipboard cleared');
+    }
+  }
 
   async function check() {
     setError(null);
@@ -88,16 +110,12 @@ export default function Restore() {
         mono
         multiline
         value={secret}
-        onChangeText={(t) => {
-          setSecret(t);
-          setKeyId(null);
-          setCandidates([]);
-          setError(null);
-        }}
+        onChangeText={enter}
         placeholder="64 characters, 0–9 and a–f"
         error={error}
         hint={clean.length > 0 && clean.length !== 64 ? `${clean.length}/64 characters` : null}
-        // Keep the secret out of keyboard learning, autofill and the clipboard menu.
+        // Keep the secret out of keyboard learning, autofill and the copy menu
+        // (pasting goes through the button below, which also clears the clipboard).
         keyboardType="visible-password"
         autoComplete="off"
         importantForAutofill="no"
@@ -106,6 +124,7 @@ export default function Restore() {
         spellCheck={false}
         style={{ minHeight: 96, textAlignVertical: 'top' }}
       />
+      {!keyId ? <Button title="Paste secret" icon="paste" kind="secondary" onPress={paste} /> : null}
       {busy && !keyId ? (
         <View style={{ gap: space.sm }}>
           {[0, 1, 2].map((i) => (
