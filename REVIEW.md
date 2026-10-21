@@ -135,3 +135,9 @@ fees, or withhold transactions; it can't spend. Defences in
    from the wallet's master secret and a gift number. Anything in the
    official key scheme that makes handing such a derived master secret to
    someone else unsafe?
+5. The wallet assumes a built transaction can only be mined until the end of
+   the epoch after the one its anchor came from (144-block epochs). It uses
+   this to decide when a payment the server called "refused" can no longer
+   confirm. Is that right, and could it change?
+6. Is a standard planned for websites and apps to connect to a wallet and
+   ask it to sign (like WalletConnect)? NOID would support it.
