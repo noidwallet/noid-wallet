@@ -335,6 +335,7 @@ export default function Send() {
           </Body>
           <Card style={{ alignSelf: 'stretch' }}>
             {recipientRow}
+            {plan.walletFee > 0 ? <KeyValue label="NOID wallet fee" value={`${formatNoid(plan.walletFee)} NOID`} /> : null}
             <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           </Card>
           {!contactForTo && !savedContact && safety.kind !== 'lookalike' ? (
@@ -468,7 +469,7 @@ export default function Send() {
               ) : null}
               {plan.change > 0 ? <KeyValue label="Change back to you" value={`${formatNoid(plan.change)} NOID`} /> : null}
               <KeyValue label="Balance pieces used" value={String(plan.inputCount)} />
-              {plan.walletFee > 0 ? <Text style={type.bodySm}>The NOID wallet fee is {WALLET_FEE_TEXT}. The network fee goes to the network.</Text> : null}
+              {plan.walletFee > 0 ? <Text style={type.bodySm}>The NOID wallet fee is {WALLET_FEE_TEXT}. It travels as its own output, which adds a little to the network fee. The network fee goes to the network.</Text> : null}
             </>
           ) : (
             <Pressable accessibilityRole="button" onPress={() => setShowDetails(true)} hitSlop={12}>

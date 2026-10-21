@@ -68,7 +68,10 @@ export default function Home() {
   // set: once a block spends them, `balance` already reflects it.
   const live = new Map(utxos.map((u) => [u.slotIndex, u.value]));
   const inFlight = pending.filter((p) => p.inputSlots.length > 0 && p.inputSlots.every((s) => live.has(s)));
-  const pendingOut = inFlight.reduce((s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount : 0) + p.fee, 0);
+  const pendingOut = inFlight.reduce(
+    (s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount + (p.walletFee ?? 0) : 0) + p.fee,
+    0,
+  );
   // Gift claims coming in (their coins are not ours yet, so not in `balance`).
   const claimIn = pending.filter((p) => p.kind === 'claim' && !p.confirmedAt).reduce((s, p) => s + p.amount, 0);
   const lockedSlots = new Set(pending.flatMap((p) => p.inputSlots));

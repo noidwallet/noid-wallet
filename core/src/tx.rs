@@ -188,7 +188,10 @@ pub fn plan_send(
     available.sort_by_key(|u| (std::cmp::Reverse(u.value), u.slot_index));
     let spendable = sum(available.iter().map(|u| u.value))?;
 
-    let (cheapest, _) = ctx.minimum(1, fixed_outputs);
+    // The cheapest shape this balance allows: below `fixed_outputs` inputs each
+    // extra input saves a state-growth slot, so the fewest-fee shape uses
+    // min(coins, outputs) inputs (1 -> 2 pays growth, 2 -> 2 doesn't).
+    let (cheapest, _) = ctx.minimum(available.len().clamp(1, fixed_outputs), fixed_outputs);
     if let Some(fee) = explicit_fee {
         if fee < cheapest {
             return Err(Error::msg(format!(
@@ -676,6 +679,22 @@ mod tests {
 
         // The wallet fee must be covered too.
         assert!(plan_send(&all, &HashSet::new(), 1_000_000 - fee, None, ctx(), 5_000).is_err());
+    }
+
+    #[test]
+    fn send_max_with_wallet_fee_works_for_any_number_of_coins() {
+        // What the app's Send Max asks for: every coin, recipient + wallet fee, no change.
+        for p_slots in [0u64, 1 << 23, 3 << 22, 15 << 20] {
+            let ctx = FeeContext { active_slot_count: p_slots, log_slots: 24, relay_floor: 5_000 };
+            for n in [1usize, 2, 3, 7, 8, 9, 16, 25, 26, 40] {
+                let utxos: Vec<Utxo> = (0..n as u32).map(|i| u(i + 1, 1_000_000)).collect();
+                let (net, _) = ctx.minimum(n, 2);
+                let amount = n as u64 * 1_000_000 - net - 5_000;
+                let p = plan_send(&utxos, &HashSet::new(), amount, None, ctx, 5_000)
+                    .unwrap_or_else(|e| panic!("{n} coins at {p_slots}: {}", e.message));
+                assert_eq!((p.input_count, p.output_count, p.change, p.fee), (n, 2, 0, net), "{n} coins at {p_slots}");
+            }
+        }
     }
 
     #[test]
