@@ -11,6 +11,17 @@ export const config = {
   trustProxy: process.env.TRUST_PROXY === "1",
   /** Firebase service-account JSON for "NOID received" notifications. Unset = off. */
   fcmServiceAccount: process.env.FCM_SERVICE_ACCOUNT || undefined,
+  /**
+   * Addresses that receive the NOID wallet fee (comma separated). Display only:
+   * a send's fee output is shown as "wallet fee" instead of a second recipient.
+   * The app decides the fee and its address itself; the server can't change it.
+   */
+  walletFeeAddresses: new Set(
+    (process.env.WALLET_FEE_ADDRESSES ?? "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf")
+      .split(",")
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean),
+  ),
   /** Set PRICE=0 to turn off the NOID price feed. */
   priceEnabled: process.env.PRICE !== "0",
 };

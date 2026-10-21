@@ -39,6 +39,8 @@ export interface FeeBreakdown {
 
 export interface SendPlan {
   amount: number;
+  /** NOID wallet fee (its own output), 0 for sweeps. */
+  walletFee: number;
   fee: number;
   totalSpend: number;
   inputCount: number;
@@ -67,6 +69,7 @@ export interface BuiltTx {
   intentHex: string;
   fee: number;
   amount: number;
+  walletFee: number;
   change: number;
   inputCount: number;
   outputCount: number;
@@ -90,7 +93,7 @@ export const core = {
   deriveAddresses: (secretHex: string, start: number, count: number) =>
     call<{ index: number; address: string }[]>('deriveAddresses', { secretHex, start, count }),
   validateAddress: (address: string) => call<{ valid: boolean; address?: string; error?: string }>('validateAddress', { address }),
-  planSend: (a: { utxos: Utxo[]; pendingInputSlots: number[]; amount: number; fee: number | null } & FeeContext) =>
+  planSend: (a: { utxos: Utxo[]; pendingInputSlots: number[]; amount: number; fee: number | null; walletFee: number } & FeeContext) =>
     call<SendPlan>('planSend', a),
   planConsolidation: (a: { utxos: Utxo[]; pendingInputSlots: number[]; maxInputs?: number } & FeeContext) =>
     call<ConsolidationPlan>('planConsolidation', a),
@@ -108,6 +111,8 @@ export const core = {
     selectedSlots: number[];
     to: string | null;
     amount: number;
+    walletFee?: number;
+    walletFeeTo?: string;
     fee: number;
     epochAnchorHex: string;
     slotHints: number[];

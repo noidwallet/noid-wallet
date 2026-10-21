@@ -161,6 +161,7 @@ export default function NewGift() {
           <KeyValue label="They receive" value={`${shownAmount} NOID`} />
           {value ? <KeyValue label="Worth" value={value} /> : null}
           <KeyValue label="Their claim fee (you cover it)" value={`${formatNoid(fee)} NOID`} />
+          {plan.walletFee > 0 ? <KeyValue label="NOID wallet fee (0.25%)" value={`${formatNoid(plan.walletFee)} NOID`} /> : null}
           <KeyValue label="Network fee" value={`${formatNoid(plan.fee)} NOID`} />
           <KeyValue label="Total from your wallet" value={`${formatNoid(plan.totalSpend)} NOID`} />
         </Card>

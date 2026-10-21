@@ -222,7 +222,8 @@ export async function buildServer(
     "/v1/prepare",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (req) => {
-      const outputs = Math.min(Math.max(Number(req.body?.outputs ?? 2) || 2, 1), 2);
+      // Up to 3: recipient, NOID wallet fee and change.
+      const outputs = Math.min(Math.max(Number(req.body?.outputs ?? 2) || 2, 1), 3);
       const salt = randomBytes(16).toString("hex");
       const [anchor, hints, chain, mempool] = await Promise.all([
         rpc<string>("getEpochAnchor"),
@@ -299,7 +300,7 @@ export async function buildServer(
       const a = address(req.params.address);
       const limit = intParam(req.query.limit, 30, 1, 100);
       let rows: { height: number; txid: string }[];
-      const select = "SELECT txid, height, time, direction, amount, fee, counterparty FROM address_txs";
+      const select = "SELECT txid, height, time, direction, amount, fee, wallet_fee AS walletFee, counterparty FROM address_txs";
       if (req.query.before) {
         const m = /^(\d+):([0-9a-f]{64})$/.exec(req.query.before);
         if (!m) throw badRequest("Invalid history cursor.");

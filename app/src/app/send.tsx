@@ -32,6 +32,7 @@ import { checkAddress, fiat, groupAddress } from '@/lib/safety';
 import { contactPick, scanResult } from '@/lib/scan';
 import { executeSend, FeeChanged, hasUnresolvedSend, planSend, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
+import { maxSendable, WALLET_FEE_TEXT } from '@/lib/walletFee';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
 
@@ -194,12 +195,12 @@ export default function Send() {
       setError('Your balance is in more than 504 pieces. Combine them first (Settings), then send everything.');
       return;
     }
-    // Spending every coin into one output never adds a slot, so the fee is
-    // base + inputs + one output (consensus rules), or the relay floor if higher.
-    const fee = Math.max(w.status.relayFloor, 5_000 + 100 * coins.length + 700);
+    // Everything, with nothing left over: the network fee for recipient + wallet
+    // fee outputs and the wallet fee itself both come out of the balance.
     const spendable = coins.reduce((s, u) => s + u.value, 0);
-    if (spendable > fee) setAmountText(formatNoid(spendable - fee).replace(/,/g, ''));
-    else setError('Your balance is smaller than the network fee.');
+    const max = maxSendable(spendable, coins.length, w.status);
+    if (max) setAmountText(formatNoid(max).replace(/,/g, ''));
+    else setError('Your balance is smaller than the fees.');
   }
 
   async function confirmAndSend() {
@@ -457,6 +458,7 @@ export default function Send() {
           <Banner tone="warn">First time paying this address. Confirm it with the person you are paying.</Banner>
         ) : null}
         <Card>
+          {plan.walletFee > 0 ? <KeyValue label="NOID wallet fee (0.25%)" value={withFiat(plan.walletFee)} /> : null}
           <KeyValue label="Network fee" value={withFiat(plan.fee)} />
           <KeyValue label="Total" value={withFiat(plan.totalSpend)} />
           {showDetails ? (
@@ -466,6 +468,7 @@ export default function Send() {
               ) : null}
               {plan.change > 0 ? <KeyValue label="Change back to you" value={`${formatNoid(plan.change)} NOID`} /> : null}
               <KeyValue label="Balance pieces used" value={String(plan.inputCount)} />
+              {plan.walletFee > 0 ? <Text style={type.bodySm}>The NOID wallet fee is {WALLET_FEE_TEXT}. The network fee goes to the network.</Text> : null}
             </>
           ) : (
             <Pressable accessibilityRole="button" onPress={() => setShowDetails(true)} hitSlop={12}>

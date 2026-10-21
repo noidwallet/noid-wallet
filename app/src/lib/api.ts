@@ -64,6 +64,8 @@ export interface HistoryItem {
   direction: 'sent' | 'received' | 'self' | 'mined' | 'contract';
   amount: number;
   fee: number;
+  /** NOID wallet fee paid with this send (servers that know the fee address). */
+  walletFee?: number;
   counterparty: string | null;
 }
 
@@ -114,7 +116,7 @@ export function createApi(baseUrl: string, _installId = '') {
     status: () => request<Status>('/v1/status'),
     utxos: (address: string) =>
       request<{ address: string; balance: number; utxos: Utxo[] }>(`/v1/address/${address}/utxos`),
-    prepare: (outputs: 1 | 2) => request<Prepared>('/v1/prepare', { method: 'POST', body: JSON.stringify({ outputs }) }),
+    prepare: (outputs: 1 | 2 | 3) => request<Prepared>('/v1/prepare', { method: 'POST', body: JSON.stringify({ outputs }) }),
     /** Idempotent: resubmitting the same intent returns success, never a second payment. */
     submit: (intentHex: string, txid: string) =>
       request<{ txid: string; already?: boolean }>(

@@ -30,19 +30,19 @@ test("payment with change: sender pays amount + fee, recipient receives", () => 
     tx({ outputs: [{ slot_index: 1, amount_micronoid: 1_000_000, owner: B }, { slot_index: 2, amount_micronoid: 991_000, owner: A }] }),
   );
   assert.deepEqual(rows, [
-    { address: A, direction: "sent", amount: 1_000_000, fee: 9000, counterparty: B },
-    { address: B, direction: "received", amount: 1_000_000, fee: 0, counterparty: A },
+    { address: A, direction: "sent", amount: 1_000_000, fee: 9000, walletFee: 0, counterparty: B },
+    { address: B, direction: "received", amount: 1_000_000, fee: 0, walletFee: 0, counterparty: A },
   ]);
 });
 
 test("consolidation is a self transfer that only costs the fee", () => {
   const rows = classify(tx({ fee_micronoid: 6000, outputs: [{ slot_index: 3, amount_micronoid: 5_000_000, owner: A }] }));
-  assert.deepEqual(rows, [{ address: A, direction: "self", amount: 0, fee: 6000, counterparty: A }]);
+  assert.deepEqual(rows, [{ address: A, direction: "self", amount: 0, fee: 6000, walletFee: 0, counterparty: A }]);
 });
 
 test("coinbase is mined income", () => {
   const rows = classify(tx({ coinbase: true, input_owner: null, outputs: [{ slot_index: 4, amount_micronoid: 14_400_000, owner: B }] }));
-  assert.deepEqual(rows, [{ address: B, direction: "mined", amount: 14_400_000, fee: 0, counterparty: null }]);
+  assert.deepEqual(rows, [{ address: B, direction: "mined", amount: 14_400_000, fee: 0, walletFee: 0, counterparty: null }]);
 });
 
 test("store + rollback keep history consistent", () => {
@@ -62,4 +62,27 @@ test("store + rollback keep history consistent", () => {
 test("contract calls are labelled as contract activity", () => {
   const rows = classify(tx({ contract: "call", outputs: [{ slot_index: 9, amount_micronoid: 700, owner: B }] }));
   assert.ok(rows.every((r) => r.direction === "contract"));
+});
+
+test("NOID wallet fee output is shown as the sender's wallet fee, not a second recipient", () => {
+  const F = "o1feeaddressexample";
+  const fees = new Set([F]);
+  const pay = tx({
+    fee_micronoid: 12_200,
+    outputs: [
+      { slot_index: 1, amount_micronoid: 1_000_000, owner: B },
+      { slot_index: 2, amount_micronoid: 5_000, owner: F },
+      { slot_index: 3, amount_micronoid: 900_000, owner: A },
+    ],
+  });
+  assert.deepEqual(classify(pay, fees), [
+    { address: A, direction: "sent", amount: 1_000_000, fee: 12_200, walletFee: 5_000, counterparty: B },
+    { address: B, direction: "received", amount: 1_000_000, fee: 0, walletFee: 0, counterparty: A },
+    { address: F, direction: "received", amount: 5_000, fee: 0, walletFee: 0, counterparty: A },
+  ]);
+  // Paying the fee address directly is a normal payment.
+  const direct = classify(tx({ outputs: [{ slot_index: 4, amount_micronoid: 7, owner: F }] }), fees);
+  assert.deepEqual(direct[0], { address: A, direction: "sent", amount: 7, fee: 9000, walletFee: 0, counterparty: F });
+  // Without the fee address configured: two recipients, as before.
+  assert.equal(classify(pay)[0]!.counterparty, null);
 });

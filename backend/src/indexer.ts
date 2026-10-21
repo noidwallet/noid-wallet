@@ -10,16 +10,22 @@ export interface AddressRow {
   direction: "sent" | "received" | "self" | "mined" | "contract";
   amount: number;
   fee: number;
+  /** NOID wallet fee paid by the sender in this transaction (μNOID). */
+  walletFee: number;
   counterparty: string | null;
 }
 
-/** Turn one block transaction into per-address history rows. Pure; unit-tested. */
-export function classify(tx: BlockTx): AddressRow[] {
+/**
+ * Turn one block transaction into per-address history rows. Pure; unit-tested.
+ * An output to a wallet fee address next to another recipient is the sender's
+ * NOID wallet fee, not a second payment.
+ */
+export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Set()): AddressRow[] {
   const received = new Map<string, number>();
   for (const o of tx.outputs) received.set(o.owner, (received.get(o.owner) ?? 0) + o.amount_micronoid);
 
   if (tx.coinbase || tx.development_payout || !tx.input_owner) {
-    return [...received].map(([address, amount]) => ({ address, direction: "mined", amount, fee: 0, counterparty: null }));
+    return [...received].map(([address, amount]) => ({ address, direction: "mined", amount, fee: 0, walletFee: 0, counterparty: null }));
   }
 
   const sender = tx.input_owner;
@@ -28,24 +34,27 @@ export function classify(tx: BlockTx): AddressRow[] {
   if (tx.contract) {
     // Contract call or close: value moves under contract rules, not a plain payment.
     const total = [...received].reduce((s, [, v]) => s + v, 0);
-    rows.push({ address: sender, direction: "contract", amount: total, fee: tx.fee_micronoid, counterparty: null });
-    for (const [address, amount] of others) rows.push({ address, direction: "contract", amount, fee: 0, counterparty: sender });
+    rows.push({ address: sender, direction: "contract", amount: total, fee: tx.fee_micronoid, walletFee: 0, counterparty: null });
+    for (const [address, amount] of others) rows.push({ address, direction: "contract", amount, fee: 0, walletFee: 0, counterparty: sender });
     return rows;
   }
   if (others.length === 0) {
     // Consolidation or a payment to yourself: only the fee leaves the address.
-    rows.push({ address: sender, direction: "self", amount: 0, fee: tx.fee_micronoid, counterparty: sender });
+    rows.push({ address: sender, direction: "self", amount: 0, fee: tx.fee_micronoid, walletFee: 0, counterparty: sender });
   } else {
-    const sentAway = others.reduce((s, [, v]) => s + v, 0);
+    const feeOutputs = others.filter(([a]) => feeAddresses.has(a.toLowerCase()));
+    const recipients = feeOutputs.length > 0 && feeOutputs.length < others.length ? others.filter(([a]) => !feeAddresses.has(a.toLowerCase())) : others;
+    const walletFee = recipients === others ? 0 : feeOutputs.reduce((s, [, v]) => s + v, 0);
     rows.push({
       address: sender,
       direction: "sent",
-      amount: sentAway,
+      amount: recipients.reduce((s, [, v]) => s + v, 0),
       fee: tx.fee_micronoid,
-      counterparty: others.length === 1 ? others[0]![0] : null,
+      walletFee,
+      counterparty: recipients.length === 1 ? recipients[0]![0] : null,
     });
     for (const [address, amount] of others) {
-      rows.push({ address, direction: "received", amount, fee: 0, counterparty: sender });
+      rows.push({ address, direction: "received", amount, fee: 0, walletFee: 0, counterparty: sender });
     }
   }
   return rows;
@@ -66,6 +75,8 @@ export class Indexer {
       indexFrom?: number;
       pollMs: number;
       log: (msg: string) => void;
+      /** Wallet fee addresses (see classify). */
+      feeAddresses?: ReadonlySet<string>;
       /** Called after each live block is stored (used for notifications). */
       onBlock?: (height: number, time: number, rows: { address: string; txid: string; direction: string; amount: number }[]) => void;
     },
@@ -150,7 +161,7 @@ export class Indexer {
       "INSERT OR REPLACE INTO txs (txid, height, time, fee, kind, input_owner) VALUES (?, ?, ?, ?, ?, ?)",
     );
     const insAddr = this.db.prepare(
-      "INSERT OR REPLACE INTO address_txs (address, txid, height, time, direction, amount, fee, counterparty) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO address_txs (address, txid, height, time, direction, amount, fee, wallet_fee, counterparty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     this.db.transaction(() => {
       this.db
@@ -159,8 +170,8 @@ export class Indexer {
       for (const tx of block.retained?.transactions ?? []) {
         const kind = tx.coinbase || tx.development_payout ? "coinbase" : tx.contract ? "contract" : "payment";
         insTx.run(tx.txid, height, timestamp, tx.fee_micronoid, kind, tx.input_owner);
-        for (const r of classify(tx)) {
-          insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.counterparty);
+        for (const r of classify(tx, this.opts.feeAddresses)) {
+          insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.walletFee, r.counterparty);
           stored.push({ address: r.address, txid: tx.txid, direction: r.direction, amount: r.amount });
         }
       }

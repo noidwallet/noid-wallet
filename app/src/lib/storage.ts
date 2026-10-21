@@ -100,6 +100,8 @@ export interface PendingTx {
   to: string | null;
   amount: number;
   fee: number;
+  /** NOID wallet fee paid with it (sends and gifts). */
+  walletFee?: number;
   inputSlots: number[];
   outputSlots: number[];
   createdAt: number;

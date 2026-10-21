@@ -48,7 +48,8 @@ interface RowOpts {
 
 export function HistoryRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: HistoryItem }) {
   const outgoing = item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract';
-  const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee : 0);
+  // What left the wallet: amount, network fee and NOID wallet fee.
+  const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee + (item.walletFee ?? 0) : 0);
   const who = item.counterparty && item.direction !== 'self' ? nameOf(item.counterparty) : null;
   const sign = item.direction === 'contract' ? '' : outgoing ? '−' : '+';
   return (
@@ -82,7 +83,7 @@ const CONFIRMED_LABEL: Record<PendingTx['kind'], string> = {
 
 export function PendingRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: PendingTx }) {
   const incoming = item.kind === 'claim';
-  const micro = incoming ? item.amount : item.kind === 'consolidate' ? item.fee : item.amount + item.fee;
+  const micro = incoming ? item.amount : item.kind === 'consolidate' ? item.fee : item.amount + item.fee + (item.walletFee ?? 0);
   const value = `${incoming ? '+' : '−'}${formatNoid(micro)}`;
   const where =
     item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? nameOf(item.to) : 'To yourself';

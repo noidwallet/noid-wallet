@@ -47,7 +47,8 @@ export default function TxDetail() {
   // Same total as the activity row: what left the wallet, fee included.
   const base = item ? (item.direction === 'self' ? 0 : item.amount) : pend ? (pend.kind === 'consolidate' ? 0 : pend.amount) : null;
   const feePart = item ? (item.direction === 'sent' || item.direction === 'self' ? item.fee : 0) : pend && pend.kind !== 'claim' ? pend.fee : 0;
-  const amount = base === null ? null : base + feePart;
+  const walletPart = item ? (item.direction === 'sent' ? (item.walletFee ?? 0) : 0) : pend && pend.kind !== 'claim' ? (pend.walletFee ?? 0) : 0;
+  const amount = base === null ? null : base + feePart + walletPart;
   const fiatValue = amount !== null ? fiatOf(amount) : null;
   const label = item ? TX_LABEL[item.direction] : pend
       ? pend.kind === 'claim'
@@ -82,6 +83,7 @@ export default function TxDetail() {
         {base !== null && base > 0 && feePart > 0 ? (
           <Text style={type.bodySm}>
             {formatNoid(base)} NOID + {formatNoid(feePart)} network fee
+            {walletPart > 0 ? ` + ${formatNoid(walletPart)} wallet fee` : ''}
           </Text>
         ) : null}
         {amount !== null && fiatValue ? <Text style={type.bodySm}>{fiatValue} at today’s price</Text> : null}
@@ -109,6 +111,7 @@ export default function TxDetail() {
       <Card>
         {item ? <KeyValue label="Date" value={when(item.time)} mono={false} /> : null}
         {(item?.fee || pend?.fee) ? <KeyValue label="Network fee" value={`${formatNoid(item?.fee || pend?.fee || 0)} NOID`} /> : null}
+        {walletPart > 0 ? <KeyValue label="NOID wallet fee" value={`${formatNoid(walletPart)} NOID`} /> : null}
         {item ? <KeyValue label="Block" value={item.height.toLocaleString()} /> : null}
         {status?.status === 'confirmed' ? <KeyValue label="Confirmations" value={String(status.confirmations)} /> : null}
       </Card>

@@ -5,9 +5,11 @@ import { ApiError, type Api } from './api';
 import { checkRefusals, feeLooksWrong, hasUnresolvedSend, reconcileOne, RefusedButSpent, resetRefusals, submitLoop, SubmitUnknown } from './send';
 import type { BuiltTx, SendPlan, Utxo } from './core';
 import type { PendingTx } from './storage';
+import { WALLET_FEE_ADDRESS } from './walletFee';
 
-const plan = (fee = 9000): SendPlan => ({
+const plan = (fee = 9000, walletFee = 0): SendPlan => ({
   amount: 1_000_000,
+  walletFee,
   fee,
   totalSpend: 1_000_000 + fee,
   inputCount: 1,
@@ -51,6 +53,7 @@ function harness(submitBehaviour: ('ok' | 'lost' | 'stale' | 'spent' | 'rejected
         intentHex: `a3${n}`,
         fee: 9000,
         amount: 1_000_000,
+        walletFee: 0,
         change: 5,
         inputCount: 1,
         outputCount: 2,
@@ -173,4 +176,25 @@ test('fee sanity cap', () => {
   assert.equal(feeLooksWrong(9_000, 1_000_000), false);
   assert.equal(feeLooksWrong(300_000, 1_000_000), true);
   assert.equal(feeLooksWrong(300_000, 100_000_000), false, '5% of a large amount is allowed');
+});
+
+test('a send with a wallet fee forges the fee output and records it', async () => {
+  const h = harness(['ok']);
+  let forged: Record<string, unknown> = {};
+  const res = await submitLoop(
+    {
+      ...h.common,
+      forge: async (a) => {
+        forged = a;
+        return { ...(await h.common.forge()), walletFee: 5_000, outputCount: 3 };
+      },
+    },
+    'send',
+    'o1them',
+    9000,
+    async () => ({ utxos: h.listed.utxos, plan: plan(9000, 5_000), outputs: 3 as const }),
+  );
+  assert.equal(forged.walletFee, 5_000);
+  assert.equal(forged.walletFeeTo, WALLET_FEE_ADDRESS);
+  assert.equal(res.pending.walletFee, 5_000);
 });

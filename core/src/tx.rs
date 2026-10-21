@@ -79,6 +79,8 @@ impl FeeContext {
 #[serde(rename_all = "camelCase")]
 pub struct SendPlan {
     pub amount: u64,
+    /// NOID wallet fee, paid as its own output to the wallet's fee address (0 = none).
+    pub wallet_fee: u64,
     pub fee: u64,
     pub total_spend: u64,
     pub input_count: usize,
@@ -111,6 +113,7 @@ pub struct BuiltTx {
     pub intent_hex: String,
     pub fee: u64,
     pub amount: u64,
+    pub wallet_fee: u64,
     pub change: u64,
     pub input_count: usize,
     pub output_count: usize,
@@ -164,21 +167,28 @@ fn insufficient(needed: u64, available: u64) -> Error {
 }
 
 /// Plan a payment. `explicit_fee = None` is the official wallet's Auto fee.
+/// `wallet_fee > 0` adds a second output (the NOID wallet fee) next to the
+/// recipient's; coins are chosen to cover both, and the network fee counts it.
 pub fn plan_send(
     utxos: &[Utxo],
     pending_inputs: &HashSet<u32>,
     amount: u64,
     explicit_fee: Option<u64>,
     ctx: FeeContext,
+    wallet_fee: u64,
 ) -> Result<SendPlan, Error> {
     if amount == 0 {
         return Err(Error::msg("Enter an amount greater than zero."));
     }
+    // Everything leaving the wallet except the network fee, and the outputs
+    // that always exist (recipient, plus the wallet fee when there is one).
+    let pay = amount.checked_add(wallet_fee).ok_or_else(|| Error::msg("Amount is too large."))?;
+    let fixed_outputs = 1 + usize::from(wallet_fee > 0);
     let mut available = spendable_utxos(utxos, pending_inputs);
     available.sort_by_key(|u| (std::cmp::Reverse(u.value), u.slot_index));
     let spendable = sum(available.iter().map(|u| u.value))?;
 
-    let (cheapest, _) = ctx.minimum(1, 1);
+    let (cheapest, _) = ctx.minimum(1, fixed_outputs);
     if let Some(fee) = explicit_fee {
         if fee < cheapest {
             return Err(Error::msg(format!(
@@ -188,7 +198,7 @@ pub fn plan_send(
         }
     }
     let minimum_fee = explicit_fee.unwrap_or(cheapest);
-    let minimum_total = amount.checked_add(minimum_fee).ok_or_else(|| Error::msg("Amount is too large."))?;
+    let minimum_total = pay.checked_add(minimum_fee).ok_or_else(|| Error::msg("Amount is too large."))?;
     if spendable < minimum_total {
         return Err(insufficient(minimum_total, spendable));
     }
@@ -207,7 +217,7 @@ pub fn plan_send(
                 continue;
             }
             let change = selected_value - minimum_total;
-            let outputs = 1 + usize::from(change > 0);
+            let outputs = fixed_outputs + usize::from(change > 0);
             let (minimum, _) = ctx.minimum(input_count, outputs);
             if fee < minimum {
                 return Err(Error::msg(format!(
@@ -219,17 +229,17 @@ pub fn plan_send(
             break;
         }
 
-        let (one_output_fee, _) = ctx.minimum(input_count, 1);
-        if selected_value > amount {
-            let (two_output_fee, _) = ctx.minimum(input_count, 2);
-            let need = amount.checked_add(two_output_fee).ok_or_else(|| Error::msg("Amount is too large."))?;
+        let (one_output_fee, _) = ctx.minimum(input_count, fixed_outputs);
+        if selected_value > pay {
+            let (two_output_fee, _) = ctx.minimum(input_count, fixed_outputs + 1);
+            let need = pay.checked_add(two_output_fee).ok_or_else(|| Error::msg("Amount is too large."))?;
             if selected_value > need {
                 planned = Some(two_output_fee);
                 break;
             }
         }
-        if selected_value >= amount {
-            let no_change_fee = selected_value - amount;
+        if selected_value >= pay {
+            let no_change_fee = selected_value - pay;
             if no_change_fee >= one_output_fee {
                 planned = Some(no_change_fee);
                 break;
@@ -247,17 +257,17 @@ pub fn plan_send(
         return Err(insufficient(minimum_total, spendable));
     };
 
-    let Some((selected, change)) = select_utxos(&available, amount, fee) else {
+    let Some((selected, change)) = select_utxos(&available, pay, fee) else {
         if available.len() > MAX_SEND_INPUTS {
             return Err(Error::coded(
                 "input_limit",
                 "This payment needs more than 504 coins. Merge small coins first (Consolidate), then send again.",
             ));
         }
-        return Err(insufficient(amount.saturating_add(fee), spendable));
+        return Err(insufficient(pay.saturating_add(fee), spendable));
     };
     let input_count = selected.len();
-    let output_count = 1 + usize::from(change > 0);
+    let output_count = fixed_outputs + usize::from(change > 0);
     let (minimum, breakdown) = ctx.minimum(input_count, output_count);
     if fee < minimum {
         return Err(Error::msg(format!(
@@ -267,8 +277,9 @@ pub fn plan_send(
     }
     Ok(SendPlan {
         amount,
+        wallet_fee,
         fee,
-        total_spend: amount + fee,
+        total_spend: pay + fee,
         input_count,
         output_count,
         change,
@@ -345,6 +356,7 @@ pub fn plan_sweep(utxos: &[Utxo], pending_inputs: &HashSet<u32>, ctx: FeeContext
     })?;
     Ok(SendPlan {
         amount,
+        wallet_fee: 0,
         fee,
         total_spend: spendable,
         input_count: available.len(),
@@ -362,6 +374,8 @@ pub struct BuildRequest<'a> {
     pub inputs: Vec<Utxo>,
     pub to: Address,
     pub amount: u64,
+    /// The NOID wallet fee output (fee address, amount), if any.
+    pub wallet_fee: Option<(Address, u64)>,
     pub fee: u64,
     pub epoch_anchor: [u8; 32],
     pub output_slot_hints: Vec<u32>,
@@ -379,10 +393,16 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
     let spend_secret = req.secret.derive_spend_secret(req.key_index);
     let owner = derive_address(&spend_secret);
     let total = sum(req.inputs.iter().map(|u| u.value))?;
+    let wallet_fee = req.wallet_fee.filter(|(_, v)| *v > 0);
+    if req.exact && wallet_fee.is_some() {
+        return Err(Error::msg("A merge never pays a wallet fee."));
+    }
+    let fee_amount = wallet_fee.map_or(0, |(_, v)| v);
+    let pay = req.amount.checked_add(fee_amount).ok_or_else(|| Error::msg("Amount is too large."))?;
     let change = total
-        .checked_sub(req.amount)
+        .checked_sub(pay)
         .and_then(|r| r.checked_sub(req.fee))
-        .ok_or_else(|| insufficient(req.amount.saturating_add(req.fee), total))?;
+        .ok_or_else(|| insufficient(pay.saturating_add(req.fee), total))?;
     if req.exact && change != 0 {
         return Err(Error::coded("stale", "Your coins changed. Review the merge again."));
     }
@@ -391,7 +411,15 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
         return Err(Error::msg("The same coin was selected twice."));
     }
 
-    let needed_slots = if change > 0 { 2 } else { 1 };
+    // Outputs in order: recipient, wallet fee, change.
+    let mut wanted: Vec<(u64, Address)> = vec![(req.amount, req.to)];
+    if let Some((fee_to, v)) = wallet_fee {
+        wanted.push((v, fee_to));
+    }
+    if change > 0 {
+        wanted.push((change, owner));
+    }
+    let needed_slots = wanted.len();
     let mut hints: Vec<u32> = Vec::new();
     for slot in req.output_slot_hints {
         if !hints.contains(&slot) {
@@ -402,15 +430,15 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
         return Err(Error::coded("no_slots", "The network did not return enough free output slots. Try again."));
     }
 
-    let mut outputs = [TxOutput::dummy(); TX_OUTPUTS];
-    outputs[0] = TxOutput { slot_index: hints[0], amount: req.amount, owner: req.to };
-    let mut validity = output_bitmap_bit(0);
-    if change > 0 {
-        outputs[1] = TxOutput { slot_index: hints[1], amount: change, owner };
-        validity |= output_bitmap_bit(1);
-    }
+    let all_outputs: Vec<TxOutput> = wanted
+        .iter()
+        .zip(&hints)
+        .map(|(&(amount, owner), &slot_index)| TxOutput { slot_index, amount, owner })
+        .collect();
 
-    let page_count = req.inputs.len().div_ceil(TX_INPUTS).max(1);
+    // Two outputs fit on a page: a third (recipient, wallet fee, change) goes on
+    // the next page. Consensus wants the fewest pages for inputs and outputs.
+    let page_count = req.inputs.len().div_ceil(TX_INPUTS).max(all_outputs.len().div_ceil(TX_OUTPUTS)).max(1);
     let mut pages = Vec::with_capacity(page_count);
     for page_index in 0..page_count {
         let mut page_inputs = [TxInput::dummy(); TX_INPUTS];
@@ -422,9 +450,14 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
                 bitmap |= 1u16 << slot;
             }
         }
+        for (slot, output) in page_outputs.iter_mut().enumerate() {
+            if let Some(o) = all_outputs.get(page_index * TX_OUTPUTS + slot) {
+                *output = *o;
+                bitmap |= output_bitmap_bit(slot);
+            }
+        }
         if page_index == 0 {
-            page_outputs = outputs;
-            bitmap |= validity | PAGED_SPEND_START_BIT;
+            bitmap |= PAGED_SPEND_START_BIT;
         }
         if page_index + 1 == page_count {
             bitmap |= PAGED_SPEND_END_BIT;
@@ -458,6 +491,7 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
         intent_hex: hex::encode(bytes),
         fee: facts.fee,
         amount: req.amount,
+        wallet_fee: fee_amount,
         change,
         input_count: usize::from(facts.live_inputs),
         output_count: usize::from(facts.live_outputs),
@@ -540,7 +574,7 @@ mod tests {
     #[test]
     fn auto_fee_one_input_with_change() {
         let utxos = [u(10, 5_000_000), u(11, 1_000_000)];
-        let p = plan_send(&utxos, &HashSet::new(), 2_000_000, None, ctx()).unwrap();
+        let p = plan_send(&utxos, &HashSet::new(), 2_000_000, None, ctx(), 0).unwrap();
         assert_eq!((p.input_count, p.output_count, p.fee), (1, 2, 9_000));
         assert_eq!(p.change, 5_000_000 - 2_000_000 - 9_000);
         assert_eq!(p.selected_slots, vec![10]);
@@ -550,7 +584,7 @@ mod tests {
     fn auto_fee_send_all_has_no_change() {
         let utxos = [u(1, 1_000_000)];
         // 1 -> 1 needs 5000 + 100 + 700 = 5,800.
-        let p = plan_send(&utxos, &HashSet::new(), 1_000_000 - 5_800, None, ctx()).unwrap();
+        let p = plan_send(&utxos, &HashSet::new(), 1_000_000 - 5_800, None, ctx(), 0).unwrap();
         assert_eq!((p.output_count, p.fee, p.change), (1, 5_800, 0));
     }
 
@@ -558,8 +592,8 @@ mod tests {
     fn pending_inputs_are_excluded() {
         let utxos = [u(1, 1_000_000), u(2, 1_000_000)];
         let pending: HashSet<u32> = [1].into_iter().collect();
-        assert!(plan_send(&utxos, &pending, 1_500_000, None, ctx()).is_err());
-        let p = plan_send(&utxos, &pending, 500_000, None, ctx()).unwrap();
+        assert!(plan_send(&utxos, &pending, 1_500_000, None, ctx(), 0).is_err());
+        let p = plan_send(&utxos, &pending, 500_000, None, ctx(), 0).unwrap();
         assert_eq!(p.selected_slots, vec![2]);
     }
 
@@ -591,6 +625,7 @@ mod tests {
             inputs: utxos.clone(),
             to: MasterSecret::from_hex(&"44".repeat(32)).unwrap().derive_address(0),
             amount: 1_000_000,
+            wallet_fee: None,
             fee: 9_000,
             epoch_anchor: [1; 32],
             output_slot_hints: vec![10, 11],
@@ -613,6 +648,7 @@ mod tests {
             inputs: utxos.to_vec(),
             to: secret.derive_address(0),
             amount: 900_000,
+            wallet_fee: None,
             fee: 6_000,
             epoch_anchor: [1; 32],
             output_slot_hints: vec![10, 11],
@@ -624,10 +660,78 @@ mod tests {
     }
 
     #[test]
+    fn wallet_fee_is_its_own_output_and_counted_in_the_network_fee() {
+        let utxos = [u(10, 5_000_000), u(11, 1_000_000)];
+        // 1 input -> recipient + wallet fee + change: 5000 + 100 + 3*700 + 2*2500.
+        let p = plan_send(&utxos, &HashSet::new(), 2_000_000, None, ctx(), 5_000).unwrap();
+        assert_eq!((p.input_count, p.output_count, p.fee, p.wallet_fee), (1, 3, 12_200, 5_000));
+        assert_eq!(p.change, 5_000_000 - 2_000_000 - 5_000 - 12_200);
+        assert_eq!(p.total_spend, 2_000_000 + 5_000 + 12_200);
+
+        // Sending everything: recipient + wallet fee, no change (1 -> 2 adds one slot).
+        let all = [u(1, 1_000_000)];
+        let fee = 5_000 + 100 + 1_400 + 2_500;
+        let p = plan_send(&all, &HashSet::new(), 1_000_000 - 5_000 - fee, None, ctx(), 5_000).unwrap();
+        assert_eq!((p.output_count, p.fee, p.change), (2, fee, 0));
+
+        // The wallet fee must be covered too.
+        assert!(plan_send(&all, &HashSet::new(), 1_000_000 - fee, None, ctx(), 5_000).is_err());
+    }
+
+    #[test]
+    fn three_outputs_use_a_second_page_and_verify() {
+        let secret = MasterSecret::from_hex(&"11".repeat(32)).unwrap();
+        let utxos = [u(100, 3_000_000)];
+        let plan = plan_send(&utxos, &HashSet::new(), 1_000_000, None, ctx(), 5_000).unwrap();
+        let to = MasterSecret::from_hex(&"22".repeat(32)).unwrap().derive_address(0);
+        let fee_to = MasterSecret::from_hex(&"66".repeat(32)).unwrap().derive_address(0);
+        let built = build_and_prove(BuildRequest {
+            secret: &secret,
+            key_index: 0,
+            inputs: take_selected(&utxos, &plan.selected_slots).unwrap(),
+            to,
+            amount: plan.amount,
+            wallet_fee: Some((fee_to, plan.wallet_fee)),
+            fee: plan.fee,
+            epoch_anchor: [0x86; 32],
+            output_slot_hints: vec![500, 501, 502],
+            exact: false,
+        })
+        .unwrap();
+        assert_eq!((built.output_count, built.fee, built.wallet_fee), (3, plan.fee, 5_000));
+        assert_eq!(built.change, plan.change);
+
+        let intent = PagedSpendIntent::from_bytes(&hex::decode(&built.intent_hex).unwrap()).unwrap();
+        assert_eq!(intent.pages.len(), 2, "third output on a second page");
+        let outs: Vec<(u64, Address)> = intent.pages.iter().flat_map(|p| p.body.live_outputs()).map(|(_, o)| (o.amount, o.owner)).collect();
+        assert_eq!(outs, vec![(1_000_000, to), (5_000, fee_to), (plan.change, secret.derive_address(0))]);
+        let facts = noid_tx::validate_paged_spend(&intent.pages).unwrap();
+        assert_eq!(facts.fee, plan.fee);
+        let bundle = WalletAuthorizationBundle::from_bytes(&intent.authorization_bytes).unwrap();
+        verify_paged_spend_authorization(&intent.pages, &bundle).unwrap();
+
+        // Not enough output slots from the network: refused, nothing built.
+        let err = build_and_prove(BuildRequest {
+            secret: &secret,
+            key_index: 0,
+            inputs: take_selected(&utxos, &plan.selected_slots).unwrap(),
+            to,
+            amount: plan.amount,
+            wallet_fee: Some((fee_to, plan.wallet_fee)),
+            fee: plan.fee,
+            epoch_anchor: [0x86; 32],
+            output_slot_hints: vec![500, 501],
+            exact: false,
+        })
+        .unwrap_err();
+        assert_eq!(err.code, "no_slots");
+    }
+
+    #[test]
     fn built_intent_verifies_and_matches_plan() {
         let secret = MasterSecret::from_hex(&"11".repeat(32)).unwrap();
         let utxos = [u(100, 3_000_000), u(101, 250_000)];
-        let plan = plan_send(&utxos, &HashSet::new(), 1_000_000, None, ctx()).unwrap();
+        let plan = plan_send(&utxos, &HashSet::new(), 1_000_000, None, ctx(), 0).unwrap();
         let to = MasterSecret::from_hex(&"22".repeat(32)).unwrap().derive_address(0);
         let built = build_and_prove(BuildRequest {
             secret: &secret,
@@ -635,6 +739,7 @@ mod tests {
             inputs: take_selected(&utxos, &plan.selected_slots).unwrap(),
             to,
             amount: plan.amount,
+            wallet_fee: None,
             fee: plan.fee,
             epoch_anchor: [0x86; 32],
             output_slot_hints: vec![9_710_654, 9_710_655],

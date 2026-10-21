@@ -12,6 +12,7 @@
 import { ApiError, type Api } from './api';
 import type { BuiltTx, ConsolidationPlan, SendPlan, Utxo } from './core';
 import type { PendingTx } from './storage';
+import { WALLET_FEE_ADDRESS, walletFeeFor } from './walletFee';
 
 /**
  * Refused-payment memory (guards against a dishonest wallet server).
@@ -123,15 +124,18 @@ function pendingOutputs(pending: PendingTx[]) {
 export async function planSend(api: Api, address: string, pending: PendingTx[], amount: number) {
   const [{ utxos }, ctx] = await Promise.all([api.utxos(address), api.status()]);
   const core = await getCore();
+  const walletFee = walletFeeFor(amount);
   const plan = await core.planSend({
     utxos,
     pendingInputSlots: pendingInputs(pending),
     amount,
     fee: null,
+    walletFee,
     activeSlotCount: ctx.activeSlotCount,
     logSlots: ctx.logSlots,
     relayFloor: ctx.relayFloor,
   });
+  if (plan.walletFee !== walletFee) throw new Error('The wallet core planned a different wallet fee. Update NOID.');
   if (feeLooksWrong(plan.fee, amount)) throw suspiciousFee();
   return { plan, utxos };
 }
@@ -153,7 +157,7 @@ export async function submitLoop(
   kind: PendingTx['kind'],
   to: string | null,
   reviewedFee: number,
-  build: () => Promise<{ utxos: Utxo[]; plan: SendPlan | ConsolidationPlan; outputs: 1 | 2 }>,
+  build: () => Promise<{ utxos: Utxo[]; plan: SendPlan | ConsolidationPlan; outputs: 1 | 2 | 3 }>,
 ): Promise<{ built: BuiltTx; pending: PendingTx }> {
   if (hasUnresolvedSend(c.pending)) {
     throw new Error('Your last send is still being checked. Wait until it shows as sent or failed.');
@@ -167,6 +171,7 @@ export async function submitLoop(
 
     c.onStage?.('forging', attempt);
     const isSend = 'selectedSlots' in plan;
+    const walletFee = isSend ? plan.walletFee : 0;
     const forge = c.forge ?? (await getCore()).buildTransaction;
     const built = await forge({
       secretHex: c.secretHex,
@@ -175,6 +180,7 @@ export async function submitLoop(
       selectedSlots: isSend ? plan.selectedSlots : plan.selectedInputSlots,
       to,
       amount: isSend ? plan.amount : plan.outputValue,
+      ...(walletFee > 0 ? { walletFee, walletFeeTo: WALLET_FEE_ADDRESS } : {}),
       fee: plan.fee,
       epochAnchorHex: prep.epochAnchorHex,
       slotHints: prep.slotHints,
@@ -192,6 +198,7 @@ export async function submitLoop(
       to,
       amount: built.amount,
       fee: built.fee,
+      ...(built.walletFee ? { walletFee: built.walletFee } : {}),
       inputSlots: built.inputSlots,
       outputSlots: built.outputSlots,
       createdAt: Date.now(),
@@ -223,7 +230,7 @@ export async function submitLoop(
 export function executeSend(c: Common & { to: string; amount: number; reviewedFee: number; kind?: 'send' | 'gift' }) {
   return submitLoop(c, c.kind ?? 'send', c.to, c.reviewedFee, async () => {
     const { plan, utxos } = await planSend(c.api, c.address, c.pending, c.amount);
-    return { plan, utxos, outputs: plan.outputCount as 1 | 2 };
+    return { plan, utxos, outputs: plan.outputCount as 1 | 2 | 3 };
   });
 }
 

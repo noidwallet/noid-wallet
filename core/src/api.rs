@@ -70,6 +70,9 @@ struct PlanSendArgs {
     pending_input_slots: Vec<u32>,
     amount: u64,
     fee: Option<u64>,
+    /// NOID wallet fee in μNOID (0 or missing: none).
+    #[serde(default)]
+    wallet_fee: u64,
     #[serde(flatten)]
     fees: FeeArgs,
 }
@@ -94,6 +97,10 @@ struct BuildArgs {
     selected_slots: Vec<u32>,
     to: Option<String>,
     amount: u64,
+    /// NOID wallet fee output: amount (μNOID) and the fee address.
+    #[serde(default)]
+    wallet_fee: u64,
+    wallet_fee_to: Option<String>,
     fee: u64,
     epoch_anchor_hex: String,
     slot_hints: Vec<u32>,
@@ -178,7 +185,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
         "planSend" => {
             let a: PlanSendArgs = args(json)?;
             let pending: HashSet<u32> = a.pending_input_slots.into_iter().collect();
-            let plan = tx::plan_send(&a.utxos, &pending, a.amount, a.fee, (&a.fees).into())?;
+            let plan = tx::plan_send(&a.utxos, &pending, a.amount, a.fee, (&a.fees).into(), a.wallet_fee)?;
             Ok(serde_json::to_value(plan).unwrap())
         }
 
@@ -257,6 +264,11 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 .map_err(|_| Error::msg("The network returned an invalid epoch anchor."))?;
             let pending_out: HashSet<u32> = a.pending_output_slots.into_iter().collect();
             let hints: Vec<u32> = a.slot_hints.into_iter().filter(|s| !pending_out.contains(s)).collect();
+            let wallet_fee = match (a.wallet_fee, &a.wallet_fee_to) {
+                (0, _) => None,
+                (v, Some(addr)) => Some((parse_address(addr)?, v)),
+                (_, None) => return Err(Error::msg("A wallet fee needs its fee address.")),
+            };
             let inputs = tx::take_selected(&a.utxos, &a.selected_slots)?;
             let built = tx::build_and_prove(tx::BuildRequest {
                 secret: &secret,
@@ -264,6 +276,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 inputs,
                 to,
                 amount: a.amount,
+                wallet_fee,
                 fee: a.fee,
                 epoch_anchor: anchor,
                 output_slot_hints: hints,
@@ -325,6 +338,14 @@ mod tests {
         assert_eq!(built["fee"], 9000);
         assert_eq!(built["outputCount"], 2);
         assert!(built["intentHex"].as_str().unwrap().starts_with("a3"));
+    }
+
+    #[test]
+    fn app_wallet_fee_address_is_valid() {
+        // Must match app/src/lib/walletFee.ts WALLET_FEE_ADDRESS.
+        let v = ok("validateAddress", json!({ "address": "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf" }));
+        assert_eq!(v["valid"], true, "{v}");
+        assert_eq!(v["address"], "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf");
     }
 
     #[test]

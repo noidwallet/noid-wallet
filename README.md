@@ -55,8 +55,14 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
   the payer are never proof).
 - Contacts, with warnings for first-time and look-alike addresses
   (address-poisoning protection).
-- Values in 41 currencies (NOID price from SafeTrade via your server, rates
-  from a public FX feed), and amounts can be typed in your currency.
+- Values in 41 currencies (NOID price from SafeTrade via your server, or
+  fetched by the phone when the server is blocked; rates from a public FX
+  feed), and amounts can be typed in your currency.
+- NOID wallet fee: 0.25% of each send or new gift card (at least 0.005, at
+  most 0.5 NOID), paid as its own output in the same transaction and shown on
+  the review screen. The fee address and rates live in
+  `app/src/lib/walletFee.ts`, inside the signed app, so a wallet server can't
+  change or redirect them. Receiving, claims, take-backs and merges are free.
 - First-run safety slides (common scams, official links; the links come from
   `extra.officialLinks` in `app/app.json`).
 - Opt-in "NOID received" notifications (see SETUP-NOTIFICATIONS.md).

@@ -51,5 +51,10 @@ export function openDb(path: string): Db {
       PRIMARY KEY (address, txid)
     );
   `);
+  // Added with the NOID wallet fee; older databases get the column with 0.
+  const cols = db.prepare("PRAGMA table_info(address_txs)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "wallet_fee")) {
+    db.exec("ALTER TABLE address_txs ADD COLUMN wallet_fee INTEGER NOT NULL DEFAULT 0");
+  }
   return db;
 }
