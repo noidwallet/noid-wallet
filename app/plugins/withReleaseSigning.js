@@ -46,16 +46,6 @@ function editGradle(src) {
   if (debugType < 0 || debugSigning < 0) throw new Error('withReleaseSigning: debug build type not found');
   out = out.slice(0, debugSigning) + 'applicationIdSuffix ".dev"\n            ' + out.slice(debugSigning);
 
-  // 4. The release APK is for phones (arm64) only; x86_64 is for the emulator
-  //    and would add about 30 MB to every download.
-  out += `
-// NOID: release APK for phones only (arm64); x86_64 is for the emulator.
-androidComponents {
-    onVariants(selector().withBuildType("release")) { variant ->
-        variant.packaging.jniLibs.excludes.add("lib/x86_64/**")
-    }
-}
-`;
   return out;
 }
 
@@ -64,10 +54,12 @@ module.exports = function withReleaseSigning(config) {
     c.modResults.contents = editGradle(c.modResults.contents);
     return c;
   });
-  // The Rust core is built for these two only; a 32-bit phone would crash on start.
+  // Phones only (arm64), for every build: the APK stays small, and no partial
+  // x86_64 or 32-bit set (without the Rust core) can make a device crash at
+  // start. For the x86_64 emulator, build with -PreactNativeArchitectures=x86_64.
   config = withGradleProperties(config, (c) => {
     c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key === 'reactNativeArchitectures'));
-    c.modResults.push({ type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,x86_64' });
+    c.modResults.push({ type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a' });
     // Compressed native libraries: a much smaller download for an APK people
     // fetch over mobile data (they are unpacked once, at install).
     c.modResults = c.modResults.filter((p) => !(p.type === 'property' && p.key === 'expo.useLegacyPackaging'));
