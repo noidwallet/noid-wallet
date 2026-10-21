@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Switch, Text, View } from 'react-native';
+import Constants from 'expo-constants';
+import { Linking, Switch, Text, View } from 'react-native';
 
 import { Avatar, Banner, ListRow, Pill, Screen } from '@/components/ui';
 import { core } from '@/lib/core';
@@ -8,6 +9,12 @@ import { disablePush, enablePush } from '@/lib/push';
 import { currencyInfo } from '@/lib/currencies';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
+
+/** The people behind NOID, shown at the bottom of Settings. */
+const MAKERS = [
+  { handle: '@Solid_Primal', url: 'https://x.com/Solid_Primal' },
+  { handle: '@0xdavee_', url: 'https://x.com/0xdavee_' },
+];
 
 const ORIGIN = { generated: 'Created on this phone', imported: 'Restored from secret', photo: 'Photo Key' } as const;
 
@@ -143,8 +150,19 @@ export default function Settings() {
       </Section>
 
       <View style={{ alignItems: 'center', gap: space.xs, paddingVertical: space.md }}>
-        <Pill text="NOID 0.1" />
+        <Pill text={`NOID ${Constants.expoConfig?.version ?? ''}`.trim()} />
         <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>{version}</Text>
+        <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>
+          Made by{' '}
+          {MAKERS.map((m, i) => (
+            <Text key={m.handle}>
+              {i > 0 ? ' and ' : ''}
+              <Text accessibilityRole="link" style={{ color: colors.textSecondary }} onPress={() => void Linking.openURL(m.url)}>
+                {m.handle}
+              </Text>
+            </Text>
+          ))}
+        </Text>
       </View>
     </Screen>
   );

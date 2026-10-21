@@ -4,6 +4,9 @@ Android wallet for the [Parano1d](https://parano1d.org) (NOID) network. A light
 wallet: no full node on the phone. Keys and zero-knowledge proofs stay on the
 device. A small server you run relays finished transactions and keeps history.
 
+Made by Primal ([@Solid_Primal](https://x.com/Solid_Primal)) and David Peluola
+([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com.
+
 ```
 core/      Rust wallet core: keys, Photo Key, fee planning, tx building, proof
            (reuses the official Parano1d crates; tested against v2.0.4)
