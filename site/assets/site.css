@@ -29,5 +29,12 @@ p { margin: 0; color: var(--muted); }
 .steps li { margin: 6px 0; }
 .mono { font-family: ui-monospace, "JetBrains Mono", monospace; word-break: break-all; color: var(--text); }
 .hidden { display: none !important; }
+h2 { font-size: 22px; line-height: 1.25; margin: 0; }
+.get { display: flex; flex-direction: column; gap: 12px; }
+.btn-sub { display: block; font-weight: 500; font-size: 13px; opacity: .75; margin-top: 2px; }
+.small { font-size: 14px; }
+details { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+details summary { cursor: pointer; color: var(--text); font-weight: 600; }
+details p { margin-top: 10px; font-size: 14px; }
 footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 12px; }
 footer a { color: var(--muted); }

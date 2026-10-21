@@ -32,6 +32,11 @@ noidusa.com, www.noidusa.com {
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
 	}
+	# The Android app download: saved as a file, never cached stale.
+	@apk path /download/*.apk
+	header @apk Content-Type "application/vnd.android.package-archive"
+	header @apk Content-Disposition "attachment"
+	header @apk Cache-Control "no-cache"
 	@wellknown path /.well-known/assetlinks.json
 	header @wellknown Content-Type "application/json"
 }
