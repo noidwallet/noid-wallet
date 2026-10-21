@@ -11,7 +11,8 @@ User=noid
 Group=noid
 # Official Core release, verified against SHA256SUMS. RPC stays on loopback:
 # the node gives owner rights to any local caller, so never expose 9601.
-ExecStartPre=/usr/sbin/nft list table inet noid_rpc
+# "+": this check runs as root (reading firewall rules needs it); the node itself runs as noid.
+ExecStartPre=+/usr/sbin/nft list table inet noid_rpc
 ExecStart=/opt/parano1d/parano1d --data-dir /var/lib/parano1d --p2p-listen 0.0.0.0:9600 --rpc-listen 127.0.0.1:9601 --log info
 Restart=always
 RestartSec=5
