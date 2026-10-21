@@ -1,3 +1,12 @@
+# HTTP/1.1 and HTTP/2 only. HTTP/3 runs over UDP, which some mobile and home
+# networks throttle or drop mid-transfer: large downloads (the APK) stalled in
+# browsers while plain TCP downloads finished in seconds.
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 # HTTPS for the wallet API and the link pages. Point both DNS A records
 # (api.<domain> and <domain>) at the server; Caddy gets certificates itself.
 api.noidusa.com {
