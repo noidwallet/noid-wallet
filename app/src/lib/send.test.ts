@@ -11,6 +11,7 @@ import {
   RefusedButSpent,
   refusalLive,
   resetRefusals,
+  V2_1_ACTIVATION,
   setRefusalStore,
   steerToRefused,
   submitLoop,
@@ -34,13 +35,13 @@ const plan = (fee = 9000, walletFee = 0): SendPlan => ({
   feeBreakdown: { base: 5000, input: 100, output: 1400, stateGrowth: 2500, requiredTotal: fee, burned: 2500 },
 });
 
-function harness(submitBehaviour: ('ok' | 'lost' | 'stale' | 'spent' | 'rejected')[]) {
+function harness(submitBehaviour: ('ok' | 'lost' | 'stale' | 'spent' | 'rejected')[], height = 1) {
   resetRefusals();
   const store = new Map<string, PendingTx>();
   const calls = { forge: 0, submit: [] as string[] };
   let n = 0;
   const api = {
-    prepare: async () => ({ epochAnchorHex: '00'.repeat(32), slotHints: [1, 2], height: 1, activeSlotCount: 0, logSlots: 24, relayFloor: 5000 }),
+    prepare: async () => ({ epochAnchorHex: '00'.repeat(32), slotHints: [1, 2], height, activeSlotCount: 0, logSlots: 24, relayFloor: 5000 }),
     submit: async (_hex: string, txid: string) => {
       calls.submit.push(txid);
       const b = submitBehaviour.shift();
@@ -261,5 +262,17 @@ test('refusal memory: the next plan is steered to start from a refused coin', ()
   assert.deepEqual(steerToRefused('o1me', utxos, Date.now(), 2), [8, 9], 'skip coins as large as the refused one');
   assert.equal(steerToRefused('o1other', utxos), null);
   assert.equal(steerToRefused('o1me', utxos.slice(1)), null, 'refused coin gone: nothing to steer, the check reports it');
+  resetRefusals();
+});
+
+test('v2.1 upgrade race: a proof refused right at activation is built again once', async () => {
+  const h = harness(['rejected', 'ok'], V2_1_ACTIVATION - 2);
+  const res = await submitLoop(h.common, 'send', 'o1to', 9000, h.build);
+  assert.equal(res.pending.state, 'submitted');
+  assert.equal(h.calls.forge, 2);
+  // Far from activation, a refusal is final as before.
+  const far = harness(['rejected', 'ok'], 1);
+  await assert.rejects(submitLoop(far.common, 'send', 'o1to', 9000, far.build), /rejected/);
+  assert.equal(far.calls.forge, 1);
   resetRefusals();
 });

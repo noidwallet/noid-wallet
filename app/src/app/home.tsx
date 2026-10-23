@@ -133,7 +133,8 @@ export default function Home() {
       ),
     });
   }
-  const update = updateNotice(status?.app, Constants.expoConfig?.version ?? '0.0.0');
+  const appVersion = Constants.expoConfig?.version;
+  const update = appVersion ? updateNotice(status?.app, appVersion) : null;
   if (update) {
     banners.push({
       key: 'update',

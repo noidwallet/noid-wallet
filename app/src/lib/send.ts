@@ -309,7 +309,10 @@ export async function submitLoop(
       await c.discard(built.txid);
       noteRefused(c.address, built.inputSlots, prep.height);
       lastError = e;
-      if (!e.retryable) throw e;
+      // Built just before the Parano1d v2.1 upgrade but checked after it: the
+      // proof format changed, so build it again once (with the new format).
+      const upgradeRace = e.code === 'rejected' && prep.height + 1 < V2_1_ACTIVATION && prep.height + 1 >= V2_1_ACTIVATION - 3;
+      if (!e.retryable && !(upgradeRace && attempt === 0)) throw e;
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
       continue;
     }
@@ -368,6 +371,9 @@ export async function planSweep(api: Api, address: string, pending: PendingTx[])
   }
   return { plan, utxos };
 }
+
+/** Parano1d v2.1 activation height: proofs change format here (core/src/tx.rs). */
+export const V2_1_ACTIVATION = 279_370;
 
 /** Codes after which a saved transaction can never confirm and its coins are free again. */
 const DEAD = new Set(['inputs_spent', 'stale_anchor', 'fee_too_low', 'rejected', 'bad_request']);

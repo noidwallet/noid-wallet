@@ -29,6 +29,11 @@ test("submit errors use exact node variants", () => {
   assert.ok(anchor.kind === "rejected" && anchor.retryable);
   const bug = classifySubmitError("consensus: InvalidPagedSpend: bad bitmap");
   assert.ok(bug.kind === "rejected" && !bug.retryable && bug.code === "rejected");
+  // Parano1d v2.1: activation during checking is retried; an old-format proof tells the user to update.
+  const race = classifySubmitError("invalid auth authorization: authorization profile changed during verification");
+  assert.ok(race.kind === "rejected" && race.retryable && race.code === "stale_anchor");
+  const old = classifySubmitError("invalid auth authorization: proof verification failed");
+  assert.ok(old.kind === "rejected" && !old.retryable && old.code === "rejected" && /update from noidusa\.com/.test(old.message));
 });
 
 test("history pages by (height, txid) without skipping rows in the same block", async () => {

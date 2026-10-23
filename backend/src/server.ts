@@ -55,6 +55,17 @@ export function classifySubmitError(message: string): SubmitOutcome {
       retryable: false,
       message: "These coins are already spent. Refresh your wallet and try again.",
     };
+  if (m.startsWith("invalid auth authorization") && m.includes("authorization profile changed"))
+    // Parano1d v2.1 activated while this payment was being checked: build it again.
+    return { kind: "rejected", code: "stale_anchor", retryable: true, message: "The network upgraded while you were sending. Try again." };
+  if (m.startsWith("invalid auth authorization"))
+    // Shown word for word by NOID 1.0.1, whose proofs stop working at the v2.1 upgrade.
+    return {
+      kind: "rejected",
+      code: "rejected",
+      retryable: false,
+      message: "The network did not accept this payment's proof. If you use NOID 1.0.1 or older, update from noidusa.com.",
+    };
   if (m.startsWith("mempool full") || m.startsWith("mempool byte cap"))
     return { kind: "rejected", code: "busy", retryable: false, message: "The network is busy. Try again in a minute." };
   return { kind: "rejected", code: "rejected", retryable: false, message: "The network rejected the transaction." };

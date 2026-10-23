@@ -20,6 +20,11 @@ export interface AddressRow {
  * An output to a wallet fee address next to another recipient is the sender's
  * NOID wallet fee, not a second payment.
  */
+/** Parano1d v2.1 native finance (token, curve, DEX, NFT). The node leaves `contract` empty for these. */
+export function isNativeFinance(tx: BlockTx): boolean {
+  return tx.native != null || (tx.trades?.length ?? 0) > 0 || tx.outputs.some((o) => o.native);
+}
+
 export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Set()): AddressRow[] {
   const received = new Map<string, number>();
   // Native (v2.1) token/NFT/market slots are owned by a commitment, not an
@@ -28,7 +33,7 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
     if (o.native) continue;
     received.set(o.owner, (received.get(o.owner) ?? 0) + o.amount_micronoid);
   }
-  const nativeFinance = tx.native != null || (tx.trades?.length ?? 0) > 0 || tx.outputs.some((o) => o.native);
+  const nativeFinance = isNativeFinance(tx);
 
   if (tx.coinbase || tx.development_payout || !tx.input_owner) {
     return [...received].map(([address, amount]) => ({ address, direction: "mined", amount, fee: 0, walletFee: 0, counterparty: null }));
@@ -188,7 +193,7 @@ export class Indexer {
         .prepare("INSERT OR REPLACE INTO blocks (height, hash, time, complete) VALUES (?, ?, ?, ?)")
         .run(height, hash, timestamp, block.retained ? 1 : 0);
       for (const tx of block.retained?.transactions ?? []) {
-        const kind = tx.coinbase || tx.development_payout ? "coinbase" : tx.contract ? "contract" : "payment";
+        const kind = tx.coinbase || tx.development_payout ? "coinbase" : tx.contract || isNativeFinance(tx) ? "contract" : "payment";
         insTx.run(tx.txid, height, timestamp, tx.fee_micronoid, kind, tx.input_owner);
         for (const r of classify(tx, this.opts.feeAddresses)) {
           insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.walletFee, r.counterparty);

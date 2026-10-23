@@ -1,6 +1,6 @@
 [package]
 name = "noid_mobile_core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "On-device wallet core for the NOID mobile wallet: keys, Photo Key, fee planning, transaction building and the Parano1d authorization proof."
@@ -14,7 +14,7 @@ resolver = "2"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Official Parano1d crates, pinned to the audited v2.0.4-era commit we tested.
+# Official Parano1d crates, pinned to the v2.1.0 release (848209d).
 noid_core = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
 noid_poseidon2b = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
 noid_tx = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
