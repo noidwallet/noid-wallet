@@ -115,6 +115,8 @@ export const core = {
     walletFeeTo?: string;
     fee: number;
     epochAnchorHex: string;
+    /** Chain tip from /v1/prepare: picks the proof construction (Parano1d v2.1). */
+    tipHeight: number;
     slotHints: number[];
     pendingOutputSlots: number[];
   }) => call<BuiltTx>('buildTransaction', a),

@@ -2,7 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
@@ -10,6 +10,8 @@ import { Icon } from '@/components/Icon';
 import { HistoryRow, makeFiatOf, makeNameOf, PendingRow } from '@/components/TxRow';
 import { Banner, Button, EmptyState, IconAction, IconButton, Link, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
+import Constants from 'expo-constants';
+import { UPDATE_URL, updateNotice } from '@/lib/appVersion';
 import { LINK_HOSTS } from '@/lib/config';
 import { inbox } from '@/lib/inbox';
 import { parseLink } from '@/lib/links';
@@ -127,6 +129,19 @@ export default function Home() {
       node: (
         <Banner tone="danger" icon="server" onPress={() => go('/server')}>
           {lastUpdated ? 'Showing your last known balance. ' : ''}Can’t reach your wallet server. Tap to check it.
+        </Banner>
+      ),
+    });
+  }
+  const update = updateNotice(status?.app, Constants.expoConfig?.version ?? '0.0.0');
+  if (update) {
+    banners.push({
+      key: 'update',
+      node: (
+        <Banner tone={update.required ? 'danger' : 'info'} icon={update.required ? 'warning' : 'bell'} onPress={() => void Linking.openURL(UPDATE_URL)}>
+          {update.required
+            ? `Update NOID to ${update.version} to keep sending. Your money is safe. Tap to download from noidusa.com.`
+            : `NOID ${update.version} is available. Tap to download from noidusa.com.`}
         </Banner>
       ),
     });

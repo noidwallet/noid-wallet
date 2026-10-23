@@ -9,7 +9,25 @@
 
 use std::collections::HashSet;
 
-use noid_gkr::{prove_paged_spend_authorization, OwnerAuthWitness};
+use noid_gkr::wallet_authorization::prove_paged_spend_authorization_for_version;
+use noid_gkr::OwnerAuthWitness;
+use noid_tx::OwnerAuthorizationVersion;
+
+/// Parano1d v2.1 activation (noid_chain consensus params,
+/// MAINNET_V2_1_ACTIVATION_HEIGHT in v2.1.0). From this block on, wallet
+/// authorization proofs must use the V4 construction; before it, V3.
+pub const V2_1_ACTIVATION_HEIGHT: u64 = 279_370;
+
+/// Proof construction for a transaction that will be mined in the block after
+/// `tip_height` (the node checks against tip + 1, like the official wallet's
+/// `owner_authorization_version(candidate_height)`).
+pub fn authorization_version(tip_height: u64) -> OwnerAuthorizationVersion {
+    if tip_height.saturating_add(1) >= V2_1_ACTIVATION_HEIGHT {
+        OwnerAuthorizationVersion::V4
+    } else {
+        OwnerAuthorizationVersion::V3
+    }
+}
 use noid_poseidon2b::primitives::{derive_address, Address};
 use noid_tx::{
     output_bitmap_bit, PagedSpendIntent, TxBody, TxInput, TxOutput, TxPage, PAGED_SPEND_END_BIT,
@@ -390,6 +408,8 @@ pub struct BuildRequest<'a> {
     /// Consolidation: inputs must equal output + fee exactly (no change output),
     /// mirroring the official ConsolidationValueMismatch check.
     pub exact: bool,
+    /// Current chain tip; picks the proof construction (see authorization_version).
+    pub tip_height: u64,
 }
 
 /// Build the pages, forge the authorization proof and encode the intent
@@ -485,7 +505,11 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
     }
 
     let started = std::time::Instant::now();
-    let bundle = prove_paged_spend_authorization(&pages, OwnerAuthWitness::new(spend_secret))
+    let bundle = prove_paged_spend_authorization_for_version(
+        &pages,
+        OwnerAuthWitness::new(spend_secret),
+        authorization_version(req.tip_height),
+    )
         .map_err(|e| Error::msg(format!("Could not forge the proof: {e}")))?;
     let prove_ms = started.elapsed().as_millis() as u64;
     let auth = bundle.to_bytes().map_err(|e| Error::msg(format!("Could not encode the proof: {e}")))?;
@@ -570,7 +594,8 @@ mod tests {
         assert!(plan_sweep(&utxos, &locked, ctx).is_err());
     }
     use super::*;
-    use noid_gkr::{verify_paged_spend_authorization, WalletAuthorizationBundle};
+    use noid_gkr::wallet_authorization::verify_paged_spend_authorization_for_version;
+    use noid_gkr::WalletAuthorizationBundle;
 
     fn ctx() -> FeeContext {
         FeeContext { active_slot_count: 0, log_slots: 24, relay_floor: 5_000 }
@@ -649,6 +674,7 @@ mod tests {
             epoch_anchor: [1; 32],
             output_slot_hints: vec![10, 11],
             exact: false,
+            tip_height: 1_000,
         })
         .unwrap();
         let intent = PagedSpendIntent::from_bytes(&hex::decode(&built.intent_hex).unwrap()).unwrap();
@@ -672,6 +698,7 @@ mod tests {
             epoch_anchor: [1; 32],
             output_slot_hints: vec![10, 11],
             exact: true,
+            tip_height: 1_000,
         })
         .unwrap_err();
         assert_eq!(err.code, "stale");
@@ -731,6 +758,7 @@ mod tests {
             epoch_anchor: [0x86; 32],
             output_slot_hints: vec![500, 501, 502],
             exact: false,
+            tip_height: 1_000,
         })
         .unwrap();
         assert_eq!((built.output_count, built.fee, built.wallet_fee), (3, plan.fee, 5_000));
@@ -743,7 +771,7 @@ mod tests {
         let facts = noid_tx::validate_paged_spend(&intent.pages).unwrap();
         assert_eq!(facts.fee, plan.fee);
         let bundle = WalletAuthorizationBundle::from_bytes(&intent.authorization_bytes).unwrap();
-        verify_paged_spend_authorization(&intent.pages, &bundle).unwrap();
+        verify_paged_spend_authorization_for_version(&intent.pages, &bundle, OwnerAuthorizationVersion::V3).unwrap();
 
         // Not enough output slots from the network: refused, nothing built.
         let err = build_and_prove(BuildRequest {
@@ -757,6 +785,7 @@ mod tests {
             epoch_anchor: [0x86; 32],
             output_slot_hints: vec![500, 501],
             exact: false,
+            tip_height: 1_000,
         })
         .unwrap_err();
         assert_eq!(err.code, "no_slots");
@@ -779,6 +808,7 @@ mod tests {
             epoch_anchor: [0x86; 32],
             output_slot_hints: vec![9_710_654, 9_710_655],
             exact: false,
+            tip_height: 1_000,
         })
         .unwrap();
         assert_eq!((built.fee, built.input_count, built.output_count), (plan.fee, plan.input_count, plan.output_count));
@@ -789,7 +819,39 @@ mod tests {
         let intent = PagedSpendIntent::from_bytes(&bytes).unwrap();
         assert_eq!(hex::encode(intent.logical_txid().0), built.txid);
         let bundle = WalletAuthorizationBundle::from_bytes(&intent.authorization_bytes).unwrap();
-        verify_paged_spend_authorization(&intent.pages, &bundle).unwrap();
+        verify_paged_spend_authorization_for_version(&intent.pages, &bundle, OwnerAuthorizationVersion::V3).unwrap();
         assert_eq!(intent.pages[0].body.input_owner, secret.derive_address(0));
+    }
+
+    #[test]
+    fn proof_version_switches_at_v2_1_activation() {
+        assert_eq!(authorization_version(V2_1_ACTIVATION_HEIGHT - 2), OwnerAuthorizationVersion::V3);
+        // The transaction lands in tip + 1, so the block before activation already proves V4.
+        assert_eq!(authorization_version(V2_1_ACTIVATION_HEIGHT - 1), OwnerAuthorizationVersion::V4);
+        assert_eq!(authorization_version(V2_1_ACTIVATION_HEIGHT + 500), OwnerAuthorizationVersion::V4);
+
+        // A transaction built after activation carries a V4 proof (and not a V3 one).
+        let secret = MasterSecret::from_hex(&"11".repeat(32)).unwrap();
+        let utxos = [u(100, 3_000_000)];
+        let plan = plan_send(&utxos, &HashSet::new(), 1_000_000, None, ctx(), 0).unwrap();
+        let to = MasterSecret::from_hex(&"22".repeat(32)).unwrap().derive_address(0);
+        let built = build_and_prove(BuildRequest {
+            secret: &secret,
+            key_index: 0,
+            inputs: take_selected(&utxos, &plan.selected_slots).unwrap(),
+            to,
+            amount: plan.amount,
+            wallet_fee: None,
+            fee: plan.fee,
+            epoch_anchor: [0x86; 32],
+            output_slot_hints: vec![9_710_654, 9_710_655],
+            exact: false,
+            tip_height: V2_1_ACTIVATION_HEIGHT,
+        })
+        .unwrap();
+        let intent = PagedSpendIntent::from_bytes(&hex::decode(&built.intent_hex).unwrap()).unwrap();
+        let bundle = WalletAuthorizationBundle::from_bytes(&intent.authorization_bytes).unwrap();
+        verify_paged_spend_authorization_for_version(&intent.pages, &bundle, OwnerAuthorizationVersion::V4).unwrap();
+        assert!(verify_paged_spend_authorization_for_version(&intent.pages, &bundle, OwnerAuthorizationVersion::V3).is_err());
     }
 }

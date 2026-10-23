@@ -17,7 +17,7 @@ const indexer = new Indexer(db, {
   feeAddresses: config.walletFeeAddresses,
   onBlock: notifier ? (h, t, rows) => notifier.onRows(h, t, rows) : undefined,
 });
-const app = await buildServer(db, indexer, { trustProxy: config.trustProxy, price, notifier });
+const app = await buildServer(db, indexer, { trustProxy: config.trustProxy, price, notifier, app: { latest: config.appLatestVersion, min: config.appMinVersion } });
 
 indexer.start();
 await app.listen({ host: config.host, port: config.port });

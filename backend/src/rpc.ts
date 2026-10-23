@@ -96,6 +96,8 @@ export interface BlockOutput {
   slot_index: number;
   amount_micronoid: number;
   owner: string;
+  /** Parano1d v2.1: a token, NFT or market slot. Its owner is a commitment, not an address. */
+  native?: boolean;
 }
 export interface BlockTx {
   position: number;
@@ -104,6 +106,9 @@ export interface BlockTx {
   coinbase: boolean;
   development_payout: boolean;
   contract: "call" | "close" | null;
+  /** Parano1d v2.1 native finance (tokens, curve, DEX, NFTs); absent on older nodes. */
+  native?: unknown;
+  trades?: unknown[];
   input_owner: string | null;
   input_sum_micronoid: string;
   output_sum_micronoid: string;

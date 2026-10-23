@@ -87,7 +87,7 @@ function intParam(raw: string | undefined, fallback: number, min: number, max: n
 export async function buildServer(
   db: Db,
   indexer: Indexer,
-  opts: { trustProxy: boolean; price?: PriceFeed | null; notifier?: Notifier | null },
+  opts: { trustProxy: boolean; price?: PriceFeed | null; notifier?: Notifier | null; app?: { latest?: string; min?: string } },
 ): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
   const app = Fastify({
@@ -159,6 +159,7 @@ export async function buildServer(
       mempool: { size: mempool.size, capacity: mempool.capacity },
       indexer: { indexedHeight: indexer.indexedHeight, healthy: indexer.lastError === null },
       features: { price: !!opts.price, push: !!opts.notifier },
+      ...(opts.app?.latest || opts.app?.min ? { app: { latest: opts.app.latest ?? null, min: opts.app.min ?? null } } : {}),
     };
   });
 

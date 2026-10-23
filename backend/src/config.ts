@@ -24,4 +24,15 @@ export const config = {
   ),
   /** Set PRICE=0 to turn off the NOID price feed. */
   priceEnabled: process.env.PRICE !== "0",
+  /**
+   * App versions announced to phones (x.y.z). APP_LATEST_VERSION shows "an
+   * update is available"; APP_MIN_VERSION warns that older versions can't send
+   * (e.g. after a network upgrade). The app links only to noidusa.com.
+   */
+  appLatestVersion: semver(process.env.APP_LATEST_VERSION),
+  appMinVersion: semver(process.env.APP_MIN_VERSION),
 };
+
+function semver(v: string | undefined): string | undefined {
+  return v && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v.trim()) ? v.trim() : undefined;
+}

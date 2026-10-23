@@ -106,13 +106,15 @@ struct BuildArgs {
     slot_hints: Vec<u32>,
     #[serde(default)]
     pending_output_slots: Vec<u32>,
+    /// Chain tip from /v1/prepare: decides the proof construction (v2.1).
+    tip_height: u64,
 }
 
 fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
     match method {
         "version" => Ok(json!({
             "core": env!("CARGO_PKG_VERSION"),
-            "parano1dRev": "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea",
+            "parano1dRev": "848209d5db75137483cb41a94b310ad11463473f",
             "photoKey": "v1",
         })),
 
@@ -281,6 +283,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 epoch_anchor: anchor,
                 output_slot_hints: hints,
                 exact,
+                tip_height: a.tip_height,
             })?;
             Ok(serde_json::to_value(built).unwrap())
         }
@@ -332,7 +335,7 @@ mod tests {
                 "selectedSlots": plan["selectedSlots"], "to": "o1e7mkgm5cm9ngrexup6wpgkzzy9qzp25fwl223epu2llkpa7ftz9sx0fcsx",
                 "amount": 1_000_000, "fee": plan["fee"],
                 "epochAnchorHex": "860e70453390bf815718e933aa4927167a13d098b0151391eefd722ee1add610",
-                "slotHints": [9710654, 9710655],
+                "slotHints": [9710654, 9710655], "tipHeight": 240_000,
             }),
         );
         assert_eq!(built["fee"], 9000);

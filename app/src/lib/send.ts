@@ -275,6 +275,7 @@ export async function submitLoop(
       ...(walletFee > 0 ? { walletFee, walletFeeTo: WALLET_FEE_ADDRESS } : {}),
       fee: plan.fee,
       epochAnchorHex: prep.epochAnchorHex,
+      tipHeight: prep.height,
       slotHints: prep.slotHints,
       pendingOutputSlots: pendingOutputs(c.pending),
     });

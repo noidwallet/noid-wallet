@@ -22,7 +22,13 @@ export interface AddressRow {
  */
 export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Set()): AddressRow[] {
   const received = new Map<string, number>();
-  for (const o of tx.outputs) received.set(o.owner, (received.get(o.owner) ?? 0) + o.amount_micronoid);
+  // Native (v2.1) token/NFT/market slots are owned by a commitment, not an
+  // address: they are nobody's plain NOID and are left out of history.
+  for (const o of tx.outputs) {
+    if (o.native) continue;
+    received.set(o.owner, (received.get(o.owner) ?? 0) + o.amount_micronoid);
+  }
+  const nativeFinance = tx.native != null || (tx.trades?.length ?? 0) > 0 || tx.outputs.some((o) => o.native);
 
   if (tx.coinbase || tx.development_payout || !tx.input_owner) {
     return [...received].map(([address, amount]) => ({ address, direction: "mined", amount, fee: 0, walletFee: 0, counterparty: null }));
@@ -31,8 +37,9 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
   const sender = tx.input_owner;
   const others = [...received].filter(([a]) => a !== sender);
   const rows: AddressRow[] = [];
-  if (tx.contract) {
-    // Contract call or close: value moves under contract rules, not a plain payment.
+  if (tx.contract || nativeFinance) {
+    // Contract call or close, or v2.1 native finance (token, curve, DEX, NFT):
+    // value moves under contract rules, not a plain payment.
     const total = [...received].reduce((s, [, v]) => s + v, 0);
     rows.push({ address: sender, direction: "contract", amount: total, fee: tx.fee_micronoid, walletFee: 0, counterparty: null });
     for (const [address, amount] of others) rows.push({ address, direction: "contract", amount, fee: 0, walletFee: 0, counterparty: sender });

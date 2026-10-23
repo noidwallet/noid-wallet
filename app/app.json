@@ -2,7 +2,7 @@
   "expo": {
     "name": "NOID",
     "slug": "noid",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "scheme": "noid",
     "icon": "./assets/icon.png",
@@ -10,7 +10,7 @@
     "backgroundColor": "#060B0A",
     "android": {
       "package": "com.dpeluola.noid",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#060B0A",
         "foregroundImage": "./assets/android-icon-foreground.png",

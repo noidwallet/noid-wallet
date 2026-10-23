@@ -243,3 +243,12 @@ cd /opt/noid-wallet-backend && npm ci && npm run build && systemctl restart noid
 ```
 New Parano1d release: repeat step 5's download, check and `install` lines, then
 `systemctl restart parano1d`.
+
+Tell phones about a new NOID version (they show a banner linking to
+noidusa.com). `APP_MIN_VERSION` is for releases older versions can't work
+without, such as a network upgrade:
+```sh
+mkdir -p /etc/systemd/system/noid-wallet-api.service.d
+printf '[Service]\nEnvironment=APP_LATEST_VERSION=1.0.2\nEnvironment=APP_MIN_VERSION=1.0.2\n' > /etc/systemd/system/noid-wallet-api.service.d/app-version.conf
+systemctl daemon-reload && systemctl restart noid-wallet-api
+```

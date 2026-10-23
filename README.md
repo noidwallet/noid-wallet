@@ -12,7 +12,7 @@ project.
 
 ```
 core/      Rust wallet core: keys, Photo Key, fee planning, tx building, proof
-           (reuses the official Parano1d crates; tested against v2.0.4)
+           (reuses the official Parano1d crates; built against v2.1.0)
 app/       React Native + Expo (SDK 57) Android app; core loaded over JNI
 backend/   TypeScript API next to your node: safe-method proxy + history indexer
 ```

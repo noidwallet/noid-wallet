@@ -1,4 +1,4 @@
-# Security review brief: NOID wallet 1.0.1
+# Security review brief: NOID wallet 1.0.2
 
 NOID is an Android wallet for Parano1d. Keys stay on the phone; the phone
 builds and proves every transaction itself (the official GKR authorization
@@ -28,7 +28,7 @@ from them is marked in `core/src` with the original file it comes from.
 ## Run the tests
 
 ```sh
-cd core && cargo test --release      # 23 tests: addresses match v2.0.4, Photo Key,
+cd core && cargo test --release      # 23 tests: addresses match the official crates, Photo Key,
                                      # built intents pass validate_paged_spend and
                                      # verify_paged_spend_authorization
 cd app && npm ci && npm test && npx tsc --noEmit
@@ -112,7 +112,18 @@ fees, or withhold transactions; it can't spend. Defences in
 - `indexer.ts`: history from retained block bodies.
 - Rate limits per IP; behind Caddy (`backend/deploy/Caddyfile`).
 
-## Known limits (accepted for 1.0.1)
+## Parano1d v2.1 (activation at block 279,370)
+
+From that block, wallet proofs must use the V4 authorization construction.
+`core/src/tx.rs` (`authorization_version`) proves V3 while tip + 1 is below the
+activation height and V4 from then on, matching the official wallet's
+`owner_authorization_version(candidate_height)`. A V3 transaction still in the
+mempool at activation is dropped by the node; NOID's pending logic treats the
+refusal as definite and frees its coins. Native-finance transactions (tokens,
+DEX, NFTs) show in history as contract activity; their commitment-owned slots
+are not anyone's plain NOID.
+
+## Known limits (accepted for 1.0.2)
 
 - Privacy: the server sees which addresses a phone asks about and its IP.
 - The NOID price can come from CoinPaprika directly from the phone when the

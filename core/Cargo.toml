@@ -15,10 +15,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Official Parano1d crates, pinned to the audited v2.0.4-era commit we tested.
-noid_core = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
-noid_poseidon2b = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
-noid_tx = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
-noid_gkr = { git = "https://github.com/ignotusnemo/parano1d", rev = "5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea" }
+noid_core = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
+noid_poseidon2b = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
+noid_tx = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
+noid_gkr = { git = "https://github.com/ignotusnemo/parano1d", rev = "848209d5db75137483cb41a94b310ad11463473f" }
 
 # Photo Key must decode pixels exactly like the official GUI, so the image
 # stack is pinned to the same versions and features as noid_gui.

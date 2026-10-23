@@ -66,6 +66,8 @@ export interface Status extends FeeContext {
   peers: number | null;
   /** Optional server features; missing on older servers. */
   features?: { price?: boolean; push?: boolean };
+  /** App versions the server announces (see backend config). */
+  app?: { latest?: string | null; min?: string | null };
 }
 
 export interface Price {

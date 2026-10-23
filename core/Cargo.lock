@@ -381,8 +381,8 @@ dependencies = [
 
 [[package]]
 name = "noid_core"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "rand",
  "rayon",
@@ -392,8 +392,8 @@ dependencies = [
 
 [[package]]
 name = "noid_fri"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "noid_core",
  "noid_poseidon2b",
@@ -404,8 +404,8 @@ dependencies = [
 
 [[package]]
 name = "noid_fri_binius"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "noid_core",
  "noid_fri",
@@ -418,8 +418,8 @@ dependencies = [
 
 [[package]]
 name = "noid_gkr"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "bincode",
  "noid_core",
@@ -459,8 +459,8 @@ dependencies = [
 
 [[package]]
 name = "noid_poseidon2b"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "bech32",
  "hex",
@@ -473,8 +473,8 @@ dependencies = [
 
 [[package]]
 name = "noid_tx"
-version = "2.0.4"
-source = "git+https://github.com/ignotusnemo/parano1d?rev=5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea#5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea"
+version = "2.1.0"
+source = "git+https://github.com/ignotusnemo/parano1d?rev=848209d5db75137483cb41a94b310ad11463473f#848209d5db75137483cb41a94b310ad11463473f"
 dependencies = [
  "noid_core",
  "noid_poseidon2b",

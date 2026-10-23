@@ -117,3 +117,19 @@ test("a node that is behind (resync, reindex) never makes the indexer delete his
     globalThis.fetch = realFetch;
   }
 });
+
+test("v2.1 native finance: shown as contract activity, commitment-owned slots left out", () => {
+  const rows = classify(
+    tx({
+      native: { operation: "curve_buy" },
+      outputs: [
+        { slot_index: 5, amount_micronoid: 2_000_000, owner: "o1commitment", native: true },
+        { slot_index: 6, amount_micronoid: 300_000, owner: A },
+      ],
+    }),
+  );
+  assert.deepEqual(rows, [{ address: A, direction: "contract", amount: 300_000, fee: 9000, walletFee: 0, counterparty: null }]);
+  // An ordinary payment in a v2.1 block is unchanged.
+  const pay = classify(tx({ native: null, trades: [], outputs: [{ slot_index: 1, amount_micronoid: 1_000, owner: B, native: false }] }));
+  assert.equal(pay[0]!.direction, "sent");
+});
