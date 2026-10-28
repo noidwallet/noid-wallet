@@ -66,13 +66,15 @@ export default function Home() {
   const assetsState = useAssets();
   const address = meta?.address;
   const height = status?.height;
+  // Only servers that say they support it (older ones would just answer "not found").
+  const assetsOn = status?.features?.assets === true;
   useEffect(() => {
-    if (address && settings.apiUrl) void assets.refresh(w.api, address);
-  }, [w.api, address, height, settings.apiUrl]);
+    if (address && settings.apiUrl && assetsOn) void assets.refresh(w.api, address);
+  }, [w.api, address, height, settings.apiUrl, assetsOn]);
 
   if (!meta) return null;
-  const held = shownAssets(assetsState);
-  const heldHere = held && held.address === meta.address && (held.tokens.length > 0 || held.nfts.length > 0) ? held : null;
+  const held = shownAssets(assetsState, meta.address);
+  const heldHere = held && (held.tokens.length > 0 || held.nfts.length > 0) ? held : null;
   const toggleHidden = () => {
     void Haptics.selectionAsync();
     void w.updateSettings({ hideBalance: !settings.hideBalance });
@@ -206,7 +208,7 @@ export default function Home() {
             refreshing={refreshing}
             onRefresh={() => {
               void refresh({ manual: true });
-              void assets.refresh(w.api, meta.address, { force: true });
+              if (assetsOn) void assets.refresh(w.api, meta.address, { force: true });
             }}
             tintColor={colors.accent}
           />

@@ -33,7 +33,8 @@ export type RpcMethod = typeof ALLOWED extends Set<infer T> ? T : never;
  * JavaScript number cannot hold. Quote it before JSON.parse so it stays exact.
  */
 export function parseNodeJson(text: string): unknown {
-  return JSON.parse(text.replace(/"creation_id"\s*:\s*(\d+)/g, '"creation_id":"$1"'));
+  // unlock_height (Parano1d v2.1 token records) is a u64 too: a sender can set it to any value.
+  return JSON.parse(text.replace(/"(creation_id|unlock_height)"\s*:\s*(\d+)/g, '"$1":"$2"'));
 }
 
 export class RpcError extends Error {

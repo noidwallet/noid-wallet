@@ -26,7 +26,7 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@SERVER_IP "mkdir -p ~/.ssh 
 Check it: `ssh root@SERVER_IP` should now ask for your **key passphrase**, not the
 root password.
 
-**Server** — turn off password logins (bots try them all day):
+**Server**: turn off password logins (bots try them all day):
 ```sh
 cat > /etc/ssh/sshd_config.d/00-noid.conf <<'EOF'
 PasswordAuthentication no
@@ -96,7 +96,7 @@ ufw status                        # must still say: active
 
 ## 5. The Parano1d node (download 2 min, then it syncs)
 
-**Server** — official release, checked against its SHA256SUMS:
+**Server**: official release, checked against its SHA256SUMS:
 ```sh
 cd /root
 REL=$(curl -fsSL https://api.github.com/repos/proof-native/parano1d/releases/latest)
@@ -131,7 +131,7 @@ Wait until its height matches your desktop wallet's height.
 
 ## 6. The wallet API
 
-**Server** — Node.js 22, then build:
+**Server**: Node.js 22, then build:
 ```sh
 curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh && bash /tmp/nodesource_setup.sh
 apt install -y nodejs && node -v          # v22.x
@@ -160,7 +160,7 @@ node is synced, and finish within ~15 minutes:
 
 Skipping this is fine too: history then starts from today on the new server.
 
-**Server** — start the API:
+**Server**: start the API:
 ```sh
 cp /opt/noid-wallet-backend/deploy/noid-wallet-api.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now noid-wallet-api
@@ -190,7 +190,7 @@ Both must show `SERVER_IP`.
 
 ## 8. HTTPS and the website (Caddy)
 
-**Server** — Caddy's official package, then our config:
+**Server**: Caddy's official package, then our config:
 ```sh
 apt install -y debian-keyring debian-archive-keyring apt-transport-https
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@fastify/rate-limit": "10.3.0",
+    "@noble/hashes": "1.8.0",
     "better-sqlite3": "12.4.1",
     "fastify": "5.12.7"
   },

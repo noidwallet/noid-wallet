@@ -117,7 +117,8 @@ export interface AssetRecord {
   slotIndex: number;
   creationId: string;
   amountMicronoid: string;
-  unlockHeight: number;
+  /** Decimal string (u64: a sender can lock tokens until any height). */
+  unlockHeight: string;
   reserved: boolean;
 }
 
@@ -191,7 +192,7 @@ export function createApi(baseUrl: string, _installId = '') {
     isCount(h.slotIndex) &&
     isDecimal(h.creationId) &&
     isDecimal(h.amountMicronoid) &&
-    isCount(h.unlockHeight) &&
+    isDecimal(h.unlockHeight) &&
     typeof h.reserved === 'boolean';
   function check<T>(value: T, ok: boolean): T {
     if (!ok) throw new ApiError('bad_response', APP_TEXT.bad_response!, 200);

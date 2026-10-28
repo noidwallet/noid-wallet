@@ -1,3 +1,4 @@
+import { blake3 } from "@noble/hashes/blake3";
 import type { FastifyInstance } from "fastify";
 
 import { rpc as nodeRpc, RpcError, type RpcMethod } from "./rpc.js";
@@ -21,6 +22,19 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 /** Pictures kept in memory, shared by all phones (immutable, so never stale). */
 const IMAGE_CACHE_BYTES = 64 * 1024 * 1024;
 const MARKET_CACHE_MS = 15_000;
+/** Holdings of one address are reused this long (many phones may refresh at once). */
+const HOLDINGS_CACHE_MS = 10_000;
+const METADATA_DOMAIN = new TextEncoder().encode("Parano1d/native-metadata/v1\0");
+const IMAGE_DOMAIN = new TextEncoder().encode("Parano1d/native-image/v1\0");
+
+/** BLAKE3(domain || bytes) as hex, the official content hash. */
+export function contentHash(domain: Uint8Array, bytes: Uint8Array): string {
+  const all = new Uint8Array(domain.length + bytes.length);
+  all.set(domain);
+  all.set(bytes, domain.length);
+  return Buffer.from(blake3(all)).toString("hex");
+}
+export const mediaDomains = { metadata: METADATA_DOMAIN, image: IMAGE_DOMAIN };
 
 interface NodeHolding {
   root: string;
@@ -30,7 +44,8 @@ interface NodeHolding {
   slot_index: number;
   creation_id: string;
   amount_micronoid: string;
-  unlock_height: number;
+  /** Quoted by parseNodeJson (u64). */
+  unlock_height: string;
   reserved?: boolean;
 }
 interface NodeHoldingsPage {
@@ -67,7 +82,7 @@ function holding(h: NodeHolding) {
     // The node writes these as strings already; keep them exact.
     creationId: String(h.creation_id),
     amountMicronoid: String(h.amount_micronoid),
-    unlockHeight: h.unlock_height,
+    unlockHeight: String(h.unlock_height),
     reserved: h.reserved === true,
   };
 }
@@ -122,12 +137,7 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
   const origin = validMediaOrigin(deps.mediaOrigin);
 
   /** Everything an address holds, in one consistent State (restarts if a block lands mid-way). */
-  app.get<{ Params: { address: string } }>(
-    "/v1/address/:address/assets",
-    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
-    async (req) => {
-      const a = req.params.address.trim();
-      if (!ADDRESS_RE.test(a)) throw fail(400, "bad_request", "That is not a valid NOID address.");
+  const readHoldings = async (a: string) => {
       for (let attempt = 0; attempt < 3; attempt++) {
         let cursor: NodeHoldingsPage["next"] = null;
         let first: NodeHoldingsPage | null = null;
@@ -164,12 +174,34 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
         };
       }
       throw fail(503, "busy", "The chain moved while reading. Try again.");
+  };
+  const holdingsCache = new Map<string, { at: number; p: ReturnType<typeof readHoldings> }>();
+  app.get<{ Params: { address: string } }>(
+    "/v1/address/:address/assets",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async (req) => {
+      const a = req.params.address.trim();
+      if (!ADDRESS_RE.test(a)) throw fail(400, "bad_request", "That is not a valid NOID address.");
+      let entry = holdingsCache.get(a);
+      if (!entry || now() - entry.at > HOLDINGS_CACHE_MS) {
+        const p = readHoldings(a);
+        entry = { at: now(), p };
+        if (holdingsCache.size > 2000) holdingsCache.clear();
+        holdingsCache.set(a, entry);
+        p.catch(() => {
+          if (holdingsCache.get(a)?.p === p) holdingsCache.delete(a);
+        });
+      }
+      return entry.p;
     },
   );
 
   // A token's definition and market. Shared by every phone holding it, so cached briefly.
   const markets = new Map<string, { at: number; p: Promise<NodeMarket> }>();
-  app.get<{ Params: { assetId: string } }>("/v1/asset/:assetId", async (req) => {
+  app.get<{ Params: { assetId: string } }>(
+    "/v1/asset/:assetId",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (req) => {
     const id = req.params.assetId.toLowerCase();
     if (!DIGEST_RE.test(id)) throw fail(400, "bad_request", "Invalid token ID.");
     let entry = markets.get(id);
@@ -195,13 +227,25 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
       stateRoot: m.state_root,
       item: m.item ? { key: m.item.key, primary: holding(m.item.primary), related: m.item.related.map(holding) } : null,
     };
-  });
+    },
+  );
 
   // Public names and pictures. Fetched here so phones never contact another
   // service; the phone checks every file against the hash committed in State.
+  // Kept only after the content hash matches, so one bad answer from the
+  // media service is never served again. Concurrent requests share one fetch.
   const images = new Map<string, Uint8Array>();
   let imageBytes = 0;
   const metadata = new Map<string, string>();
+  const inflight = new Map<string, Promise<Uint8Array>>();
+  const once = (key: string, run: () => Promise<Uint8Array>) => {
+    let p = inflight.get(key);
+    if (!p) {
+      p = run().finally(() => inflight.delete(key));
+      inflight.set(key, p);
+    }
+    return p;
+  };
 
   const media = async (path: string, max: number): Promise<Uint8Array> => {
     if (!origin) throw fail(404, "media_disabled", "This wallet server does not serve token pictures.");
@@ -211,6 +255,7 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
     } catch {
       throw fail(503, "media_unavailable", "Token pictures are not available right now.");
     }
+    if (!res.ok) await res.body?.cancel().catch(() => {});
     if (res.status === 404) throw fail(404, "media_missing", "This token has no published picture or details.");
     if (!res.ok) throw fail(503, "media_unavailable", "Token pictures are not available right now.");
     const body = await readBounded(res, max);
@@ -226,12 +271,14 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
       if (!DIGEST_RE.test(hash)) throw fail(400, "bad_request", "Invalid metadata ID.");
       let text = metadata.get(hash);
       if (text === undefined) {
-        const bytes = await media(`metadata/${hash}.json`, MAX_METADATA_BYTES);
+        const bytes = await once(`m:${hash}`, () => media(`metadata/${hash}.json`, MAX_METADATA_BYTES));
         text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-        if (metadata.size > 5000) metadata.clear();
-        metadata.set(hash, text);
+        // The official service stores the canonical bytes, so their hash is the ID.
+        if (contentHash(METADATA_DOMAIN, bytes) === hash) {
+          if (metadata.size > 5000) metadata.clear();
+          metadata.set(hash, text);
+        }
       }
-      reply.header("cache-control", "public, max-age=31536000, immutable");
       return { hash, text };
     },
   );
@@ -244,17 +291,22 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
       if (!DIGEST_RE.test(hash)) throw fail(400, "bad_request", "Invalid picture ID.");
       let png = images.get(hash);
       if (!png) {
-        png = await media(`images/${hash}.png`, MAX_IMAGE_BYTES);
-        if (imageBytes + png.byteLength > IMAGE_CACHE_BYTES) {
-          images.clear();
-          imageBytes = 0;
+        png = await once(`i:${hash}`, () => media(`images/${hash}.png`, MAX_IMAGE_BYTES));
+        if (contentHash(IMAGE_DOMAIN, png) !== hash) {
+          throw fail(502, "media_unavailable", "Token pictures are not available right now.");
         }
-        images.set(hash, png);
-        imageBytes += png.byteLength;
+        if (!images.has(hash)) {
+          if (imageBytes + png.byteLength > IMAGE_CACHE_BYTES) {
+            images.clear();
+            imageBytes = 0;
+          }
+          images.set(hash, png);
+          imageBytes += png.byteLength;
+        }
       }
       reply.header("content-type", "image/png");
       reply.header("x-content-type-options", "nosniff");
-      reply.header("cache-control", "public, max-age=31536000, immutable");
+      reply.header("cache-control", "public, max-age=86400");
       return reply.send(Buffer.from(png));
     },
   );

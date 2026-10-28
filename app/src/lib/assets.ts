@@ -6,7 +6,7 @@
 // balance, the records themselves are trusted from the server for now (see
 // REVIEW.md), so these screens only display: nothing is signed from them.
 import { Directory, File, Paths } from 'expo-file-system';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { ApiError, type Api } from './api';
 import { core, CoreError, type AssetManifest, type CheckedAssets, type CheckedNft, type CheckedToken, type MediaKind, type TokenInfo } from './core';
@@ -45,11 +45,20 @@ let state: AssetsState = { kind: 'idle' };
 let inflight: Promise<void> | null = null;
 /** Last load attempt, so a failing or unsupported server isn't asked every block. */
 let lastAttempt = { address: '', at: 0 };
-const listeners = new Set<(s: AssetsState) => void>();
+/** Bumped when the wallet is removed or the address changes: older loads are dropped. */
+let generation = 0;
+let inflightAddress = '';
+/** A token's market and name change rarely: reuse them for a while. */
+const INFO_MS = 10 * 60_000;
+/** Look up names and prices for at most this many tokens (others show their ID). */
+const MAX_TOKEN_LOOKUPS = 50;
+const infoCache = new Map<string, { at: number; info: TokenInfo | null; manifest: AssetManifest | null }>();
+const PICTURE_TIMEOUT_MS = 30_000;
+const listeners = new Set<() => void>();
 
 function set(next: AssetsState) {
   state = next;
-  for (const l of listeners) l(next);
+  for (const l of listeners) l();
 }
 
 function lastAssets(): Assets | null {
@@ -90,13 +99,13 @@ async function manifestFor(api: Api, hash: string, kind: MediaKind): Promise<Ass
   }
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (next < items.length) {
       const i = next++;
-      out[i] = await fn(items[i]!);
+      out[i] = await fn(items[i]!, i);
     }
   });
   await Promise.all(workers);
@@ -106,7 +115,10 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R
 async function load(api: Api, address: string): Promise<Assets> {
   const page = await api.assets(address);
   const checked: CheckedAssets = await core.checkAssets(address, page);
-  const tokens = await mapLimit(checked.tokens, 4, async (t): Promise<Token> => {
+  const tokens = await mapLimit(checked.tokens, 4, async (t, i): Promise<Token> => {
+    const cached = infoCache.get(t.assetId);
+    if (cached && Date.now() - cached.at < INFO_MS) return { ...t, info: cached.info, manifest: cached.manifest };
+    if (i >= MAX_TOKEN_LOOKUPS) return { ...t, info: null, manifest: null };
     let info: TokenInfo | null = null;
     try {
       info = await core.checkToken(t.assetId, await api.asset(t.assetId));
@@ -114,6 +126,10 @@ async function load(api: Api, address: string): Promise<Assets> {
       info = null;
     }
     const manifest = info?.known ? await manifestFor(api, info.metadata, 'token') : null;
+    if (info) {
+      if (infoCache.size > 500) infoCache.clear();
+      infoCache.set(t.assetId, { at: Date.now(), info, manifest });
+    }
     return { ...t, info, manifest };
   });
   const nfts = await mapLimit(checked.nfts, 4, async (n): Promise<Nft> => ({ ...n, manifest: await manifestFor(api, n.metadata, 'nft') }));
@@ -131,21 +147,31 @@ async function load(api: Api, address: string): Promise<Assets> {
 
 export const assets = {
   get: () => state,
-  subscribe(l: (s: AssetsState) => void) {
+  subscribe(l: () => void) {
     listeners.add(l);
     return () => void listeners.delete(l);
   },
   /** Load (or reload) the holdings of `address`. Cheap to call often. */
   refresh(api: Api, address: string, opts: { force?: boolean } = {}): Promise<void> {
     const last = lastAssets();
-    if (last && last.address !== address) set({ kind: 'idle' });
+    if ((last && last.address !== address) || (inflight && inflightAddress !== address)) {
+      // Another wallet: forget the old one and drop its load still running.
+      generation++;
+      inflight = null;
+      set({ kind: 'idle' });
+    }
     const recent = lastAttempt.address === address && Date.now() - lastAttempt.at < MIN_RELOAD_MS;
     if (inflight) return inflight;
     if (recent && !opts.force) return Promise.resolve();
     lastAttempt = { address, at: Date.now() };
-    inflight = load(api, address)
-      .then((a) => set({ kind: 'ready', assets: a }))
+    const gen = generation;
+    inflightAddress = address;
+    const run: Promise<void> = load(api, address)
+      .then((a) => {
+        if (gen === generation) set({ kind: 'ready', assets: a });
+      })
       .catch((e: unknown) => {
+        if (gen !== generation) return;
         if (e instanceof ApiError && e.code === 'assets_unsupported') return set({ kind: 'unsupported' });
         const message =
           e instanceof CoreError
@@ -157,12 +183,16 @@ export const assets = {
         set({ kind: 'error', message, last: prev && prev.address === address ? prev : null });
       })
       .finally(() => {
-        inflight = null;
+        if (inflight === run) inflight = null;
       });
-    return inflight;
+    inflight = run;
+    return run;
   },
   /** Forget everything (wallet removed). */
   clear() {
+    generation++;
+    inflight = null;
+    infoCache.clear();
     set({ kind: 'idle' });
     lastAttempt = { address: '', at: 0 };
     pictures.clear();
@@ -176,14 +206,13 @@ export const assets = {
 };
 
 export function useAssets(): AssetsState {
-  const [s, setS] = useState(state);
-  useEffect(() => assets.subscribe(setS), []);
-  return s;
+  return useSyncExternalStore(assets.subscribe, assets.get);
 }
 
-/** The checked holdings to show (also while a reload failed). */
-export function shownAssets(s: AssetsState): Assets | null {
-  return s.kind === 'ready' ? s.assets : s.kind === 'error' ? s.last : null;
+/** The checked holdings of `address` to show (also while a reload failed). */
+export function shownAssets(s: AssetsState, address: string | undefined): Assets | null {
+  const a = s.kind === 'ready' ? s.assets : s.kind === 'error' ? s.last : null;
+  return a && address && a.address === address ? a : null;
 }
 
 const pictures = new Map<string, Promise<string | null>>();
@@ -200,11 +229,21 @@ export function pictureFor(api: Api, image: NonNullable<AssetManifest['image']>)
       const final = new File(dir, `${image.hash}.png`);
       if (final.exists && final.size === image.bytes) return final.uri;
       const tmp = new File(dir, `${image.hash}.part`);
+      // Stop a download that runs too long or grows past the committed size.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PICTURE_TIMEOUT_MS);
       try {
         if (tmp.exists) tmp.delete();
-        const got = await File.downloadFileAsync(api.mediaImageUrl(image.hash), tmp, { idempotent: true });
-        await core.checkImage(got.uri, image);
-        got.move(final);
+        await File.downloadFileAsync(api.mediaImageUrl(image.hash), tmp, {
+          idempotent: true,
+          signal: controller.signal,
+          onProgress: ({ bytesWritten, totalBytes }) => {
+            if (bytesWritten > image.bytes || totalBytes > image.bytes) controller.abort();
+          },
+        });
+        // A plain path for the core (no file:// prefix or %-escapes).
+        await core.checkImage(decodeURIComponent(tmp.uri.replace(/^file:\/\//, '')), image);
+        tmp.move(final, { overwrite: true });
         return final.uri;
       } catch {
         try {
@@ -213,6 +252,8 @@ export function pictureFor(api: Api, image: NonNullable<AssetManifest['image']>)
           // ignore
         }
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     })();
     pictures.set(image.hash, p);

@@ -15,9 +15,9 @@ import { colors, fonts, space, type } from '@/theme';
 
 export default function TokenDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, settings } = useWallet();
+  const { api, settings, meta } = useWallet();
   const copied = useCopied();
-  const shown = shownAssets(useAssets());
+  const shown = shownAssets(useAssets(), meta?.address);
   const token = shown?.tokens.find((t) => t.assetId === id);
   const hidden = !!settings.hideBalance;
 
@@ -47,12 +47,12 @@ export default function TokenDetail() {
         </Text>
         {symbol ? <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>{symbol}</Text> : null}
         {worth !== null && !hidden ? (
-          <Text style={type.bodySm}>
-            ≈ {formatNoid(worth, { maxDecimals: 4 })} NOID at the current {info?.phase === 'dex' ? 'DEX' : 'launchpad'} price
+          <Text style={[type.bodySm, { textAlign: 'center' }]}>
+            About {formatNoid(worth, { maxDecimals: 4 })} NOID at the {info?.phase === 'dex' ? 'DEX' : 'launchpad'} price your wallet server reports
           </Text>
         ) : null}
-        {locked > 0n ? <Pill text={`${formatUnits(locked)} locked for now`} tone="warn" /> : null}
-        {reserved > 0n ? <Pill text={`${formatUnits(reserved)} in a pending transaction`} tone="warn" /> : null}
+        {locked > 0n ? <Pill text={hidden ? 'Some locked for now' : `${formatUnits(locked)} locked for now`} tone="warn" /> : null}
+        {reserved > 0n ? <Pill text={hidden ? 'Some in a pending transaction' : `${formatUnits(reserved)} in a pending transaction`} tone="warn" /> : null}
       </View>
 
       <Banner tone="neutral">

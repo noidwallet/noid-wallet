@@ -14,7 +14,7 @@ export default function AssetsScreen() {
   const [pulling, setPulling] = useState(false);
   const { width } = useWindowDimensions();
   const tile = Math.floor((width - space.gutter * 2 - space.md * 2) / 3);
-  const shown = shownAssets(s);
+  const shown = shownAssets(s, meta?.address);
   const hidden = !!settings.hideBalance;
 
   useEffect(() => {

@@ -100,10 +100,11 @@ export interface CheckedNft {
   collection: string;
   serial: string;
   metadata: string;
-  unlockHeight: number;
+  /** Decimal strings: u64 values beyond JavaScript number range. */
+  unlockHeight: string;
   locked: boolean;
-  /** Listed for sale on the NFT marketplace. */
-  listing: { askMicronoid: number; expiryHeight: number; ready: boolean } | null;
+  /** Listed for sale on the NFT marketplace (μNOID and height as decimal strings). */
+  listing: { askMicronoid: string; expiryHeight: string; ready: boolean } | null;
   reserved: boolean;
 }
 

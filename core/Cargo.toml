@@ -31,6 +31,8 @@ tiff = "=0.11.3"
 image-webp = "=0.2.4"
 blake3 = { version = "=1.8.5", features = ["pure", "zeroize"] }  # pure Rust: same hashes, no C toolchain needed
 
+# Same URL parser and version as the official wallet (website check in assets.rs).
+url = "=2.5.8"
 hex = "0.4"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }

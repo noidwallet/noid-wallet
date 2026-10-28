@@ -4,10 +4,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { validMediaOrigin } from "../src/assets.js";
+import { contentHash, mediaDomains, validMediaOrigin } from "../src/assets.js";
 import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
-import { RpcError } from "../src/rpc.js";
+import { parseNodeJson, RpcError } from "../src/rpc.js";
 import { buildServer } from "../src/server.js";
 
 const A = "o1wrznmh6td3mgg9mu0a3kkxxn2lnfu827uykrnpaa90mex8su9zcs5sjxrk";
@@ -22,7 +22,7 @@ function rec(slot: number) {
     slot_index: slot,
     creation_id: "4611686018427387905",
     amount_micronoid: "0",
-    unlock_height: 0,
+    unlock_height: "0",
     reserved: false,
   };
 }
@@ -63,21 +63,47 @@ test("assets: collects every page of one State, camelCased for the app", async (
   await app.close();
 });
 
-test("assets: restarts when a block lands between pages", async () => {
+test("assets: restarts when a block lands between pages, never mixing two States", async () => {
   let n = 0;
   const app = await server((_m, p) => {
     n++;
     const cursor = p[1];
+    // Call 1: first page at height 10. Call 2: node says State changed (-32041).
+    // Call 3: first page at 11. Call 4: second page at 12 (a block landed). Calls 5-6: a clean read at 12.
     if (n === 2) throw new RpcError("native wallet State changed; restart pagination", -32041);
-    const base = { owner: A, key_index: null, height: 10 + n, block_hash: H("1"), state_root: H("2") };
-    return cursor ? { ...base, holdings: [], next: null } : { ...base, holdings: [rec(1)], next: { owner: A, height: 11, block_hash: H("1"), after_root: null, from_slot: 2 } };
+    const height = n === 1 ? 10 : n === 3 ? 11 : 12;
+    const base = { owner: A, key_index: null, height, block_hash: H(String(height % 10)), state_root: H("2") };
+    const next = { owner: A, height, block_hash: base.block_hash, after_root: null, from_slot: 2 };
+    return cursor ? { ...base, holdings: [rec(2)], next: null } : { ...base, holdings: [rec(1)], next };
   });
   const res = await app.inject({ url: `/v1/address/${A}/assets` });
-  // First try fails with -32041, second try changes height between pages, third: the
-  // fake keeps moving, so the server gives up cleanly instead of mixing two States.
-  assert.ok(res.statusCode === 200 || res.statusCode === 503, String(res.statusCode));
-  if (res.statusCode === 503) assert.equal((res.json() as { error: { code: string } }).error.code, "busy");
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { height: number; holdings: { slotIndex: number }[] };
+  assert.equal(body.height, 12);
+  assert.deepEqual(body.holdings.map((h) => h.slotIndex), [1, 2]);
+  assert.equal(n, 6);
   await app.close();
+});
+
+test("assets: a chain that never settles gives a clean busy error", async () => {
+  let n = 0;
+  const app = await server((_m, p) => {
+    n++;
+    const base = { owner: A, key_index: null, height: n, block_hash: H("1"), state_root: H("2") };
+    return p[1] ? { ...base, holdings: [], next: null } : { ...base, holdings: [rec(1)], next: { owner: A, height: n, block_hash: H("1"), after_root: null, from_slot: 2 } };
+  });
+  const res = await app.inject({ url: `/v1/address/${A}/assets` });
+  assert.equal(res.statusCode, 503);
+  assert.equal((res.json() as { error: { code: string } }).error.code, "busy");
+  await app.close();
+});
+
+test("u64 unlock heights survive node JSON parsing", () => {
+  const parsed = parseNodeJson('{"result":{"holdings":[{"unlock_height":18446744073709551615,"creation_id":4611686018427387905}]}}') as {
+    result: { holdings: { unlock_height: string; creation_id: string }[] };
+  };
+  assert.equal(parsed.result.holdings[0]!.unlock_height, "18446744073709551615");
+  assert.equal(parsed.result.holdings[0]!.creation_id, "4611686018427387905");
 });
 
 test("assets: old node reports unsupported, not a server failure", async () => {
@@ -108,29 +134,44 @@ test("asset market: validated ID, cached, null item passes through", async () =>
   await app.close();
 });
 
-test("media: proxied with size limits, no redirects, off without an origin", async () => {
+test("media: proxied with size limits, checked before caching, off without an origin", async () => {
   const seen: { url: string; redirect?: string }[] = [];
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  const pngHash = contentHash(mediaDomains.image, png);
+  const metaText = '{"schema":1}\n';
+  const metaHash = contentHash(mediaDomains.metadata, new TextEncoder().encode(metaText));
+  let badMeta = 0;
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     seen.push({ url, redirect: init?.redirect });
     if (url.includes(H("0"))) return new Response("nope", { status: 404 });
-    if (url.endsWith(".png")) return new Response(png, { status: 200 });
     if (url.includes(H("9"))) return new Response("x".repeat(9000), { status: 200 });
-    return new Response('{"schema":1}\n', { status: 200 });
+    if (url.includes(H("e"))) return new Response(png, { status: 200 }); // wrong picture for this hash
+    if (url.endsWith(".png")) return new Response(png, { status: 200 });
+    if (url.includes(H("b"))) {
+      badMeta++;
+      return new Response("tampered", { status: 200 });
+    }
+    return new Response(metaText, { status: 200 });
   }) as unknown as typeof fetch;
   const app = await server(() => null, fetchImpl, "https://media.example/");
-  const meta = await app.inject({ url: `/v1/media/metadata/${H("b")}` });
+  const meta = await app.inject({ url: `/v1/media/metadata/${metaHash}` });
   assert.equal(meta.statusCode, 200);
-  assert.equal((meta.json() as { text: string }).text, '{"schema":1}\n');
-  assert.equal(seen[0]!.url, `https://media.example/metadata/${H("b")}.json`);
+  assert.equal((meta.json() as { text: string }).text, metaText);
+  assert.equal(seen[0]!.url, `https://media.example/metadata/${metaHash}.json`);
   assert.equal(seen[0]!.redirect, "error");
-  const img = await app.inject({ url: `/v1/media/image/${H("d")}` });
+  // Metadata that doesn't match its hash is passed on (the phone rejects it) but never cached.
+  await app.inject({ url: `/v1/media/metadata/${H("b")}` });
+  await app.inject({ url: `/v1/media/metadata/${H("b")}` });
+  assert.equal(badMeta, 2);
+  const img = await app.inject({ url: `/v1/media/image/${pngHash}` });
   assert.equal(img.statusCode, 200);
   assert.equal(img.headers["content-type"], "image/png");
   assert.deepEqual(new Uint8Array(img.rawPayload), png);
   // Cached: a second request does not fetch again.
-  await app.inject({ url: `/v1/media/image/${H("d")}` });
-  assert.equal(seen.filter((s) => s.url.endsWith(".png")).length, 1);
+  await app.inject({ url: `/v1/media/image/${pngHash}` });
+  assert.equal(seen.filter((x) => x.url.endsWith(".png")).length, 1);
+  // A picture that isn't the one asked for is refused.
+  assert.equal((await app.inject({ url: `/v1/media/image/${H("e")}` })).statusCode, 502);
   assert.equal((await app.inject({ url: `/v1/media/metadata/${H("0")}` })).statusCode, 404);
   assert.equal((await app.inject({ url: `/v1/media/metadata/${H("9")}` })).statusCode, 502);
   assert.equal((await app.inject({ url: "/v1/media/image/../../etc" })).statusCode, 404);
@@ -138,7 +179,7 @@ test("media: proxied with size limits, no redirects, off without an origin", asy
   await app.close();
 
   const off = await server(() => null, fetchImpl, undefined);
-  assert.equal((await off.inject({ url: `/v1/media/image/${H("d")}` })).statusCode, 404);
+  assert.equal((await off.inject({ url: `/v1/media/image/${pngHash}` })).statusCode, 404);
   await off.close();
 });
 

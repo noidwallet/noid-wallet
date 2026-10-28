@@ -52,7 +52,8 @@ pub struct Holding {
     pub slot_index: u32,
     pub creation_id: String,
     pub amount_micronoid: String,
-    pub unlock_height: u64,
+    /// Decimal string: a u64 that can exceed what JavaScript numbers hold.
+    pub unlock_height: String,
     #[serde(default)]
     pub reserved: bool,
 }
@@ -115,10 +116,11 @@ fn opening_of(item: &Holding) -> Result<(NativeOpening, Option<NativeOpening>, u
     let dependency = item.dependency_hex.as_deref().map(decode_opening).transpose()?;
     let creation_id = integer(&item.creation_id)?;
     let amount = integer(&item.amount_micronoid)?;
+    let unlock_height = integer(&item.unlock_height)?;
     native_sequence(creation_id).map_err(|_| bad("A token record has an invalid origin."))?;
     if item.root != hex::encode(opening.root().0)
         || item.kind != opening.kind() as u16
-        || item.unlock_height != opening.unlock_height()
+        || unlock_height != opening.unlock_height()
     {
         return Err(bad("A token record differs from its State entry."));
     }
@@ -152,7 +154,7 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
     let mut slots = BTreeSet::new();
     let mut tokens: BTreeMap<[u8; 32], TokenSum> = BTreeMap::new();
     let mut nfts: BTreeMap<([u8; 32], u64), Value> = BTreeMap::new();
-    let mut collections = 0usize;
+    let mut collections = BTreeSet::new();
     let mut other = 0usize;
     for item in &page.holdings {
         if !slots.insert(item.slot_index) {
@@ -185,7 +187,7 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
                     "collection": hex::encode(nft.collection.0),
                     "serial": nft.serial.to_string(),
                     "metadata": hex::encode(nft.metadata),
-                    "unlockHeight": nft.unlock_height,
+                    "unlockHeight": nft.unlock_height.to_string(),
                     "locked": nft.unlock_height > page.height.saturating_add(1),
                     "listing": Value::Null,
                     "reserved": item.reserved,
@@ -203,16 +205,24 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
                     "collection": hex::encode(def.collection.0),
                     "serial": def.serial.to_string(),
                     "metadata": hex::encode(def.metadata),
-                    "unlockHeight": 0,
+                    "unlockHeight": "0",
                     "locked": false,
-                    "listing": { "askMicronoid": def.ask, "expiryHeight": def.expiry_height, "ready": listing_is_fresh(*state, def) },
+                    "listing": {
+                        "askMicronoid": def.ask.to_string(),
+                        "expiryHeight": def.expiry_height.to_string(),
+                        "ready": listing_is_fresh(*state, def),
+                    },
                     "reserved": item.reserved,
                 });
                 if nfts.insert(id, value).is_some() {
                     return Err(bad("The server sent the same NFT twice."));
                 }
             }
-            NativeOpening::NftCollection(_) => collections += 1,
+            NativeOpening::NftCollection(c) => {
+                if !collections.insert(c.collection.0) {
+                    return Err(bad("The server sent the same NFT collection twice."));
+                }
+            }
             // Trade requests, pool positions and other records: not shown yet.
             _ => other += 1,
         }
@@ -238,7 +248,7 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
         "decimals": TOKEN_DECIMALS,
         "tokens": tokens,
         "nfts": nfts.into_values().collect::<Vec<_>>(),
-        "collections": collections,
+        "collections": collections.len(),
         "other": other,
     }))
 }
@@ -390,19 +400,14 @@ fn is_digest(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// https only, a host, and no user name or password in the link.
+/// https only, a host, and no user name or password in the link. Exactly the
+/// official rule (same parser and version), since it decides whether a
+/// manifest is valid at all.
 pub fn valid_website(value: &str) -> bool {
-    if !safe_text(value, 2048, 2048, false) || value.chars().any(char::is_whitespace) {
-        return false;
-    }
-    let Some(rest) = value.strip_prefix("https://") else {
-        return false;
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    !authority.is_empty()
-        && !authority.contains('@')
-        && authority.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']'))
-        && !authority.starts_with(':')
+    safe_text(value, 2048, 2048, false)
+        && url::Url::parse(value).is_ok_and(|url| {
+            url.scheme() == "https" && url.has_host() && url.username().is_empty() && url.password().is_none()
+        })
 }
 
 fn content_hash(domain: &[u8], bytes: &[u8]) -> String {
@@ -542,7 +547,7 @@ mod tests {
             slot_index: slot,
             creation_id: (NATIVE_CREATION_TAG | seq).to_string(),
             amount_micronoid: opening.amount_micronoid().to_string(),
-            unlock_height: opening.unlock_height(),
+            unlock_height: opening.unlock_height().to_string(),
             reserved: false,
         }
     }
@@ -616,6 +621,17 @@ mod tests {
     }
 
     #[test]
+    fn huge_timelock_is_shown_as_locked_not_an_error() {
+        // A sender can lock a gift of tokens far in the future; the rest of the view must still work.
+        let p = page(vec![holding(balance(1, 5, u64::MAX, owner()), None, 10, 1)]);
+        let out = check_holdings(&owner().to_bech32(), &p).unwrap();
+        assert_eq!(out["tokens"][0]["lockedUnits"], "5");
+        let mut h = holding(balance(1, 5, u64::MAX, owner()), None, 10, 1);
+        h.unlock_height = "18446744073709551614".into();
+        assert!(check_holdings(&owner().to_bech32(), &page(vec![h])).is_err());
+    }
+
+    #[test]
     fn listed_nft_is_still_shown_as_ours() {
         let item = NftItem { collection: CollectionId([9; 32]), owner: owner(), metadata: [7; 32], serial: 2, unlock_height: 0 };
         let def = ListingDefinition::from_item(item, NATIVE_CREATION_TAG | 5, 1_000_000, 300_100, 300_000).unwrap();
@@ -625,7 +641,7 @@ mod tests {
         let definition = NativeOpening::NftMarket(NftMarketOpening::Definition(def));
         let p = page(vec![holding(listing, Some(definition), 20, 6)]);
         let out = check_holdings(&owner().to_bech32(), &p).unwrap();
-        assert_eq!(out["nfts"][0]["listing"]["askMicronoid"], 1_000_000);
+        assert_eq!(out["nfts"][0]["listing"]["askMicronoid"], "1000000");
     }
 
     #[test]
@@ -750,6 +766,10 @@ mod tests {
         assert!(!valid_website("https://"));
         assert!(!valid_website("javascript:alert(1)"));
         assert!(!valid_website("https://bad host.org"));
+        // Same as the official parser: these are valid there too.
+        assert!(valid_website("HTTPS://parano1d.org"));
+        assert!(valid_website("https://例え.jp"));
+        assert!(!valid_website("https://a.org:99999"));
     }
 
     #[test]

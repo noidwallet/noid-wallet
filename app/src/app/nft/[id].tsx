@@ -4,20 +4,19 @@ import { useLocalSearchParams } from 'expo-router';
 import { Image, Text, View, useWindowDimensions } from 'react-native';
 
 import { Banner, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
-import { formatNoid } from '@/lib/amount';
 import { nftName, shownAssets, useAssets, usePicture } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
 import { openProjectWebsite } from '@/lib/openWebsite';
-import { nftKey } from '@/lib/tokenMath';
+import { formatUnits, nftKey } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
 
 export default function NftDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api } = useWallet();
+  const { api, meta } = useWallet();
   const copied = useCopied();
   const { width } = useWindowDimensions();
-  const shown = shownAssets(useAssets());
+  const shown = shownAssets(useAssets(), meta?.address);
   const nft = shown?.nfts.find((n) => nftKey(n.collection, n.serial) === id);
   const uri = usePicture(api, nft?.manifest?.image);
 
@@ -54,7 +53,7 @@ export default function NftDetail() {
 
       <View style={{ gap: space.xs }}>
         <Text style={type.h2}>{nftName(nft)}</Text>
-        {nft.listing ? <Pill text={`Listed for ${formatNoid(nft.listing.askMicronoid)} NOID`} tone="info" /> : null}
+        {nft.listing ? <Pill text={`Listed for ${formatUnits(nft.listing.askMicronoid)} NOID`} tone="info" /> : null}
         {nft.locked ? <Pill text="Locked for now" tone="warn" /> : null}
       </View>
 
