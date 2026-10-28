@@ -1,6 +1,6 @@
 //! Consensus minimum fee. Port of noid_chain/src/consensus/fees.rs so the
 //! phone can plan fees without the full node crate. Constants come from
-//! noid_chain/src/consensus/params.rs (v2.0.4).
+//! noid_chain/src/consensus/params.rs (v2.0.4; unchanged in v2.1.0).
 
 use serde::Serialize;
 

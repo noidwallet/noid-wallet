@@ -36,7 +36,55 @@ const APP_TEXT: Record<string, string> = {
 /** App text for a server answer (exported for tests). */
 export function appText(code: string, status: number): string {
   if (status === 429) return APP_TEXT.rate_limited!;
-  return APP_TEXT[code] ?? `The wallet server could not do this right now (error ${status || code}).`;
+  if (Object.prototype.hasOwnProperty.call(APP_TEXT, code)) return APP_TEXT[code]!;
+  // Only a short, plain code is ever repeated back (never server-written text).
+  const shown = /^[a-z0-9_]{1,40}$/.test(code) ? code : 'unknown';
+  return `The wallet server could not do this right now (error ${status || shown}).`;
+}
+
+const DIRECTIONS = new Set(['sent', 'received', 'self', 'mined', 'contract']);
+const ADDRESS_RE = /^o1[02-9ac-hj-np-z]{20,100}$/;
+const VERSION_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+const isCountValue = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+
+/**
+ * One history row as the app will show it. Exported so a saved snapshot is
+ * checked the same way when it is loaded again.
+ */
+export function isHistoryItem(i: unknown): i is HistoryItem {
+  const h = i as HistoryItem | null;
+  return (
+    !!h &&
+    typeof h === 'object' &&
+    typeof h.txid === 'string' &&
+    /^[0-9a-f]{64}$/.test(h.txid) &&
+    isCountValue(h.height) &&
+    isCountValue(h.time) &&
+    typeof h.direction === 'string' &&
+    DIRECTIONS.has(h.direction) &&
+    isCountValue(h.amount) &&
+    isCountValue(h.fee) &&
+    (h.walletFee === undefined || h.walletFee === null || isCountValue(h.walletFee)) &&
+    (h.counterparty === null || (typeof h.counterparty === 'string' && ADDRESS_RE.test(h.counterparty)))
+  );
+}
+
+/** App versions the server announces: x.y.z or nothing. */
+function okAppVersions(app: unknown): boolean {
+  if (app === undefined) return true;
+  if (!app || typeof app !== 'object') return false;
+  const a = app as { latest?: unknown; min?: unknown };
+  const ok = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && VERSION_RE.test(v));
+  return ok(a.latest) && ok(a.min);
+}
+
+/** Exchange rates: currency code to a positive finite number. */
+function okRates(rates: unknown): boolean {
+  if (rates === undefined) return true;
+  if (!rates || typeof rates !== 'object' || Array.isArray(rates)) return false;
+  return Object.entries(rates as Record<string, unknown>).every(
+    ([k, v]) => /^[A-Z]{3}$/.test(k) && typeof v === 'number' && Number.isFinite(v) && v > 0,
+  );
 }
 
 export class ApiError extends Error {
@@ -202,7 +250,15 @@ export function createApi(baseUrl: string, _installId = '') {
   return {
     status: async () => {
       const r = await request<Status>('/v1/status');
-      return check(r, isCount(r.height) && isCount(r.activeSlotCount) && isCount(r.logSlots) && isCount(r.relayFloor));
+      return check(
+        r,
+        isCount(r.height) &&
+          isCount(r.activeSlotCount) &&
+          isCount(r.logSlots) &&
+          isCount(r.relayFloor) &&
+          typeof r.synced === 'boolean' &&
+          okAppVersions(r.app),
+      );
     },
     utxos: async (address: string) => {
       const r = await request<{ address: string; balance: number; utxos: Utxo[] }>(`/v1/address/${address}/utxos`);
@@ -210,6 +266,7 @@ export function createApi(baseUrl: string, _installId = '') {
         r.address === address &&
         Array.isArray(r.utxos) &&
         r.utxos.every((u) => u && isCount(u.slotIndex) && isCount(u.value) && /^\d+$/.test(String(u.creationId))) &&
+        new Set(r.utxos.map((u) => u.slotIndex)).size === r.utxos.length &&
         isCount(r.balance) &&
         r.balance === r.utxos.reduce((sum, u) => sum + u.value, 0);
       return check(r, ok);
@@ -234,7 +291,15 @@ export function createApi(baseUrl: string, _installId = '') {
         { method: 'POST', body: JSON.stringify({ intentHex, txid }) },
         100_000,
       ),
-    tx: (txid: string) => request<TxStatus>(`/v1/tx/${txid}`),
+    tx: async (txid: string) => {
+      const r = await request<TxStatus>(`/v1/tx/${txid}`);
+      const ok =
+        r.txid === txid &&
+        (r.status === 'pending' ||
+          r.status === 'unknown' ||
+          (r.status === 'confirmed' && isCount(r.height) && isCount(r.confirmations)));
+      return check(r, ok);
+    },
     /** Tokens and NFTs: the node's raw records, checked by the core before use. */
     assets: async (address: string) => {
       const r = await request<AssetsPage>(`/v1/address/${address}/assets`, undefined, 30_000);
@@ -272,9 +337,29 @@ export function createApi(baseUrl: string, _installId = '') {
     },
     /** Where to download a token or NFT picture (checked by the core after download). */
     mediaImageUrl: (hash: string) => `${base}/v1/media/image/${hash}`,
-    price: () => request<Price>('/v1/price', undefined, 10_000),
+    price: async () => {
+      const r = await request<Price>('/v1/price', undefined, 10_000);
+      const ok =
+        typeof r.usd === 'number' &&
+        Number.isFinite(r.usd) &&
+        r.usd > 0 &&
+        (r.ngn === null || r.ngn === undefined || (typeof r.ngn === 'number' && Number.isFinite(r.ngn) && r.ngn > 0)) &&
+        okRates(r.rates) &&
+        isCount(r.updatedAt) &&
+        (r.ageMs === undefined || (typeof r.ageMs === 'number' && Number.isFinite(r.ageMs)));
+      // A negative age would keep a price "fresh" forever.
+      return check({ ...r, ...(r.ageMs !== undefined ? { ageMs: Math.max(0, r.ageMs) } : {}) }, ok);
+    },
     /** Exchange rates only (units per 1 USD), for when the server has no NOID price. */
-    fx: () => request<{ rates: Record<string, number>; updatedAt: number; ageMs?: number }>('/v1/fx', undefined, 10_000),
+    fx: async () => {
+      const r = await request<{ rates: Record<string, number>; updatedAt: number; ageMs?: number }>('/v1/fx', undefined, 10_000);
+      const ok =
+        r.rates !== undefined &&
+        okRates(r.rates) &&
+        isCount(r.updatedAt) &&
+        (r.ageMs === undefined || (typeof r.ageMs === 'number' && Number.isFinite(r.ageMs)));
+      return check({ ...r, ...(r.ageMs !== undefined ? { ageMs: Math.max(0, r.ageMs) } : {}) }, ok);
+    },
     pushSubscribe: (address: string, token: string) =>
       request<{ ok: true }>('/v1/push/subscribe', { method: 'POST', body: JSON.stringify({ address, token }) }),
     pushUnsubscribe: (address: string, token: string) =>
@@ -288,15 +373,8 @@ export function createApi(baseUrl: string, _installId = '') {
       );
       const ok =
         Array.isArray(r.items) &&
-        r.items.every(
-          (i) =>
-            i &&
-            typeof i.txid === 'string' &&
-            isCount(i.height) &&
-            isCount(i.amount) &&
-            isCount(i.fee) &&
-            (i.walletFee === undefined || i.walletFee === null || isCount(i.walletFee)),
-        ) &&
+        r.items.length <= 200 &&
+        r.items.every(isHistoryItem) &&
         (r.nextBefore === null || r.nextBefore === undefined || typeof r.nextBefore === 'string');
       return check(r, ok);
     },

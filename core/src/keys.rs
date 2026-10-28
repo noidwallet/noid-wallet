@@ -4,7 +4,7 @@
 //! - address derivation: noid_node/src/wallet/keystore.rs (MasterSecret)
 //! - Photo Key + key fingerprint: noid_gui/src/secret.rs
 //!
-//! Tests check results against the official v2.0.4 node and GUI.
+//! Tests check results against the official node and GUI (v2.0.4 vectors; unchanged in v2.1.0).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -123,7 +123,11 @@ pub struct PhotoKey {
 /// The photo is decoded here with the same Rust decoder as the desktop wallet;
 /// using Android's decoder could change pixels and therefore the wallet.
 pub fn photo_key_from_path(path: &Path) -> Result<PhotoKey, Error> {
-    let size = std::fs::metadata(path).map_err(|e| Error::msg(format!("Could not read the photo: {e}")))?.len();
+    let meta = std::fs::metadata(path).map_err(|e| Error::msg(format!("Could not read the photo: {e}")))?;
+    if !meta.is_file() {
+        return Err(Error::msg("The selected photo is not a file."));
+    }
+    let size = meta.len();
     if size == 0 {
         return Err(Error::msg("The selected photo is empty."));
     }
@@ -134,6 +138,9 @@ pub fn photo_key_from_path(path: &Path) -> Result<PhotoKey, Error> {
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| Error::msg(format!("Could not open the photo: {e}")))?;
     let format = reader.format();
+    if format == Some(image::ImageFormat::Tiff) {
+        refuse_jpeg_in_tiff(path)?;
+    }
     let decoded = reader.decode().map_err(|e| {
         Error::msg(format!(
             "Unsupported or unsafe photo. Use a private JPEG, PNG, WebP, GIF, BMP, or TIFF: {e}"
@@ -153,6 +160,25 @@ pub fn photo_key_from_path(path: &Path) -> Result<PhotoKey, Error> {
     let secret = MasterSecret(bytes);
     bytes.zeroize();
     Ok(PhotoKey { secret, width, height })
+}
+
+/// A TIFF can hold JPEG-compressed pixels, which its decoder reads with the
+/// fast CPU-specific JPEG path and no portability check. Refuse those, so a
+/// Photo Key never depends on which device made it.
+fn refuse_jpeg_in_tiff(path: &Path) -> Result<(), Error> {
+    let file = std::fs::File::open(path).map_err(|e| Error::msg(format!("Could not read the photo: {e}")))?;
+    let Ok(mut decoder) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
+        // Not readable as TIFF: the image decoder reports it.
+        return Ok(());
+    };
+    // Compression 6 (old-style JPEG) and 7 (JPEG).
+    match decoder.find_tag_unsigned::<u16>(tiff::tags::Tag::Compression) {
+        Ok(Some(6 | 7)) => Err(Error::msg(
+            "This TIFF photo stores its picture as JPEG inside, which different devices can decode differently. \
+             Use the original JPEG, or a PNG.",
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The JPEG decoder uses CPU-specific fast paths (AVX2 on PCs, NEON on phones).

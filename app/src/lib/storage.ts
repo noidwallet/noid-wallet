@@ -109,6 +109,8 @@ export interface PendingTx {
   /** Chain height it was built at (it can be mined until its epoch ends). */
   builtAtHeight?: number;
   inputSlots: number[];
+  /** Origin ids of the input coins (same order), so a reused slot number is never mistaken for them. */
+  inputIds?: string[];
   outputSlots: number[];
   createdAt: number;
   /**
@@ -214,6 +216,17 @@ export const storage = {
     return s && s.address === address && Array.isArray(s.utxos) ? s : null;
   },
   /** Returns the time it was saved. */
+  /** Forget the saved balance and activity (they reload from the server). */
+  clearSnapshot() {
+    for (const name of [SNAPSHOT_FILE, `${SNAPSHOT_FILE}.tmp`]) {
+      try {
+        const f = new File(Paths.document, name);
+        if (f.exists) f.delete();
+      } catch {
+        // nothing to remove
+      }
+    }
+  },
   saveSnapshot(s: Omit<Snapshot, 'at'>): number {
     const at = Date.now();
     writeFileJson(SNAPSHOT_FILE, { ...s, at });

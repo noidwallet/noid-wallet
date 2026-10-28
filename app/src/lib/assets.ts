@@ -9,6 +9,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { ApiError, type Api } from './api';
+import { looksLikeNoid } from './tokenMath';
 import { core, CoreError, type AssetManifest, type CheckedAssets, type CheckedNft, type CheckedToken, type MediaKind, type TokenInfo } from './core';
 
 export interface Token extends CheckedToken {
@@ -277,6 +278,11 @@ export function usePicture(api: Api, image: AssetManifest['image'] | undefined):
   }, [api, hash]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only the picture of the asset shown now (never the previous one while loading).
   return got && got.hash === hash ? got.uri : null;
+}
+
+/** A token whose name or ticker could pass for NOID (see looksLikeNoid). */
+export function posesAsNoid(t: Token): boolean {
+  return looksLikeNoid(t.manifest?.name, t.manifest?.symbol);
 }
 
 export function tokenName(t: Token): string {

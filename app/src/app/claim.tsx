@@ -218,6 +218,9 @@ export default function Claim() {
           </Card>
         ) : null}
         {mine && view === 'ready' ? <Banner tone="info">Claiming your own gift moves it back into your wallet, like Take it back.</Banner> : null}
+        {!mine && view === 'ready' ? (
+          <Banner tone="neutral">A gift isn’t yours until you claim it. Until then, the sender can still take it back.</Banner>
+        ) : null}
         {error ? <Banner tone="danger">{error}</Banner> : null}
       </Screen>
     );

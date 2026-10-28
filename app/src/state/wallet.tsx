@@ -2,13 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
+import { createApi, isHistoryItem, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
 import { assets } from '@/lib/assets';
 import { createDirectPrice } from '@/lib/directPrice';
 import { emitRelock } from '@/lib/lockEvents';
 import { disablePush, ensurePushChannel, onPushTokenChange } from '@/lib/push';
-import { reconcileOne, setRefusalStore } from '@/lib/send';
+import { noteRefused, reconcileOne, setRefusalStore, settleConfirmed } from '@/lib/send';
 import { perNoid } from '@/lib/currencies';
 import { judgePrice, type GuardState } from '@/lib/priceGuard';
 import {
@@ -170,8 +170,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (m) {
         const snap = storage.loadSnapshot(m.address);
         if (snap) {
-          setUtxos(snap.utxos);
-          setHistory(snap.history as HistoryItem[]);
+          // Checked again on load: a bad copy must never stop the app from opening.
+          const okUtxo = (u: Utxo) =>
+            !!u &&
+            Number.isSafeInteger(u.slotIndex) &&
+            u.slotIndex >= 0 &&
+            Number.isSafeInteger(u.value) &&
+            u.value >= 0 &&
+            /^\d+$/.test(String(u.creationId));
+          setUtxos(Array.isArray(snap.utxos) ? snap.utxos.filter(okUtxo) : []);
+          setHistory(Array.isArray(snap.history) ? (snap.history as unknown[]).filter(isHistoryItem) : []);
           setLastUpdated(snap.at);
         }
       }
@@ -256,11 +264,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       // Check every saved transaction; re-send the identical one if the network lost it.
       const listed = new Set((hist?.items ?? []).map((h) => h.txid));
+      const liveCoins = new Map(coins.utxos.map((u) => [u.slotIndex, String(u.creationId)]));
       for (const p of pendingRef.current) {
         let next = await reconcileOne(api, p, meta.address).catch(() => p);
-        // A confirmed payment stays listed until the history shows it (or for two
-        // minutes at most), so it never disappears from Activity in between.
-        if (next?.confirmedAt && (listed.has(next.txid) || Date.now() - next.confirmedAt > 120_000)) next = null;
+        // A confirmed payment stays until its coins are gone from the list and
+        // the history shows it, so neither a lying server nor index lag can
+        // free its coins early (see settleConfirmed).
+        if (next?.confirmedAt) {
+          const verdict = settleConfirmed(next, liveCoins, listed.has(next.txid), Date.now());
+          if (verdict === 'refuse') noteRefused(meta.address, next.inputSlots, next.builtAtHeight);
+          if (verdict !== 'keep') next = null;
+        }
         if (next === p) continue;
         updatePending((prev) => {
           if (next === null) return prev.filter((x) => x.txid !== p.txid);
@@ -415,6 +429,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await storage.saveSettings(s);
         setSettings(s);
         if (patch.currency === 'none') setPrice(null);
+        // A new currency's rate hasn't been checked by the price guard yet:
+        // no typed-currency amounts until the next refresh checks it.
+        else if (patch.currency !== undefined && patch.currency !== settings.currency) {
+          setPrice((p) => (p ? { ...p, typingOk: false } : p));
+        }
       },
       saveContact(name: string, address: string) {
         setContacts((prev) => {

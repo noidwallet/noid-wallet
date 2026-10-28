@@ -28,6 +28,8 @@ export default function Server() {
       });
       return;
     }
+    // The server decides what this wallet sees: changing it needs the phone lock.
+    if (w.meta && clean !== w.settings.apiUrl && !(await w.confirmUser('Change your wallet server'))) return;
     setBusy(true);
     try {
       const s = await createApi(clean).status();

@@ -272,7 +272,13 @@ export async function buildServer(
   app.post<{ Body: { outputs?: number } }>(
     "/v1/prepare",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
-    async (req) => {
+    async (req, reply) => {
+      // A node that is behind would hand out spent coins and an old anchor.
+      const [, node] = await nodeStatus();
+      if (!node.synced) {
+        reply.code(503);
+        return { error: { code: "node_unavailable", message: "The wallet server's node is still catching up. Try again in a minute." } };
+      }
       // Up to 3: recipient, NOID wallet fee and change.
       const outputs = Math.min(Math.max(Number(req.body?.outputs ?? 2) || 2, 1), 3);
       const salt = randomBytes(16).toString("hex");
@@ -318,8 +324,10 @@ export async function buildServer(
         if (e instanceof RpcError && !e.transport) {
           const outcome = classifySubmitError(e.message);
           if (outcome.kind === "accepted") return { txid, already: true };
-          // A spent-input rejection can also mean our own earlier submit already confirmed.
-          if (outcome.code === "inputs_spent" && (await txKnown(txid).catch(() => false))) return { txid, already: true };
+          // Any refusal of a resubmit can mean our own earlier submit already got
+          // in (the node checks fee and anchor before spent inputs): never call a
+          // known transaction "refused", or the phone would free its coins.
+          if (await txKnown(txid).catch(() => false)) return { txid, already: true };
           req.log.warn({ reason: e.message.slice(0, 300) }, "submit rejected");
           reply.code(422);
           return { error: { code: outcome.code, message: outcome.message, retryable: outcome.retryable } };
@@ -339,8 +347,13 @@ export async function buildServer(
     if (pending) return { txid, status: "pending" };
     const [info, chain] = await Promise.all([rpc<TxInfo | null>("getTx", [txid]), rpc<ChainInfo>("getChainInfo")]);
     if (info) return { txid, status: "confirmed", height: info.height, confirmations: chain.height - info.height + 1 };
-    const row = db.prepare("SELECT height FROM txs WHERE txid = ?").get(txid) as { height: number } | undefined;
-    if (row) return { txid, status: "confirmed", height: row.height, confirmations: chain.height - row.height + 1 };
+    const row = db
+      .prepare("SELECT t.height AS height, b.hash AS hash FROM txs t JOIN blocks b ON b.height = t.height WHERE t.txid = ?")
+      .get(txid) as { height: number; hash: string } | undefined;
+    // Only while that block is still in the chain the node follows (not after a reorg or a resync).
+    if (row && (await rpc<string | null>("getBlockHash", [row.height]).catch(() => null)) === row.hash) {
+      return { txid, status: "confirmed", height: row.height, confirmations: chain.height - row.height + 1 };
+    }
     return { txid, status: "unknown" };
   });
 

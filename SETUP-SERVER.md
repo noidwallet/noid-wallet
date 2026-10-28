@@ -237,6 +237,16 @@ Now and then, copy the newest one to your PC (**PC**):
 Before resyncing or reinstalling the node, stop the API first
 (`systemctl stop noid-wallet-api`) and start it again once the node is synced.
 
+Security updates for Node.js and Caddy come from their own package sources,
+which unattended-upgrades skips. Run `apt update && apt upgrade -y` on the
+**Server** every week or two (it also covers both).
+
+New firewall rules (when `backend/deploy/nftables-noid-rpc.nft` changes):
+```sh
+cp /opt/noid-wallet-backend/deploy/nftables-noid-rpc.nft /etc/noid/
+nft -f /etc/noid/nftables-noid-rpc.nft && nft list table inet noid_rpc   # one atomic swap
+```
+
 New NOID code: repeat step 3, then on the **Server**:
 ```sh
 cd /opt/noid-wallet-backend && npm ci && npm run build && systemctl restart noid-wallet-api

@@ -6,9 +6,9 @@ import { Text, View } from 'react-native';
 import { TokenIcon } from '@/components/AssetRows';
 import { Banner, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
-import { shownAssets, tokenName, useAssets } from '@/lib/assets';
+import { posesAsNoid, shownAssets, tokenName, useAssets } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
-import { openProjectWebsite } from '@/lib/openWebsite';
+import { openProjectWebsite, websiteHost } from '@/lib/openWebsite';
 import { formatUnits, noidValue, unitPrice } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
@@ -51,6 +51,7 @@ export default function TokenDetail() {
             About {formatNoid(worth, { maxDecimals: 4 })} NOID at the {info?.phase === 'dex' ? 'DEX' : 'launchpad'} price your wallet server reports
           </Text>
         ) : null}
+        {posesAsNoid(token) ? <Pill text="Not the NOID coin" tone="danger" /> : null}
         {locked > 0n ? <Pill text={hidden ? 'Some locked for now' : `${formatUnits(locked)} locked for now`} tone="warn" /> : null}
         {reserved > 0n ? <Pill text={hidden ? 'Some in a pending transaction' : `${formatUnits(reserved)} in a pending transaction`} tone="warn" /> : null}
       </View>
@@ -63,7 +64,9 @@ export default function TokenDetail() {
       {m?.description || m?.website ? (
         <Card>
           {m.description ? <Text style={type.body}>{m.description}</Text> : null}
-          {m.website ? <Link title={m.website.replace(/^https:\/\//, '')} onPress={() => openProjectWebsite(m.website!)} /> : null}
+          {m.website && websiteHost(m.website) ? (
+            <Link title={`Website: ${websiteHost(m.website)}`} onPress={() => openProjectWebsite(m.website!)} />
+          ) : null}
         </Card>
       ) : null}
 

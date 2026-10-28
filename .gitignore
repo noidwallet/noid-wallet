@@ -15,7 +15,13 @@ backend/data/
 *.sqlite-*
 # Secrets and local env
 .env
+.env.*
 *.keystore
 *.jks
+*.p12
+*.p8
+*.pem
+*.key
 google-services.json
 firebase-service-account*.json
+*firebase-adminsdk*.json

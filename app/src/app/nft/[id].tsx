@@ -6,7 +6,7 @@ import { Image, Text, View, useWindowDimensions } from 'react-native';
 import { Banner, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
 import { nftName, shownAssets, useAssets, usePicture } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
-import { openProjectWebsite } from '@/lib/openWebsite';
+import { openProjectWebsite, websiteHost } from '@/lib/openWebsite';
 import { formatUnits, nftKey } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, radius, space, type } from '@/theme';
@@ -60,7 +60,9 @@ export default function NftDetail() {
       {m?.description || m?.website ? (
         <Card>
           {m.description ? <Text style={type.body}>{m.description}</Text> : null}
-          {m.website ? <Link title={m.website.replace(/^https:\/\//, '')} onPress={() => openProjectWebsite(m.website!)} /> : null}
+          {m.website && websiteHost(m.website) ? (
+            <Link title={`Website: ${websiteHost(m.website)}`} onPress={() => openProjectWebsite(m.website!)} />
+          ) : null}
         </Card>
       ) : null}
 

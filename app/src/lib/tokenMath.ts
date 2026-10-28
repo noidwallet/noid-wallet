@@ -54,3 +54,19 @@ export function shortId(hex: string): string {
 export function nftKey(collection: string, serial: string): string {
   return `${collection}-${serial}`;
 }
+
+/**
+ * A token name or ticker that could pass for NOID (or Parano1d) itself, or
+ * that uses letters outside plain ASCII (look-alikes such as Cyrillic "о").
+ * Anyone can pick any name, so these get a "Not the NOID coin" warning.
+ */
+export function looksLikeNoid(name: string | null | undefined, symbol: string | null | undefined): boolean {
+  const raw = `${name ?? ''} ${symbol ?? ''}`.normalize('NFKC');
+  if (/[^\x20-\x7e]/.test(raw)) return true;
+  const plain = raw
+    .toLowerCase()
+    .replace(/0/g, 'o')
+    .replace(/[1l|!]/g, 'i')
+    .replace(/[^a-z]/g, '');
+  return plain.includes('noid');
+}

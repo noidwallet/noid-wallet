@@ -1,10 +1,12 @@
-# Security review brief: NOID wallet 1.0.2
+# Security review brief: NOID wallet (main branch, 1.0.3 in progress)
 
 NOID is an Android wallet for Parano1d. Keys stay on the phone; the phone
 builds and proves every transaction itself (the official GKR authorization
-proof) and a small server relays it to a Parano1d node. Released 21 Oct 2026
-at https://noidusa.com (APK signed with one upload key, fingerprint in
-`site/.well-known/assetlinks.json`).
+proof) and a small server relays it to a Parano1d node. Releases are at
+https://noidusa.com (APK signed with one upload key, fingerprint in
+`site/.well-known/assetlinks.json`). This brief describes the main branch;
+the latest release may not include the newest changes (see the version in
+`app/app.json`).
 
 Thank you for looking. The most useful review is of the Rust core (section 1)
 and of the questions in "For the Parano1d developers" below. NOID is made by
@@ -21,14 +23,14 @@ backend/   Fastify server: proxies the node's RPC, indexes history, price/FX
 site/      Static pages for gift (/g) and payment (/pay) links
 ```
 
-Official crates are pinned to `ignotusnemo/parano1d` rev
-`5302b3f303f1b26e0a6a3de6f6d15aad7b3161ea` (`core/Cargo.toml`). Code adapted
+Official crates are pinned to the Parano1d v2.1.0 release, rev
+`848209d5db75137483cb41a94b310ad11463473f` (`core/Cargo.toml`, `Cargo.lock`). Code adapted
 from them is marked in `core/src` with the original file it comes from.
 
 ## Run the tests
 
 ```sh
-cd core && cargo test --release      # 23 tests: addresses match the official crates, Photo Key,
+cd core && cargo test --release      # addresses match the official crates, Photo Key,
                                      # built intents pass validate_paged_spend and
                                      # verify_paged_spend_authorization
 cd app && npm ci && npm test && npx tsc --noEmit
@@ -148,9 +150,25 @@ cannot send or trade them yet.
   signed from these screens. State proofs come with verified headers.
 - Tickers are not unique; the token screen says so and shows the token ID.
 
-## Known limits (accepted for 1.0.2)
+## Known limits
 
 - Privacy: the server sees which addresses a phone asks about and its IP.
+- The server reports balances, coins and history. The app checks shapes,
+  sums and its own records (a payment the server calls "confirmed" is only
+  forgotten once its coins are gone from the coin list), but cannot yet prove
+  what the chain holds. A request's "Paid" mark comes from that history.
+- The network fee comes from server-reported load figures. Both the app and
+  the core refuse a fee above the consensus minimum at full load plus 0.02
+  NOID, and the core refuses any wallet-fee output that differs from the
+  built-in address and rule.
+- "NOID received" notifications are displayed by Android with text written by
+  the official backend (only it holds the Firebase credentials).
+- The app lock is enforced by the app; the secret is stored with
+  expo-secure-store (Android Keystore encryption) without per-use
+  authentication. Copies of the secret passed through the JSON bridge are not
+  wiped from Java/JS memory.
+- Photo Key refuses TIFF files with JPEG compression and checks every JPEG
+  twice (fast and plain decoder) for portability.
 - The NOID price can come from CoinPaprika directly from the phone when the
   server is blocked. Like the server's price it converts typed currency
   amounts only when fresh and passing the guard above; "≈" values hide after

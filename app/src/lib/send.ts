@@ -71,7 +71,7 @@ export function refusalLive(r: Refusal, now: number, height?: number): boolean {
   return height < (Math.floor(r.height / EPOCH_BLOCKS) + 2) * EPOCH_BLOCKS;
 }
 
-function noteRefused(address: string, slots: number[], height?: number) {
+export function noteRefused(address: string, slots: number[], height?: number) {
   if (!slots.length) return;
   refused.push({ address, slots, at: Date.now(), ...(height !== undefined ? { height } : {}) });
   persist();
@@ -149,12 +149,22 @@ export function resetRefusals() {
   refusalStore = null;
 }
 
+/** Room above the network's worst case (0.02 NOID). Same as FEE_MARGIN in core/src/tx.rs. */
+export const FEE_MARGIN = 20_000;
+/** A busy node's relay floor is flat, not sized to the transaction (0.1 NOID). Same as the core. */
+export const RELAY_FLOOR_CEILING = 100_000;
+
 /**
- * A server-reported fee this far above normal is refused rather than paid:
- * the fee floor and network load figures come from the server.
+ * A network fee above the larger of what the network can require for this
+ * many inputs and outputs at full load and a busy relay floor, plus a small
+ * margin, is refused rather than paid (at most about 0.12 NOID). The load
+ * figures and fee floor come from the wallet server, so a dishonest server
+ * could otherwise inflate the fee. Pass `outputs` including a change output a
+ * send may have folded into its fee.
  */
-export function feeLooksWrong(fee: number, amount: number): boolean {
-  return fee > Math.max(250_000, Math.floor(amount * 0.05));
+export function feeLooksWrong(fee: number, inputs: number, outputs: number): boolean {
+  const worst = 5_000 + 100 * inputs + 700 * outputs + 2_500 * 8 * Math.max(0, outputs - inputs);
+  return !Number.isSafeInteger(fee) || fee < 0 || fee > Math.max(worst, RELAY_FLOOR_CEILING) + FEE_MARGIN;
 }
 
 export class FeeChanged extends Error {
@@ -228,19 +238,23 @@ export async function planSend(api: Api, address: string, pending: PendingTx[], 
     plan = await request(skip).catch(() => plan);
   }
   if (plan.walletFee !== walletFee) throw new Error('The wallet core planned a different wallet fee. Update NOID.');
-  if (feeLooksWrong(plan.fee, amount)) throw suspiciousFee();
+  // Without change, a too-small leftover may have gone into the fee: allow for one more output.
+  if (feeLooksWrong(plan.fee, plan.inputCount, plan.outputCount + (plan.change === 0 ? 1 : 0))) throw suspiciousFee();
   return { plan, utxos };
 }
 
 function suspiciousFee() {
-  return Object.assign(new Error('The network fee looks wrong. Check your wallet server in Settings.'), { code: 'fee_suspicious' });
+  return Object.assign(
+    new Error('The network fee your wallet server reports is unusually high. Try again later, or check your server in Settings.'),
+    { code: 'fee_suspicious' },
+  );
 }
 
 export async function planConsolidation(api: Api, address: string, pending: PendingTx[]) {
   const [{ utxos }, ctx] = await Promise.all([api.utxos(address), api.status()]);
   const core = await getCore();
   const plan = await core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(pending), ...ctx });
-  if (feeLooksWrong(plan.fee, 0)) throw suspiciousFee();
+  if (feeLooksWrong(plan.fee, plan.inputCount, 1)) throw suspiciousFee();
   return plan;
 }
 
@@ -280,6 +294,19 @@ export async function submitLoop(
       pendingOutputSlots: pendingOutputs(c.pending),
     });
 
+    // The built transaction must be exactly the reviewed one before it is saved or sent.
+    const selected = isSend ? plan.selectedSlots : plan.selectedInputSlots;
+    const sameInputs =
+      built.inputSlots.length === selected.length && built.inputSlots.every((s) => selected.includes(s));
+    if (
+      built.fee !== plan.fee ||
+      built.amount !== (isSend ? plan.amount : plan.outputValue) ||
+      (built.walletFee ?? 0) !== walletFee ||
+      !sameInputs
+    ) {
+      throw new Error('The wallet built a different transaction than the one you reviewed, so it was not sent. Try again.');
+    }
+
     // Claims spend the gift's coins, not this wallet's: tracked under the gift's address.
     checkRefusals(c.address, utxos, built.inputSlots, Date.now(), prep.height);
 
@@ -293,6 +320,7 @@ export async function submitLoop(
       fee: built.fee,
       ...(built.walletFee ? { walletFee: built.walletFee } : {}),
       inputSlots: built.inputSlots,
+      inputIds: built.inputSlots.map((s) => String(utxos.find((u) => u.slotIndex === s)?.creationId ?? '')),
       outputSlots: built.outputSlots,
       createdAt: Date.now(),
       builtAtHeight: prep.height,
@@ -336,7 +364,7 @@ export function executeConsolidation(c: Common & { reviewedFee: number }) {
     const [{ utxos }, ctx] = await Promise.all([c.api.utxos(c.address), c.api.status()]);
     const core = await getCore();
     const plan = await core.planConsolidation({ utxos, pendingInputSlots: pendingInputs(c.pending), ...ctx });
-    if (feeLooksWrong(plan.fee, 0)) throw suspiciousFee();
+    if (feeLooksWrong(plan.fee, plan.inputCount, 1)) throw suspiciousFee();
     return { plan, utxos, outputs: 1 };
   });
 }
@@ -374,6 +402,41 @@ export async function planSweep(api: Api, address: string, pending: PendingTx[])
 
 /** Parano1d v2.1 activation height: proofs change format here (core/src/tx.rs). */
 export const V2_1_ACTIVATION = 279_370;
+
+/**
+ * A payment the server called "confirmed" whose coins are still listed this
+ * long afterwards is treated like a refused one (see settleConfirmed).
+ */
+export const CONFIRM_SETTLE_MS = 30 * 60_000;
+
+/**
+ * What to do with a record the server reported as confirmed.
+ *
+ * A server's word alone never frees coins: if it said "confirmed" without
+ * relaying the payment and kept listing its coins, dropping the record would
+ * let the next payment use other coins while it relays both later (a double
+ * payment). So the record is dropped only once its coins are gone from the
+ * coin list. If they are still listed after CONFIRM_SETTLE_MS, it becomes a
+ * refusal: the coins are free again, but the next payment must reuse one of
+ * them, so at most one of the two can ever go through.
+ * Claims spend the gift's coins, not ours: those only wait for the history.
+ */
+export function settleConfirmed(
+  p: PendingTx,
+  liveCoins: ReadonlyMap<number, string>,
+  listedInHistory: boolean,
+  now: number,
+): 'keep' | 'drop' | 'refuse' {
+  if (!p.confirmedAt) return 'keep';
+  const ours = p.kind !== 'claim';
+  // The same coin, not just the same slot number (slots are reused for new coins).
+  const stillListed = (s: number, i: number) =>
+    liveCoins.has(s) && (p.inputIds?.[i] === undefined || liveCoins.get(s) === p.inputIds[i]);
+  if (ours && p.inputSlots.some(stillListed)) {
+    return now - p.confirmedAt > CONFIRM_SETTLE_MS ? 'refuse' : 'keep';
+  }
+  return listedInHistory || now - p.confirmedAt > 120_000 ? 'drop' : 'keep';
+}
 
 /** Codes after which a saved transaction can never confirm and its coins are free again. */
 const DEAD = new Set(['inputs_spent', 'stale_anchor', 'fee_too_low', 'rejected', 'bad_request']);

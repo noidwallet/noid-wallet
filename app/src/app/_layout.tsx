@@ -2,16 +2,55 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { useFonts, JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { LockOverlay } from '@/components/LockOverlay';
 import { ToastHost } from '@/components/ui';
 import { setupNotificationHandler } from '@/lib/push';
+import { storage } from '@/lib/storage';
 import { WalletProvider, useWallet } from '@/state/wallet';
 import { colors } from '@/theme';
 
 setupNotificationHandler();
+
+/**
+ * Last line of defence if a screen fails to draw (for example on data a
+ * wallet server should never have sent). Your secret is untouched: this only
+ * offers to try again, or to drop the saved activity and load it afresh.
+ */
+export function ErrorBoundary({ retry }: { error: Error; retry: () => Promise<void> }) {
+  const button = (title: string, onPress: () => void) => (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => ({
+        backgroundColor: colors.s1,
+        borderRadius: 14,
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        opacity: pressed ? 0.7 : 1,
+        alignSelf: 'stretch',
+      })}
+    >
+      <Text style={{ color: colors.text, textAlign: 'center', fontSize: 16 }}>{title}</Text>
+    </Pressable>
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg, padding: 24, justifyContent: 'center', gap: 16 }}>
+      <Text style={{ color: colors.text, fontSize: 20, fontWeight: '700' }}>Something went wrong</Text>
+      <Text style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 22 }}>
+        This screen could not be shown. Your wallet and secret are safe. Try again, or reload your activity from the wallet server.
+      </Text>
+      {button('Try again', () => void retry())}
+      {button('Reload activity', () => {
+        storage.clearSnapshot();
+        void retry();
+      })}
+    </View>
+  );
+}
+
 function Routes() {
   const { loading, meta, locked, paused } = useWallet();
   if (loading) {

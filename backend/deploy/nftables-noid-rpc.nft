@@ -1,5 +1,8 @@
 # Only the node itself (user noid) and the wallet API (user noidapi) may talk
 # to the node's RPC port. The node gives owner rights to any local caller.
+# Caddy's admin API (port 2019) can rewrite what the site and API serve, and
+# has no password: the node and API users may not reach it (root and Caddy
+# itself still can, for reloads).
 # Loaded by noid-rpc-firewall.service (after ufw, at every boot). It lives in
 # its own table, so it never touches ufw's rules. Safe to load more than once.
 table inet noid_rpc
@@ -9,5 +12,7 @@ table inet noid_rpc {
 		type filter hook output priority 0; policy accept;
 		ip daddr 127.0.0.1 tcp dport 9601 meta skuid != { "noid", "noidapi" } reject
 		ip6 daddr ::1 tcp dport 9601 meta skuid != { "noid", "noidapi" } reject
+		ip daddr 127.0.0.1 tcp dport 2019 meta skuid { "noid", "noidapi" } reject
+		ip6 daddr ::1 tcp dport 2019 meta skuid { "noid", "noidapi" } reject
 	}
 }

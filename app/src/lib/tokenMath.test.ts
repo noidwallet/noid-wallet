@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatUnits, noidValue, nftKey, shortId, toBig, unitPrice } from './tokenMath';
+import { formatUnits, looksLikeNoid, noidValue, nftKey, shortId, toBig, unitPrice } from './tokenMath';
 
 test('token amounts format exactly, beyond JavaScript number range', () => {
   assert.equal(formatUnits('1500000'), '1.5');
@@ -31,4 +31,20 @@ test('token value in NOID uses the market price, rounded down', () => {
 test('ids', () => {
   assert.equal(shortId('a'.repeat(64)), 'aaaaaaaa…aaaaaaaa');
   assert.equal(nftKey('ab', '3'), 'ab-3');
+});
+
+test('tokens that could pass for NOID are flagged', () => {
+  for (const [name, symbol] of [
+    ['NOID', 'NOIDX'],
+    ['No1d Cash', 'NC'],
+    ['N01D', 'N'],
+    ['NOlD', 'X'],
+    ['Parano1d Token', 'PT'],
+    ['N\u043eID', 'X'], // Cyrillic o
+    ['Wrapped N O I D', 'W'],
+  ] as const) {
+    assert.equal(looksLikeNoid(name, symbol), true, name);
+  }
+  assert.equal(looksLikeNoid('Moon Dog', 'MOON'), false);
+  assert.equal(looksLikeNoid(null, null), false);
 });

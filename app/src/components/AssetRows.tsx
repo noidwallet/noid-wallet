@@ -2,7 +2,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { Avatar, ListRow, initialsOf, toneFor } from '@/components/ui';
 import type { Api } from '@/lib/api';
-import { nftName, tokenName, usePicture, type Nft, type Token } from '@/lib/assets';
+import { nftName, posesAsNoid, tokenName, usePicture, type Nft, type Token } from '@/lib/assets';
 import { formatUnits, nftKey, shortId } from '@/lib/tokenMath';
 import { go } from '@/lib/nav';
 import { colors, fonts, radius, space } from '@/theme';
@@ -29,7 +29,7 @@ export function TokenRow({ api, token, hidden }: { api: Api; token: Token; hidde
     <ListRow
       leading={<TokenIcon api={api} token={token} />}
       title={tokenName(token)}
-      subtitle={symbol ? `${symbol} · ${shortId(token.assetId)}` : shortId(token.assetId)}
+      subtitle={`${posesAsNoid(token) ? 'Not the NOID coin · ' : ''}${symbol ? `${symbol} · ` : ''}${shortId(token.assetId)}`}
       value={hidden ? '••••' : formatUnits(token.units, { maxDecimals: 4 })}
       valueSub={symbol && !hidden ? symbol : null}
       onPress={() => go({ pathname: '/token/[id]', params: { id: token.assetId } })}

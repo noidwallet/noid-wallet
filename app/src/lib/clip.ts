@@ -61,7 +61,19 @@ AppState.addEventListener('change', (state) => {
 });
 
 export async function copySensitive(text: string, what: string) {
-  await copyText(text, what);
+  let flagged = false;
+  try {
+    const NoidCore = (await import('../../modules/noid-core')).default;
+    flagged = NoidCore.copySensitive?.(text) === true;
+  } catch {
+    flagged = false;
+  }
+  if (flagged) {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    toast(`${what} copied`);
+  } else {
+    await copyText(text, what);
+  }
   sensitive = { text, until: Date.now() + SENSITIVE_FOR_MS };
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => void wipeIfStillThere(), SENSITIVE_FOR_MS + 500);

@@ -177,7 +177,9 @@ export async function findLostGifts(
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const gap = opts.gap ?? 10;
   const today = giftDay(opts.nowMs ?? Date.now());
-  const have = new Set(known.map((g) => g.address));
+  // Gifts removed from the list are looked at again: a server may have called a
+  // still-funded gift "claimed", and this is the way to get it back.
+  const have = new Set(known.filter((g) => !g.hidden).map((g) => g.address));
   const found: { index: number; address: string; balance: number }[] = [];
   let oneRequest = true;
 

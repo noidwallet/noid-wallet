@@ -1,8 +1,11 @@
 # NOID
 
 Android wallet for the [Parano1d](https://parano1d.org) (NOID) network. A light
-wallet: no full node on the phone. Keys and zero-knowledge proofs stay on the
-device. A small server you run relays finished transactions and keeps history.
+wallet: no full node on the phone. The wallet secret never leaves the phone,
+and every zero-knowledge proof is made on it. A small server you run relays
+finished transactions and keeps history; like any light-wallet server, it sees
+which addresses a phone asks about and could misreport balances or history
+(see REVIEW.md for what the app checks).
 
 Made by Primal ([@Solid_Primal](https://x.com/Solid_Primal)) and David Peluola
 ([@0xdavee_](https://x.com/0xdavee_)). Live at https://noidusa.com. Official
@@ -39,8 +42,8 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
 - Secret screens block screenshots; secret fields opt out of keyboard
   learning and autofill; a wallet without a confirmed backup cannot be removed.
 - The backend can only call an allow-list of read methods plus
-  `submitTxIntent`, and never sees keys. The app requires https (plain http
-  only for a test server on your own Wi-Fi).
+  `submitTxIntent`, and never sees keys. Release builds require https (test
+  builds also allow plain http to a server on your own Wi-Fi).
 - Mined coins carry 64-bit IDs beyond JavaScript's number range; they travel
   as strings end to end.
 - Photo Key decodes the original file in Rust with the exact decoder versions
@@ -54,11 +57,12 @@ backend/   TypeScript API next to your node: safe-method proxy + history indexer
   wallet. Each gift is a small wallet whose secret is derived from yours, so a
   restored wallet can find and take back unclaimed gifts. The secret travels
   after `#` in the link, which browsers never send to a server. Gift numbers
-  are never reused, and a gift address is checked unused before it is funded.
+  are never reused, and a gift address is checked unused (by asking the
+  wallet server) before it is funded.
 - Payment requests: amount + note as a link, QR or a branded card image for
   WhatsApp, Telegram, Discord or X; NOID fills in the send. The request screen
-  turns to "Paid ✓" when the money is in your own history (screenshots from
-  the payer are never proof).
+  turns to "Paid ✓" when the money shows in your history as reported by your
+  wallet server (screenshots from the payer are never proof).
 - Contacts, with warnings for first-time and look-alike addresses
   (address-poisoning protection).
 - Values in 41 currencies (NOID price from SafeTrade via your server, or
@@ -82,9 +86,10 @@ server and your domain: see [SETUP-SERVER.md](SETUP-SERVER.md).
 
 ## Verify your download
 
-Only install NOID from https://noidusa.com. The page lists the APK's SHA-256,
-and every release is signed with the same key, whose SHA-256 certificate
-fingerprint is:
+Only install NOID from https://noidusa.com. The page lists the APK's SHA-256;
+compare it with the copy in this repository (`site/index.html`), which a
+compromised web server can't change. Every release is signed with the same
+key, whose SHA-256 certificate fingerprint is:
 
 ```
 2B:DC:35:EA:06:B7:C9:AB:F3:E1:23:E2:91:B1:E5:1C:0B:3C:D9:59:43:23:E9:5A:59:6E:5C:C4:7B:82:93:5B

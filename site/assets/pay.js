@@ -12,6 +12,7 @@
   NOID.text("amount", amount ? amount + " NOID" : "Any amount");
   NOID.text("note", note);
   NOID.show("note", !!note);
+  NOID.show("note-label", !!note);
   NOID.text("to", to);
   var q = new URLSearchParams({ to: to });
   if (amount) q.set("a", amount);

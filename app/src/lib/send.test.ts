@@ -13,6 +13,8 @@ import {
   resetRefusals,
   V2_1_ACTIVATION,
   setRefusalStore,
+  settleConfirmed,
+  CONFIRM_SETTLE_MS,
   steerToRefused,
   submitLoop,
   SubmitUnknown,
@@ -222,10 +224,20 @@ test('refusal memory: every reason counts, survives a restart, lasts until the e
   resetRefusals();
 });
 
-test('fee sanity cap', () => {
-  assert.equal(feeLooksWrong(9_000, 1_000_000), false);
-  assert.equal(feeLooksWrong(300_000, 1_000_000), true);
-  assert.equal(feeLooksWrong(300_000, 100_000_000), false, '5% of a large amount is allowed');
+test('fee sanity cap: never above the network worst case or a busy relay floor, plus a margin', () => {
+  // 1 input, recipient + wallet fee + change at normal load.
+  assert.equal(feeLooksWrong(9_700, 1, 3), false);
+  // Full network load (pressure 8) for 1 input, 4 outputs: 5000 + 100 + 2800 + 3 * 20000.
+  assert.equal(feeLooksWrong(67_900 + 20_000, 1, 4), false);
+  // A busy relay floor is flat: allowed up to 0.1 NOID (+ margin) for any shape.
+  assert.equal(feeLooksWrong(120_000, 3, 2), false);
+  assert.equal(feeLooksWrong(120_001, 3, 2), true);
+  // A big amount no longer allows a big fee (it used to allow 5%).
+  assert.equal(feeLooksWrong(300_000, 1, 3), true);
+  // Large consolidation.
+  assert.equal(feeLooksWrong(5_000 + 100 * 64 + 700, 64, 1), false);
+  assert.equal(feeLooksWrong(-1, 1, 1), true);
+  assert.equal(feeLooksWrong(1.5, 1, 1), true);
 });
 
 test('a send with a wallet fee forges the fee output and records it', async () => {
@@ -275,4 +287,39 @@ test('v2.1 upgrade race: a proof refused right at activation is built again once
   await assert.rejects(submitLoop(far.common, 'send', 'o1to', 9000, far.build), /rejected/);
   assert.equal(far.calls.forge, 1);
   resetRefusals();
+});
+
+test('a server saying "confirmed" never frees coins that are still listed', () => {
+  const base: PendingTx = {
+    txid: 'a'.repeat(64),
+    kind: 'send',
+    state: 'submitted',
+    intentHex: 'a3',
+    to: 'o1x',
+    amount: 1,
+    fee: 1,
+    inputSlots: [7, 8],
+    outputSlots: [9],
+    createdAt: 0,
+    confirmedAt: 1_000_000,
+  };
+  const t = base.confirmedAt!;
+  const coins = (...c: [number, string][]) => new Map(c);
+  // Coins gone and history lists it: drop.
+  assert.equal(settleConfirmed(base, coins([1, '5']), true, t + 1), 'drop');
+  // Coins gone, history lagging: keep for up to two minutes, then drop.
+  assert.equal(settleConfirmed(base, coins(), false, t + 60_000), 'keep');
+  assert.equal(settleConfirmed(base, coins(), false, t + 121_000), 'drop');
+  // Coins still listed, even with a history row: keep (its coins stay locked).
+  assert.equal(settleConfirmed(base, coins([8, '3']), true, t + 121_000), 'keep');
+  // Still listed long after: becomes a refusal, so the next payment must reuse them.
+  assert.equal(settleConfirmed(base, coins([8, '3']), true, t + CONFIRM_SETTLE_MS + 1), 'refuse');
+  // With known coin ids, a new coin that reused slot 8 is not mistaken for the spent one.
+  const withIds = { ...base, inputIds: ['2', '3'] };
+  assert.equal(settleConfirmed(withIds, coins([8, '3']), true, t + 1), 'keep');
+  assert.equal(settleConfirmed(withIds, coins([8, '99']), true, t + 1), 'drop');
+  // A gift claim spends the gift's coins, never ours: only waits for history.
+  assert.equal(settleConfirmed({ ...base, kind: 'claim' }, coins([8, '3']), true, t + 1), 'drop');
+  // Not confirmed: nothing to settle.
+  assert.equal(settleConfirmed({ ...base, confirmedAt: undefined }, coins(), true, t), 'keep');
 });

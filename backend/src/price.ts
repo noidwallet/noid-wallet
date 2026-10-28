@@ -1,3 +1,4 @@
+import { readBounded } from "./http.js";
 // NOID price in USD (from SafeTrade's public Peatio API, or CoinPaprika's
 // mirror of it) plus exchange rates for the currencies the wallet can show
 // (from a public FX feed). Display only: the wallet never uses these numbers
@@ -134,8 +135,14 @@ async function defaultFetchJson(url: string): Promise<unknown> {
     headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (noid-wallet-server)" },
     signal: AbortSignal.timeout(8_000),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
-  return res.json();
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
+  }
+  // Price and rate answers are small; never read an endless body.
+  const body = await readBounded(res, 2 * 1024 * 1024);
+  if (!body) throw new Error(`Oversized answer from ${new URL(url).host}`);
+  return JSON.parse(new TextDecoder().decode(body));
 }
 
 export class PriceFeed {

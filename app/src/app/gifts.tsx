@@ -52,7 +52,12 @@ export default function Gifts() {
         { onProgress: (done, total) => setScanning(`Looking for your gifts… ${Math.round((done / total) * 100)}%`) },
       );
       for (const f of found) {
-        w.saveGift({ ...newGiftRecord({ index: f.index, address: f.address, amount: f.balance, message: '', theme: 'vault', from: '' }), status: 'funded' });
+        const old = w.gifts.find((g) => g.index === f.index && g.address === f.address);
+        w.saveGift(
+          old
+            ? { ...old, hidden: false, status: 'funded' }
+            : { ...newGiftRecord({ index: f.index, address: f.address, amount: f.balance, message: '', theme: 'vault', from: '' }), status: 'funded' },
+        );
         await storage.raiseGiftHighWater(f.index);
       }
       setNote({

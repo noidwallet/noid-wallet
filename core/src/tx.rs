@@ -140,10 +140,17 @@ pub struct BuiltTx {
     pub prove_ms: u64,
 }
 
+/// A v2.1 token, NFT or market record (not plain NOID): bit 62 set, bit 63 clear.
+fn is_native_record(creation_id: u64) -> bool {
+    creation_id & (3u64 << 62) == 1u64 << 62
+}
+
 fn spendable_utxos<'a>(utxos: &'a [Utxo], pending_inputs: &HashSet<u32>) -> Vec<&'a Utxo> {
     let mut seen = HashSet::new();
     utxos
         .iter()
+        // Never plan with a token/NFT record a server passed off as a coin.
+        .filter(|u| !is_native_record(u.creation_id))
         .filter(|u| !pending_inputs.contains(&u.slot_index))
         .filter(|u| seen.insert(u.slot_index))
         .collect()
@@ -414,9 +421,59 @@ pub struct BuildRequest<'a> {
 
 /// Build the pages, forge the authorization proof and encode the intent
 /// (official build_and_prove_tx). The secret never leaves this function.
+/// The NOID wallet fee address and rule. Must match app/src/lib/walletFee.ts:
+/// the core refuses to build a wallet-fee output that differs from them.
+pub const WALLET_FEE_ADDRESS: &str = "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf";
+pub const WALLET_FEE_BPS: u64 = 25;
+pub const WALLET_FEE_MIN: u64 = 5_000;
+pub const WALLET_FEE_MAX: u64 = 500_000;
+
+/// Wallet fee in μNOID for sending `amount` μNOID (0.25%, at least 0.005, at most 0.5 NOID).
+pub fn wallet_fee_for(amount: u64) -> u64 {
+    if amount == 0 {
+        return 0;
+    }
+    let pct = (u128::from(amount) * u128::from(WALLET_FEE_BPS) / 10_000) as u64;
+    pct.clamp(WALLET_FEE_MIN, WALLET_FEE_MAX)
+}
+
+/// Room above the network's worst case. Same as FEE_MARGIN in app/src/lib/send.ts.
+pub const FEE_MARGIN: u64 = 20_000;
+/// The node's relay floor (90% of recent median fees once its mempool is 80%
+/// full) is a flat amount, not sized to the transaction: allow up to this much
+/// of it. Same as RELAY_FLOOR_CEILING in app/src/lib/send.ts.
+pub const RELAY_FLOOR_CEILING: u64 = 100_000;
+
+/// The most network fee the core will ever put in a transaction: the larger of
+/// the consensus minimum at full network load and a busy relay floor, plus
+/// FEE_MARGIN. `outputs` includes a change output a send may have folded into
+/// the fee. The load figures and floor come from the wallet server, so this
+/// caps what a dishonest server could add (at most about 0.12 NOID).
+pub fn max_network_fee(inputs: u64, outputs: u64) -> u64 {
+    let worst = crate::fees::MIN_FEE_BASE
+        + crate::fees::FEE_PER_INPUT * inputs
+        + crate::fees::FEE_PER_OUTPUT * outputs
+        + crate::fees::STATE_GROWTH_FEE_BASE * 8 * outputs.saturating_sub(inputs);
+    worst.max(RELAY_FLOOR_CEILING) + FEE_MARGIN
+}
+
 pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
     if req.inputs.is_empty() || req.inputs.len() > MAX_SEND_INPUTS {
         return Err(Error::msg("Invalid number of inputs."));
+    }
+    if req.exact && !(2..=MAX_CONSOLIDATION_INPUTS).contains(&req.inputs.len()) {
+        return Err(Error::msg(format!("Merge between 2 and {MAX_CONSOLIDATION_INPUTS} coins at a time.")));
+    }
+    if req.amount == 0 {
+        return Err(Error::msg("Enter an amount greater than zero."));
+    }
+    if req.inputs.iter().any(|u| is_native_record(u.creation_id)) {
+        return Err(Error::msg("A token or NFT record can't be spent as NOID."));
+    }
+    if let Some((to, v)) = req.wallet_fee.filter(|(_, v)| *v > 0) {
+        if to.to_bech32() != WALLET_FEE_ADDRESS || v != wallet_fee_for(req.amount) {
+            return Err(Error::msg("The wallet fee differs from NOID's fee rule, so nothing was built."));
+        }
     }
     let spend_secret = req.secret.derive_spend_secret(req.key_index);
     let owner = derive_address(&spend_secret);
@@ -446,6 +503,17 @@ pub fn build_and_prove(req: BuildRequest<'_>) -> Result<BuiltTx, Error> {
     }
     if change > 0 {
         wanted.push((change, owner));
+    }
+    let (n_in, n_out) = (req.inputs.len() as u64, wanted.len() as u64);
+    let lowest = crate::fees::fee_breakdown(n_in, n_out, 0, 32).required_total;
+    // A send without change may have folded a too-small change into the fee:
+    // allow for the shape with that extra output. A merge is exact.
+    let cap_outputs = if req.exact || change > 0 { n_out } else { n_out + 1 };
+    if req.fee < lowest || req.fee > max_network_fee(n_in, cap_outputs) {
+        return Err(Error::coded(
+            "fee_suspicious",
+            "The network fee is outside what the network can require, so nothing was built.",
+        ));
     }
     let needed_slots = wanted.len();
     let mut hints: Vec<u32> = Vec::new();
@@ -741,12 +809,84 @@ mod tests {
     }
 
     #[test]
+    fn every_plan_the_core_makes_passes_the_fee_cap() {
+        // Full network load, and a busy flat relay floor; leftovers that fold into the fee.
+        let full = FeeContext { active_slot_count: 1u64 << 24, log_slots: 24, relay_floor: 5_000 };
+        let busy = FeeContext { active_slot_count: 0, log_slots: 24, relay_floor: 90_000 };
+        for ctx in [full, busy, ctx()] {
+            for coins in [1u32, 2, 3, 10] {
+                let utxos: Vec<Utxo> = (0..coins).map(|i| u(100 + i, 1_000_000)).collect();
+                for leftover in (0..130_000u64).step_by(700) {
+                    let total = coins as u64 * 1_000_000;
+                    let Some(amount) = total.checked_sub(leftover + 200_000) else { continue };
+                    let Ok(plan) = plan_send(&utxos, &HashSet::new(), amount, None, ctx, wallet_fee_for(amount)) else { continue };
+                    let n_out = plan.output_count as u64;
+                    let cap_outputs = if plan.change == 0 { n_out + 1 } else { n_out };
+                    assert!(
+                        plan.fee <= max_network_fee(plan.input_count as u64, cap_outputs),
+                        "coins {coins} leftover {leftover} fee {} cap {}",
+                        plan.fee,
+                        max_network_fee(plan.input_count as u64, cap_outputs)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn build_refuses_what_was_not_reviewed_or_allowed() {
+        let secret = MasterSecret::from_hex(&"11".repeat(32)).unwrap();
+        let utxos = [u(100, 3_000_000), u(101, 2_000_000)];
+        let to = MasterSecret::from_hex(&"22".repeat(32)).unwrap().derive_address(0);
+        let fee_to = crate::keys::parse_address(WALLET_FEE_ADDRESS).unwrap();
+        let other = MasterSecret::from_hex(&"66".repeat(32)).unwrap().derive_address(0);
+        let req = |amount: u64, fee: u64, wallet_fee: Option<(Address, u64)>, exact: bool, inputs: Vec<Utxo>| BuildRequest {
+            secret: &secret,
+            key_index: 0,
+            inputs,
+            to,
+            amount,
+            wallet_fee,
+            fee,
+            epoch_anchor: [0x86; 32],
+            output_slot_hints: vec![500, 501, 502],
+            exact,
+            tip_height: 1_000,
+        };
+        let one = vec![utxos[0]];
+        let err = |r: BuildRequest<'_>| build_and_prove(r).err().map(|e| e.message).unwrap_or_default();
+        // A fee far above what the network can require (a server inflating it).
+        assert!(err(req(1_000_000, 500_000, Some((fee_to, 5_000)), false, one.clone())).contains("network fee"));
+        assert!(err(req(1_000_000, 120_001, Some((fee_to, 5_000)), false, one.clone())).contains("network fee"));
+        // A busy relay floor (flat 0.1 NOID) is still allowed.
+        assert!(max_network_fee(10, 1) >= 120_000);
+        // A fee below the network minimum.
+        assert!(err(req(1_000_000, 1, Some((fee_to, 5_000)), false, one.clone())).contains("network fee"));
+        // A wallet fee to another address, or of another size.
+        assert!(err(req(1_000_000, 9_700, Some((other, 5_000)), false, one.clone())).contains("wallet fee"));
+        assert!(err(req(1_000_000, 9_700, Some((fee_to, 6_000)), false, one.clone())).contains("wallet fee"));
+        // Nothing to send.
+        assert!(err(req(0, 9_000, None, false, one.clone())).contains("greater than zero"));
+        // A merge of one coin.
+        assert!(err(req(2_994_300, 5_700, None, true, one.clone())).contains("Merge between"));
+        // A token record passed off as a coin.
+        let token = vec![Utxo { slot_index: 7, value: 0, creation_id: (1u64 << 62) | 5 }];
+        assert!(err(req(1, 9_000, None, false, token)).contains("token"));
+        assert!(spendable_utxos(&[Utxo { slot_index: 7, value: 9, creation_id: (1u64 << 62) | 5 }], &HashSet::new()).is_empty());
+        // Mined coins (bit 63) stay spendable.
+        assert_eq!(spendable_utxos(&[Utxo { slot_index: 8, value: 9, creation_id: (1u64 << 63) | 5 }], &HashSet::new()).len(), 1);
+        assert_eq!(wallet_fee_for(1_000_000), 5_000);
+        assert_eq!(wallet_fee_for(100_000_000), 250_000);
+        assert_eq!(wallet_fee_for(1_000_000_000), 500_000);
+    }
+
+    #[test]
     fn three_outputs_use_a_second_page_and_verify() {
         let secret = MasterSecret::from_hex(&"11".repeat(32)).unwrap();
         let utxos = [u(100, 3_000_000)];
         let plan = plan_send(&utxos, &HashSet::new(), 1_000_000, None, ctx(), 5_000).unwrap();
         let to = MasterSecret::from_hex(&"22".repeat(32)).unwrap().derive_address(0);
-        let fee_to = MasterSecret::from_hex(&"66".repeat(32)).unwrap().derive_address(0);
+        let fee_to = crate::keys::parse_address(WALLET_FEE_ADDRESS).unwrap();
         let built = build_and_prove(BuildRequest {
             secret: &secret,
             key_index: 0,

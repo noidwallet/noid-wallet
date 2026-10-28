@@ -44,3 +44,10 @@ test('payment requests: web link, noid: URI and bare address', () => {
   assert.equal((parseLink(`noid:${ADDR}?amount=1.1234567`) as { amount?: string }).amount, undefined, 'over 6 decimals ignored');
   assert.equal(parseLink('hello'), null);
 });
+
+test('gift links: secret only from "#", apps adding their own query are fine', () => {
+  const KEY2 = 'ab'.repeat(32);
+  assert.equal(parseLink(`https://noidusa.com/g?fbclid=XYZ#v=1&k=${KEY2}&a=1`)?.kind, 'gift');
+  assert.equal(parseLink(`https://noidusa.com/g?v=1&k=${KEY2}&a=1`), null, 'a secret in the query part is refused');
+  assert.equal(parseLink('https://noidusa.com/pay?fbclid=1#to=o1e7mkgm5cm9ngrexup6wpgkzzy9qzp25fwl223epu2llkpa7ftz9sx0fcsx&a=1')?.kind, 'pay');
+});

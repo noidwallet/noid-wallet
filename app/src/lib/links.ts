@@ -112,8 +112,14 @@ export function parseLink(input: string, linkHosts: string[] = ['noidusa.com', '
     if (!linkHosts.includes(host)) return null;
     const path = (web[2] ?? '/').replace(/\/+$/, '') || '/';
     const rest = web[3] ?? '';
-    if (path === '/g') return fromGiftParams(params(rest));
-    if (path === '/pay') return fromPayParams(params(rest));
+    // Details travel after "#" (never sent to a server). Apps like Facebook add
+    // their own "?fbclid=..." in front of it, which is ignored.
+    const hash = rest.indexOf('#');
+    const fragment = hash >= 0 ? rest.slice(hash) : '';
+    // A gift's secret is only ever read from the "#" part: one in the query
+    // would already have been sent to a server, so it is not used.
+    if (path === '/g') return fragment ? fromGiftParams(params(fragment)) : null;
+    if (path === '/pay') return fromPayParams(params(fragment || rest));
     return null;
   }
 

@@ -69,6 +69,7 @@ export function fcmSender(path: string | undefined, log: (m: string) => void): P
     const jwt = `${header}.${claims}.${b64url(signer.sign(sa.private_key))}`;
     try {
       const res = await fetch(tokenUri, {
+        redirect: "error",
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
@@ -87,6 +88,7 @@ export function fcmSender(path: string | undefined, log: (m: string) => void): P
   async function post(message: object, validateOnly: boolean): Promise<SendResult> {
     try {
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+        redirect: "error",
         method: "POST",
         headers: { authorization: `Bearer ${await accessToken()}`, "content-type": "application/json" },
         body: JSON.stringify({ message, validate_only: validateOnly }),
@@ -177,12 +179,12 @@ export class Notifier {
     if (perToken.n >= MAX_ADDRESSES_PER_TOKEN) {
       return { ok: false, status: 429, message: "This phone already gets notifications for too many addresses." };
     }
-    const total = this.db.prepare("SELECT COUNT(*) AS n FROM push_subs").get() as { n: number };
-    if (total.n >= MAX_ROWS) return { ok: false, status: 503, message: "Notifications are full on this server right now." };
-
     const now = this.now();
     const known = this.db.prepare("SELECT 1 FROM push_subs WHERE address = ? AND token = ?").get(address, token);
     if (!known) {
+      // A full table only refuses new phones: renewals keep working.
+      const total = this.db.prepare("SELECT COUNT(*) AS n FROM push_subs").get() as { n: number };
+      if (total.n >= MAX_ROWS) return { ok: false, status: 503, message: "Notifications are full on this server right now." };
       // New phones are rate limited per client and per address. Renewing an
       // existing phone is always allowed, so an owner keeps their slot.
       const byClient = (this.recentByClient.get(client) ?? []).filter((t) => t > now - 3600);

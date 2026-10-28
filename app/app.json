@@ -2,7 +2,7 @@
   "expo": {
     "name": "NOID",
     "slug": "noid",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "scheme": "noid",
     "icon": "./assets/icon.png",
@@ -10,7 +10,8 @@
     "backgroundColor": "#060B0A",
     "android": {
       "package": "com.dpeluola.noid",
-      "versionCode": 3,
+      "versionCode": 4,
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#060B0A",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -26,7 +27,9 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.RECORD_AUDIO",
-        "android.permission.SYSTEM_ALERT_WINDOW"
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
       ],
       "predictiveBackGestureEnabled": false,
       "intentFilters": [
@@ -37,22 +40,42 @@
             {
               "scheme": "https",
               "host": "noidusa.com",
-              "pathPrefix": "/g"
+              "path": "/g"
             },
             {
               "scheme": "https",
               "host": "noidusa.com",
-              "pathPrefix": "/pay"
+              "path": "/g/"
+            },
+            {
+              "scheme": "https",
+              "host": "noidusa.com",
+              "path": "/pay"
+            },
+            {
+              "scheme": "https",
+              "host": "noidusa.com",
+              "path": "/pay/"
             },
             {
               "scheme": "https",
               "host": "www.noidusa.com",
-              "pathPrefix": "/g"
+              "path": "/g"
             },
             {
               "scheme": "https",
               "host": "www.noidusa.com",
-              "pathPrefix": "/pay"
+              "path": "/g/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.noidusa.com",
+              "path": "/pay"
+            },
+            {
+              "scheme": "https",
+              "host": "www.noidusa.com",
+              "path": "/pay/"
             }
           ],
           "category": [

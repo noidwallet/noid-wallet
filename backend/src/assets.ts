@@ -1,6 +1,7 @@
 import { blake3 } from "@noble/hashes/blake3";
 import type { FastifyInstance } from "fastify";
 
+import { readBounded } from "./http.js";
 import { rpc as nodeRpc, RpcError, type RpcMethod } from "./rpc.js";
 
 /**
@@ -94,33 +95,6 @@ function fail(status: number, code: string, message: string) {
 /** Node from before v2.1: it doesn't know these methods. */
 function unsupported(e: unknown): boolean {
   return e instanceof RpcError && (e.rpcCode === -32601 || /method not found/i.test(e.message));
-}
-
-/** Read a response body, refusing anything over `max` bytes. */
-async function readBounded(res: Response, max: number): Promise<Uint8Array | null> {
-  const declared = Number(res.headers.get("content-length") ?? "0");
-  if (declared > max) return null;
-  if (!res.body) return new Uint8Array(await res.arrayBuffer()).slice(0, max + 1);
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.byteLength;
-  }
-  return out;
 }
 
 export function validMediaOrigin(origin: string | undefined): string | undefined {
@@ -238,10 +212,26 @@ export function registerAssetRoutes(app: FastifyInstance, deps: AssetDeps = {}) 
   let imageBytes = 0;
   const metadata = new Map<string, string>();
   const inflight = new Map<string, Promise<Uint8Array>>();
+  // Unpublished files are remembered briefly, so repeated requests for them
+  // don't each reach the media service (which could rate-limit this server).
+  const missing = new Map<string, number>();
+  const MISSING_MS = 5 * 60_000;
   const once = (key: string, run: () => Promise<Uint8Array>) => {
+    const miss = missing.get(key);
+    if (miss !== undefined && now() - miss < MISSING_MS) {
+      return Promise.reject(fail(404, "media_missing", "This token has no published picture or details."));
+    }
     let p = inflight.get(key);
     if (!p) {
-      p = run().finally(() => inflight.delete(key));
+      p = run()
+        .catch((e: unknown) => {
+          if ((e as { code?: string }).code === "media_missing") {
+            if (missing.size > 10_000) missing.clear();
+            missing.set(key, now());
+          }
+          throw e;
+        })
+        .finally(() => inflight.delete(key));
       inflight.set(key, p);
     }
     return p;

@@ -16,6 +16,10 @@ Android delivers push messages through Firebase Cloud Messaging (FCM).
 
 ## 2. Server key for sending (once)
 1. Firebase console → Project settings → **Service accounts** → **Generate new private key**.
+   (Tighter, recommended: in Google Cloud console → IAM → Service accounts,
+   create an account with only the **Firebase Cloud Messaging API Admin**
+   role and use its key instead. The default key above can manage the whole
+   Firebase project, so a leak would expose more than notifications.)
 2. Copy that JSON file to the server, readable only by root (systemd hands it
    to the wallet API privately through `LoadCredential`, so no other user,
    not even the node's, needs to read it):
