@@ -31,6 +31,12 @@ export const config = {
    */
   appLatestVersion: semver(process.env.APP_LATEST_VERSION),
   appMinVersion: semver(process.env.APP_MIN_VERSION),
+  /**
+   * Public media service for token and NFT names and pictures (fetched by the
+   * server, checked by the phone against the hashes in State). MEDIA_ORIGIN=off
+   * turns it off.
+   */
+  mediaOrigin: process.env.MEDIA_ORIGIN === "off" ? undefined : (process.env.MEDIA_ORIGIN ?? "https://tradedata.parano1d.org/"),
 };
 
 function semver(v: string | undefined): string | undefined {

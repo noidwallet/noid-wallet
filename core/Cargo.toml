@@ -1,6 +1,6 @@
 [package]
 name = "noid_mobile_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "On-device wallet core for the NOID mobile wallet: keys, Photo Key, fee planning, transaction building and the Parano1d authorization proof."

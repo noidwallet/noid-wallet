@@ -6,6 +6,7 @@
 //! Android layer (android.rs) exposes over JNI.
 
 pub mod api;
+pub mod assets;
 pub mod fees;
 pub mod keys;
 pub mod tx;

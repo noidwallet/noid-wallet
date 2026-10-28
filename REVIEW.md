@@ -123,6 +123,31 @@ refusal as definite and frees its coins. Native-finance transactions (tokens,
 DEX, NFTs) show in history as contract activity; their commitment-owned slots
 are not anyone's plain NOID.
 
+## Tokens and NFTs (view only)
+
+NOID shows the Parano1d v2.1 tokens and NFTs held by the wallet's address. It
+cannot send or trade them yet.
+
+- `backend/src/assets.ts` pages through the node's `getNativeHoldings` and
+  `getNativeMarket` (read-only, added to the allow list in `rpc.ts`) and
+  fetches public metadata and pictures from the media service
+  (`MEDIA_ORIGIN`, default the official `https://tradedata.parano1d.org/`),
+  so phones never contact a third party.
+- `core/src/assets.rs` decodes every record with the official `noid_tx` types
+  and applies the official wallet's checks (`noid_gui/src/assets/live.rs`,
+  `catalog.rs`): root, kind and timelock match the opening, the record is
+  owned by this address, and it is bound to its State slot. Names, tickers and
+  pictures must hash to the commitment in State (`media.rs`: the same domain,
+  canonical JSON and limits), and a picture must be the committed PNG size.
+- Limit: like the NOID balance, the records come from the server, and the
+  phone cannot yet prove they are in the chain's State. The checks catch
+  garbled, foreign or mismatched data, and a media service that serves the
+  wrong file, but a deliberately dishonest wallet server could still show
+  tokens that are not there, leave some out, or present a made-up
+  definition (and so a different name) for a token. Nothing is sent or
+  signed from these screens. State proofs come with verified headers.
+- Tickers are not unique; the token screen says so and shows the token ID.
+
 ## Known limits (accepted for 1.0.2)
 
 - Privacy: the server sees which addresses a phone asks about and its IP.

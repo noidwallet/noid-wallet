@@ -26,6 +26,11 @@ const APP_TEXT: Record<string, string> = {
   bad_request: 'The wallet server could not read this request.',
   rate_limited: 'Too many requests. Wait a minute and try again.',
   bad_response: 'The wallet server sent an answer this wallet cannot use.',
+  assets_unsupported: 'This wallet server does not show tokens yet.',
+  media_missing: 'This token has no published name or picture.',
+  media_unavailable: 'Token names and pictures are not available right now.',
+  media_disabled: 'This wallet server does not show token names and pictures.',
+  media_too_large: 'This token’s picture is too large to show.',
 };
 
 /** App text for a server answer (exported for tests). */
@@ -65,7 +70,7 @@ export interface Status extends FeeContext {
   syncStage: string;
   peers: number | null;
   /** Optional server features; missing on older servers. */
-  features?: { price?: boolean; push?: boolean };
+  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean };
   /** App versions the server announces (see backend config). */
   app?: { latest?: string | null; min?: string | null };
 }
@@ -101,6 +106,36 @@ export interface HistoryItem {
   /** NOID wallet fee paid with this send (servers that know the fee address). */
   walletFee?: number;
   counterparty: string | null;
+}
+
+/** One Parano1d v2.1 State record, passed on as the node sent it (checked by the core). */
+export interface AssetRecord {
+  root: string;
+  kind: number;
+  openingHex: string;
+  dependencyHex: string | null;
+  slotIndex: number;
+  creationId: string;
+  amountMicronoid: string;
+  unlockHeight: number;
+  reserved: boolean;
+}
+
+export interface AssetsPage {
+  owner: string;
+  height: number;
+  blockHash: string;
+  stateRoot: string;
+  holdings: AssetRecord[];
+  /** False when the address holds more records than the server reads at once. */
+  complete: boolean;
+}
+
+export interface AssetMarket {
+  height: number;
+  blockHash: string;
+  stateRoot: string;
+  item: { key: string; primary: AssetRecord; related: AssetRecord[] } | null;
 }
 
 export type TxStatus =
@@ -144,6 +179,20 @@ export function createApi(baseUrl: string, _installId = '') {
 
   /** A field that must be a whole number of base units (or height), 0 or more. */
   const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  const isHex64 = (s: unknown): s is string => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
+  const isDecimal = (s: unknown): s is string => typeof s === 'string' && /^(0|[1-9]\d{0,19})$/.test(s);
+  const isRecord = (h: AssetRecord | null | undefined): boolean =>
+    !!h &&
+    isHex64(h.root) &&
+    isCount(h.kind) &&
+    typeof h.openingHex === 'string' &&
+    h.openingHex.length <= 4096 &&
+    (h.dependencyHex === null || (typeof h.dependencyHex === 'string' && h.dependencyHex.length <= 4096)) &&
+    isCount(h.slotIndex) &&
+    isDecimal(h.creationId) &&
+    isDecimal(h.amountMicronoid) &&
+    isCount(h.unlockHeight) &&
+    typeof h.reserved === 'boolean';
   function check<T>(value: T, ok: boolean): T {
     if (!ok) throw new ApiError('bad_response', APP_TEXT.bad_response!, 200);
     return value;
@@ -185,6 +234,43 @@ export function createApi(baseUrl: string, _installId = '') {
         100_000,
       ),
     tx: (txid: string) => request<TxStatus>(`/v1/tx/${txid}`),
+    /** Tokens and NFTs: the node's raw records, checked by the core before use. */
+    assets: async (address: string) => {
+      const r = await request<AssetsPage>(`/v1/address/${address}/assets`, undefined, 30_000);
+      const ok =
+        r.owner === address &&
+        isCount(r.height) &&
+        isHex64(r.blockHash) &&
+        isHex64(r.stateRoot) &&
+        typeof r.complete === 'boolean' &&
+        Array.isArray(r.holdings) &&
+        r.holdings.length <= 4096 &&
+        r.holdings.every(isRecord);
+      return check(r, ok);
+    },
+    asset: async (assetId: string) => {
+      const r = await request<AssetMarket>(`/v1/asset/${assetId}`);
+      const item = r.item;
+      const ok =
+        isCount(r.height) &&
+        isHex64(r.blockHash) &&
+        isHex64(r.stateRoot) &&
+        (item === null ||
+          (!!item &&
+            typeof item.key === 'string' &&
+            isRecord(item.primary) &&
+            Array.isArray(item.related) &&
+            item.related.length <= 4 &&
+            item.related.every(isRecord)));
+      return check(r, ok);
+    },
+    /** Public token or NFT details (checked by the core against the hash in State). */
+    mediaMetadata: async (hash: string) => {
+      const r = await request<{ hash: string; text: string }>(`/v1/media/metadata/${hash}`);
+      return check(r, r.hash === hash && typeof r.text === 'string' && r.text.length <= 8192);
+    },
+    /** Where to download a token or NFT picture (checked by the core after download). */
+    mediaImageUrl: (hash: string) => `${base}/v1/media/image/${hash}`,
     price: () => request<Price>('/v1/price', undefined, 10_000),
     /** Exchange rates only (units per 1 USD), for when the server has no NOID price. */
     fx: () => request<{ rates: Record<string, number>; updatedAt: number; ageMs?: number }>('/v1/fx', undefined, 10_000),

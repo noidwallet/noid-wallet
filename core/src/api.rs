@@ -288,6 +288,68 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
             Ok(serde_json::to_value(built).unwrap())
         }
 
+        // Parano1d v2.1 tokens and NFTs (see assets.rs).
+        "checkAssets" => {
+            #[derive(Deserialize)]
+            struct A {
+                owner: String,
+                page: crate::assets::HoldingsPage,
+            }
+            let a: A = args(json)?;
+            crate::assets::check_holdings(&a.owner, &a.page)
+        }
+
+        "checkToken" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                asset_id: String,
+                market: crate::assets::MarketDetails,
+            }
+            let a: A = args(json)?;
+            crate::assets::check_token(&a.asset_id, &a.market)
+        }
+
+        "checkMetadata" => {
+            #[derive(Deserialize)]
+            struct A {
+                hash: String,
+                text: String,
+                kind: crate::assets::MediaKind,
+            }
+            let a: A = args(json)?;
+            let m = crate::assets::check_metadata(&a.hash, &a.text, a.kind)?;
+            Ok(json!({
+                "name": m.name,
+                "symbol": m.symbol,
+                "description": m.description,
+                "website": m.website,
+                "image": m.image.map(|i| json!({ "hash": i.hash, "width": i.width, "height": i.height, "bytes": i.bytes })),
+            }))
+        }
+
+        "checkImage" => {
+            #[derive(Deserialize)]
+            struct A {
+                path: String,
+                hash: String,
+                width: u32,
+                height: u32,
+                bytes: u32,
+            }
+            let a: A = args(json)?;
+            let path = PathBuf::from(a.path.trim_start_matches("file://"));
+            let image = crate::assets::MediaImage {
+                hash: a.hash,
+                media_type: "image/png".into(),
+                width: a.width,
+                height: a.height,
+                bytes: a.bytes,
+            };
+            crate::assets::check_image_file(&path, &image)?;
+            Ok(json!({ "ok": true }))
+        }
+
         _ => Err(Error::msg(format!("Unknown method: {method}"))),
     }
 }

@@ -4,6 +4,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 
 import { createApi, type Api, type HistoryItem, type Price, type Status } from '@/lib/api';
 import { core, type Utxo } from '@/lib/core';
+import { assets } from '@/lib/assets';
 import { createDirectPrice } from '@/lib/directPrice';
 import { emitRelock } from '@/lib/lockEvents';
 import { disablePush, ensurePushChannel, onPushTokenChange } from '@/lib/push';
@@ -384,6 +385,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       async removeWallet() {
         if (meta && settings.pushToken) await disablePush(api, meta.address, settings.pushToken);
         await storage.wipe();
+        assets.clear();
         setContacts([]);
         setRecipients([]);
         giftsRef.current = [];

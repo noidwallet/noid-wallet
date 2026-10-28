@@ -67,6 +67,9 @@ function Routes() {
             <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="backup" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="tx/[txid]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="assets" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="token/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="nft/[id]" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="gifts" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="gift-new" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="gift/[index]" options={{ animation: 'slide_from_right' }} />

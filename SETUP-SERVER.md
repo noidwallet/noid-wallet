@@ -244,6 +244,16 @@ cd /opt/noid-wallet-backend && npm ci && npm run build && systemctl restart noid
 New Parano1d release: repeat step 5's download, check and `install` lines, then
 `systemctl restart parano1d`.
 
+Token and NFT pictures: the API fetches public names and pictures from the
+official media service (`https://tradedata.parano1d.org/`) and phones check
+each file against the hash in the chain. To use another service, or to turn
+pictures off (tokens still show, with their IDs):
+```sh
+mkdir -p /etc/systemd/system/noid-wallet-api.service.d
+printf '[Service]\nEnvironment=MEDIA_ORIGIN=off\n' > /etc/systemd/system/noid-wallet-api.service.d/media.conf
+systemctl daemon-reload && systemctl restart noid-wallet-api
+```
+
 Tell phones about a new NOID version (they show a banner linking to
 noidusa.com). `APP_MIN_VERSION` is for releases older versions can't work
 without, such as a network upgrade:

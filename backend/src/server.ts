@@ -2,6 +2,7 @@ import Fastify, { LogController, type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { randomBytes } from "node:crypto";
 
+import { registerAssetRoutes, type AssetDeps } from "./assets.js";
 import type { Db } from "./db.js";
 import type { Indexer } from "./indexer.js";
 import type { PriceFeed } from "./price.js";
@@ -98,7 +99,13 @@ function intParam(raw: string | undefined, fallback: number, min: number, max: n
 export async function buildServer(
   db: Db,
   indexer: Indexer,
-  opts: { trustProxy: boolean; price?: PriceFeed | null; notifier?: Notifier | null; app?: { latest?: string; min?: string } },
+  opts: {
+    trustProxy: boolean;
+    price?: PriceFeed | null;
+    notifier?: Notifier | null;
+    app?: { latest?: string; min?: string };
+    assets?: AssetDeps;
+  },
 ): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
   const app = Fastify({
@@ -142,6 +149,8 @@ export async function buildServer(
 
   app.get("/healthz", async () => ({ ok: true }));
 
+  const assets = registerAssetRoutes(app, opts.assets);
+
   // Every phone polls /v1/status: answer from a 2-second cache so a burst of
   // requests can't flood the node's RPC (which the indexer also needs).
   let statusCache: { at: number; p: Promise<[ChainInfo, NodeStatus, MempoolStats]> } | null = null;
@@ -169,7 +178,7 @@ export async function buildServer(
       relayFloor: mempool.fee_floor,
       mempool: { size: mempool.size, capacity: mempool.capacity },
       indexer: { indexedHeight: indexer.indexedHeight, healthy: indexer.lastError === null },
-      features: { price: !!opts.price, push: !!opts.notifier },
+      features: { price: !!opts.price, push: !!opts.notifier, assets: true, media: assets.mediaEnabled },
       ...(opts.app?.latest || opts.app?.min ? { app: { latest: opts.app.latest ?? null, min: opts.app.min ?? null } } : {}),
     };
   });

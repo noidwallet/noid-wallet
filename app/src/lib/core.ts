@@ -1,6 +1,7 @@
 // Typed wrapper around the Rust wallet core (modules/noid-core + /core).
 // All secret work (keys, Photo Key, proving) happens inside the core.
 import NoidCore from '../../modules/noid-core';
+import type { AssetMarket, AssetsPage } from './api';
 
 export class CoreError extends Error {
   constructor(readonly code: string, message: string) {
@@ -84,6 +85,70 @@ export interface NewKey {
   address: string;
 }
 
+/** A token this address holds (amounts are decimal strings of base units, 6 decimals). */
+export interface CheckedToken {
+  assetId: string;
+  units: string;
+  lockedUnits: string;
+  reservedUnits: string;
+  outputs: number;
+  /** This address created the token. */
+  issuedHere: boolean;
+}
+
+export interface CheckedNft {
+  collection: string;
+  serial: string;
+  metadata: string;
+  unlockHeight: number;
+  locked: boolean;
+  /** Listed for sale on the NFT marketplace. */
+  listing: { askMicronoid: number; expiryHeight: number; ready: boolean } | null;
+  reserved: boolean;
+}
+
+export interface CheckedAssets {
+  owner: string;
+  height: number;
+  blockHash: string;
+  stateRoot: string;
+  decimals: number;
+  tokens: CheckedToken[];
+  nfts: CheckedNft[];
+  /** Collections this address created (managed in the official wallet). */
+  collections: number;
+  /** Trade requests, pool positions and other records not shown yet. */
+  other: number;
+}
+
+export type TokenInfo =
+  | { assetId: string; known: false }
+  | {
+      assetId: string;
+      known: true;
+      metadata: string;
+      issuer: string;
+      initialSupply: string;
+      outstanding: string;
+      backingMicronoid: string;
+      phase: 'curve' | 'dex';
+      /** NOID base units per token base unit = priceNumerator / priceDenominator. */
+      priceNumerator: string;
+      priceDenominator: string;
+      ready: boolean;
+      height: number;
+    };
+
+export type MediaKind = 'token' | 'nft' | 'collection';
+
+export interface AssetManifest {
+  name: string;
+  symbol: string | null;
+  description: string;
+  website: string | null;
+  image: { hash: string; width: number; height: number; bytes: number } | null;
+}
+
 export const core = {
   version: () => call<{ core: string; parano1dRev: string; photoKey: string }>('version'),
   generateSecret: () => call<NewKey>('generateSecret'),
@@ -120,4 +185,12 @@ export const core = {
     slotHints: number[];
     pendingOutputSlots: number[];
   }) => call<BuiltTx>('buildTransaction', a),
+  /** Decode and check the server's token/NFT records for `owner`. */
+  checkAssets: (owner: string, page: AssetsPage) => call<CheckedAssets>('checkAssets', { owner, page }),
+  checkToken: (assetId: string, market: AssetMarket) => call<TokenInfo>('checkToken', { assetId, market }),
+  /** Throws unless `text` is exactly the metadata State committed to (`hash`). */
+  checkMetadata: (hash: string, text: string, kind: MediaKind) => call<AssetManifest>('checkMetadata', { hash, text, kind }),
+  /** Throws unless the file is exactly the committed picture. */
+  checkImage: (path: string, image: { hash: string; width: number; height: number; bytes: number }) =>
+    call<{ ok: true }>('checkImage', { path, ...image }),
 };

@@ -1,17 +1,19 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { Icon } from '@/components/Icon';
+import { TokenRow } from '@/components/AssetRows';
 import { HistoryRow, makeFiatOf, makeNameOf, PendingRow } from '@/components/TxRow';
-import { Banner, Button, EmptyState, IconAction, IconButton, Link, Skeleton, toast } from '@/components/ui';
+import { Avatar, Banner, Button, EmptyState, IconAction, IconButton, Link, ListRow, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import Constants from 'expo-constants';
 import { UPDATE_URL, updateNotice } from '@/lib/appVersion';
+import { assets, shownAssets, useAssets } from '@/lib/assets';
 import { LINK_HOSTS } from '@/lib/config';
 import { inbox } from '@/lib/inbox';
 import { parseLink } from '@/lib/links';
@@ -25,6 +27,7 @@ import { colors, fonts, radius, space, type } from '@/theme';
 /** Suggest merging once a wallet holds this many separate coins. */
 const MERGE_HINT_AT = 20;
 const ACTIVITY_ON_HOME = 10;
+const TOKENS_ON_HOME = 3;
 
 export default function Home() {
   const w = useWallet();
@@ -59,7 +62,17 @@ export default function Home() {
     }, [handleInbox]),
   );
 
+  // Tokens and NFTs (Parano1d v2.1): reloaded as new blocks arrive, at most once a minute.
+  const assetsState = useAssets();
+  const address = meta?.address;
+  const height = status?.height;
+  useEffect(() => {
+    if (address && settings.apiUrl) void assets.refresh(w.api, address);
+  }, [w.api, address, height, settings.apiUrl]);
+
   if (!meta) return null;
+  const held = shownAssets(assetsState);
+  const heldHere = held && held.address === meta.address && (held.tokens.length > 0 || held.nfts.length > 0) ? held : null;
   const toggleHidden = () => {
     void Haptics.selectionAsync();
     void w.updateSettings({ hideBalance: !settings.hideBalance });
@@ -189,7 +202,14 @@ export default function Home() {
           gap: space.xl,
         }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh({ manual: true })} tintColor={colors.accent} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              void refresh({ manual: true });
+              void assets.refresh(w.api, meta.address, { force: true });
+            }}
+            tintColor={colors.accent}
+          />
         }
       >
         {/* Header: wordmark, connection status, settings */}
@@ -440,6 +460,31 @@ export default function Home() {
             ))}
             {banners.length > 2 && !showAllBanners ? (
               <Link title={`+${banners.length - 2} more`} onPress={() => setShowAllBanners(true)} />
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Tokens and NFTs: only once the address holds any */}
+        {heldHere ? (
+          <View style={{ gap: space.xs }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={type.h2}>Tokens</Text>
+              <Link title="See all" onPress={() => go('/assets')} />
+            </View>
+            {heldHere.tokens.slice(0, TOKENS_ON_HOME).map((t) => (
+              <TokenRow key={t.assetId} api={w.api} token={t} hidden={hidden} />
+            ))}
+            {heldHere.tokens.length > TOKENS_ON_HOME ? (
+              <Link title={`+${heldHere.tokens.length - TOKENS_ON_HOME} more tokens`} onPress={() => go('/assets')} />
+            ) : null}
+            {heldHere.nfts.length > 0 ? (
+              <ListRow
+                leading={<Avatar initials="NFT" tone="info" />}
+                title={`${heldHere.nfts.length} NFT${heldHere.nfts.length === 1 ? '' : 's'}`}
+                subtitle="Tap to see them"
+                onPress={() => go('/assets')}
+                chevron
+              />
             ) : null}
           </View>
         ) : null}

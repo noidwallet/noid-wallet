@@ -21,6 +21,9 @@ const ALLOWED = new Set([
   "getMempoolEntry",
   "validateAddress",
   "submitTxIntent",
+  // Parano1d v2.1 tokens and NFTs: read-only public State queries.
+  "getNativeHoldings",
+  "getNativeMarket",
 ] as const);
 
 export type RpcMethod = typeof ALLOWED extends Set<infer T> ? T : never;
