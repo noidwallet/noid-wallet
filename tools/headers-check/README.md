@@ -38,3 +38,19 @@ for h in $(seq 210501 210620) $(seq $((tip-400)) $tip); do rpc getHeaderByHeight
 ' > /root/headers.jsonl
 wc -l /root/headers.jsonl
 ```
+
+## Results (Nov 2, 2026)
+
+All checks agree, including 449 real mainnet headers: blocks 210,537 to
+210,620 (the v2 switch) and 274,457 to 274,821.
+
+What the real headers show about mainnet difficulty:
+
+- About 2^44 hashes per block recently (2.2 x 10^13), roughly 80 million
+  times the genesis floor. Network rate about 7.5 x 10^11 Poseidon2b
+  hashes per second, average block 29.3 s.
+- Faking one block at that difficulty takes about as much work as the whole
+  network does in 30 seconds. The cheap path is to let ASERT lower the
+  difficulty with late timestamps, so the phone must refuse chains whose
+  target eases too fast. On real blocks the target never eased more than
+  x1.6 from one block to the next, or more than x3.1 within any 18 blocks.
