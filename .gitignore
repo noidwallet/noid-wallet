@@ -1,5 +1,7 @@
 # Rust
 core/target/
+tools/headers-check/target/
+headers*.jsonl
 # Node / Expo
 node_modules/
 .expo/

@@ -8,6 +8,7 @@
 pub mod api;
 pub mod assets;
 pub mod fees;
+pub mod headers;
 pub mod keys;
 pub mod tx;
 
