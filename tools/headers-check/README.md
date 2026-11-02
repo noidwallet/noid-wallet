@@ -53,4 +53,7 @@ What the real headers show about mainnet difficulty:
   network does in 30 seconds. The cheap path is to let ASERT lower the
   difficulty with late timestamps, so the phone must refuse chains whose
   target eases too fast. On real blocks the target never eased more than
-  x1.6 from one block to the next, or more than x3.1 within any 18 blocks.
+  x1.6 from one block to the next, or more than x3.0 within any 18 blocks.
+- An easing limit alone is not enough: one real block stamped late can make
+  the next target the genesis floor (about 2^18 hashes). The phone also needs
+  a floor on total work since its shipped checkpoint (see core/src/headers.rs).
