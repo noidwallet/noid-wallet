@@ -3,6 +3,7 @@ Copyright 2026 Primal (@Solid_Primal) and David Peluola (@0xdavee_)
 
 This product depends on and adapts code from Parano1d
 (https://github.com/ignotusnemo/parano1d), Copyright (C) 2026 Paranoid Zero,
-licensed under the Apache License, Version 2.0. Adapted logic (key derivation,
-Photo Key, coin selection, fee rules, transaction building) is marked in
-core/src with references to the original files.
+designed and developed by Ignotus Nemo, licensed under the Apache License,
+Version 2.0. Adapted logic (key derivation, Photo Key, coin selection, fee
+rules, transaction building, block header validation in core/src/headers.rs)
+is marked in core/src with references to the original files.

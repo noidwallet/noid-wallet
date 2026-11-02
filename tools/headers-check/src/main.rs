@@ -28,6 +28,7 @@ fn same_error(o: &ConsensusError, m: &HeaderError) -> bool {
             | (ConsensusError::BadHeight, HeaderError::BadHeight)
             | (ConsensusError::BadDifficultyTarget, HeaderError::BadDifficultyTarget)
             | (ConsensusError::BadTimestamp, HeaderError::BadTimestamp)
+            | (ConsensusError::BadTimestamp, HeaderError::TooFarInFuture)
             | (ConsensusError::InvalidPoW, HeaderError::BadPow)
             | (ConsensusError::BadLogSlotsExpansion, HeaderError::BadLogSlotsExpansion)
     )
@@ -94,8 +95,20 @@ fn fuzz(rounds: usize) {
         };
         let height = anchor_height.saturating_add(rng.gen_range(1..14)).max(V2);
         let anchor_ts = random_u64(&mut rng);
-        let parent_ts = match rng.gen_range(0..4) {
+        let parent_ts = match rng.gen_range(0..5) {
             0 => random_u64(&mut rng),
+            // Lateness spread over about +-60 half-lives, so the shift takes
+            // every value from the floor clamp down to tiny targets.
+            1 | 2 => {
+                let ideal = mine::ideal_elapsed(anchor_height, height - 1).min(u64::MAX as u128) as u64;
+                let late: i64 = rng.gen_range(-60 * 180..60 * 180);
+                let base = anchor_ts.saturating_add(ideal);
+                if late >= 0 {
+                    base.saturating_add(late as u64)
+                } else {
+                    base.saturating_sub(late.unsigned_abs())
+                }
+            }
             _ => anchor_ts.saturating_add(rng.gen_range(0..4000)),
         };
         let own_ts = random_u64(&mut rng);
@@ -234,9 +247,10 @@ fn mutations(child: &Header, all: &[Header], chain: &HeaderChain) -> usize {
     variants.len()
 }
 
-/// Mine a short chain at v2 heights with real Poseidon2b PoW, including a
-/// log_slots expansion, and check every header with both implementations.
-fn mined_chain(start: u64, extensions: usize) {
+/// Mine a short chain at v2 heights with real Poseidon2b PoW and check every
+/// header with both implementations. `counts(i)` is the active slot count of
+/// the i-th header (0 = first trusted one), which drives log_slots.
+fn mined_chain(label: &str, start: u64, extensions: usize, counts: fn(u64) -> u64, first_log_slots: u32) {
     let mut all: Vec<Header> = Vec::new();
     let mut prev = [0u8; 32];
     for i in 0..mine::WINDOW_LEN as u64 {
@@ -250,15 +264,14 @@ fn mined_chain(start: u64, extensions: usize) {
             nonce: i as u128,
             difficulty_target: mine::GENESIS_TARGET,
             log_slots: 20,
-            // Above 75% of 2^20, so the first child must expand to 21.
-            active_slot_count: 800_000,
+            active_slot_count: counts(i),
             alloc_counter: 1_000 + i,
         };
         prev = mine::block_id(&h);
         all.push(h);
     }
-    let mut chain = HeaderChain::from_trusted(&all).unwrap();
-    let mut rng = StdRng::seed_from_u64(7);
+    let mut chain = HeaderChain::from_trusted(&all, &prev).unwrap();
+    let mut rng = StdRng::seed_from_u64(7 ^ start);
     let mut refused = 0;
     let t0 = Instant::now();
     let mut check_time = std::time::Duration::ZERO;
@@ -278,17 +291,58 @@ fn mined_chain(start: u64, extensions: usize) {
             difficulty_target: mine::next_target(i.anchor_height, i.anchor_ts, &i.anchor_target, parent.height + 1, parent.timestamp)
                 .unwrap(),
             log_slots: mine::expected_child_log_slots(parent.height, parent.log_slots, &i.counts),
-            active_slot_count: 800_000 + k as u64,
+            active_slot_count: counts(mine::WINDOW_LEN as u64 + k as u64),
             alloc_counter: parent.alloc_counter + 1,
         };
-        child.nonce = official_pow::search_pow(&official(&child), rng.gen::<u64>() as u128, 1 << 26).expect("nonce found");
+        let mine_nonce = |h: &Header, rng: &mut StdRng| {
+            official_pow::search_pow(&official(h), rng.gen::<u64>() as u128, 1 << 26).expect("nonce found")
+        };
+        child.nonce = mine_nonce(&child, &mut rng);
         official_check(&child, &all).unwrap_or_else(|e| panic!("official refused mined h={}: {e:?}", child.height));
         refused += mutations(&child, &all, &chain);
+
+        // Wrong log_slots with valid PoW, so the check really reaches rule 6.
+        if k % 4 == 0 {
+            let mut bad = child;
+            bad.log_slots = child.log_slots ^ 1;
+            bad.nonce = mine_nonce(&bad, &mut rng);
+            let o = official_check(&bad, &all);
+            let m = chain.clone().extend(&bad, None);
+            assert!(
+                matches!(o, Err(ConsensusError::BadLogSlotsExpansion)) && m == Err(HeaderError::BadLogSlotsExpansion),
+                "re-mined log_slots h={}: official {o:?}, phone {m:?}",
+                child.height
+            );
+            refused += 1;
+        }
+
+        // The phone's clock: 120 s of drift is allowed, 121 s is not.
+        let p = inputs_for_child(&all);
+        for (now, ok) in [(child.timestamp - 120, true), (child.timestamp - 121, false)] {
+            let o = official_header::validate_header(
+                &official(&child),
+                &official(&parent),
+                &p.prev_ts,
+                &p.counts,
+                now,
+                p.anchor_height,
+                p.anchor_ts,
+                &p.anchor_target,
+            );
+            let m = chain.clone().extend(&child, Some(now));
+            assert_eq!(o.is_ok(), ok, "official drift now={now}");
+            assert_eq!(m.is_ok(), ok, "phone drift now={now}: {m:?}");
+            if !ok {
+                assert_eq!(m, Err(HeaderError::TooFarInFuture));
+                refused += 1;
+            }
+        }
+
         let c0 = Instant::now();
-        chain.extend(&child, None).unwrap_or_else(|e| panic!("phone refused mined h={}: {e:?}", child.height));
+        chain.extend(&child, Some(child.timestamp)).unwrap_or_else(|e| panic!("phone refused mined h={}: {e:?}", child.height));
         check_time += c0.elapsed();
         if k == 0 {
-            assert_eq!(child.log_slots, 21, "first child expands");
+            assert_eq!(child.log_slots, first_log_slots, "first child log_slots");
             assert!(child.height >= V2);
         }
         all.push(child);
@@ -296,7 +350,7 @@ fn mined_chain(start: u64, extensions: usize) {
     }
     let tip = all.last().unwrap();
     println!(
-        "mined chain: {extensions} headers accepted by both (h={}..{}, log_slots 20 -> {}), {refused} wrong variants refused by both for the same reason ({:.1?} total, {:.0?} per header check)",
+        "mined chain ({label}): {extensions} headers accepted by both (h={}..{}, log_slots 20 -> {}), {refused} wrong variants refused by both for the same reason ({:.1?} total, {:.0?} per header check)",
         start + mine::WINDOW_LEN as u64,
         tip.height,
         tip.log_slots,
@@ -349,7 +403,7 @@ fn real_headers(path: &str) {
         }
         let (first, last) = (run[0].height, run.last().unwrap().height);
         let (trusted, rest) = run.split_at(mine::WINDOW_LEN);
-        let mut chain = HeaderChain::from_trusted(trusted).expect("trusted run links");
+        let mut chain = HeaderChain::from_trusted(trusted, &mine::block_id(trusted.last().unwrap())).expect("trusted run links");
         let mut all = trusted.to_vec();
         let mut refused = 0;
         let t0 = Instant::now();
@@ -373,17 +427,25 @@ fn real_headers(path: &str) {
 }
 
 fn chain_before(all: &[Header]) -> HeaderChain {
-    HeaderChain::from_trusted(&all[all.len() - mine::WINDOW_LEN..]).unwrap()
+    let w = &all[all.len() - mine::WINDOW_LEN..];
+    HeaderChain::from_trusted(w, &mine::block_id(w.last().unwrap())).unwrap()
 }
 
 fn main() {
     let rounds = std::env::var("ROUNDS").ok().and_then(|r| r.parse().ok()).unwrap_or(50_000);
     let blocks = std::env::var("BLOCKS").ok().and_then(|r| r.parse().ok()).unwrap_or(40);
     fuzz(rounds);
-    mined_chain(262_000, blocks);
+    // All counts above 75% of 2^20: the first child must expand to 21.
+    mined_chain("expansion", 262_000, blocks, |_| 800_000, 21);
+    // Only the first 10 trusted headers are above the threshold. The first
+    // child's window is exactly headers 0..=17 (10 of 18 above: expand); a
+    // window off by one height would hold 9 (no expansion).
+    mined_chain("window offset", 263_000, 6, |i| if i < 10 { 800_000 } else { 100_000 }, 21);
+    // 9 of 18 above is not a strict majority: no expansion.
+    mined_chain("tie", 264_000, 4, |i| if i < 9 { 800_000 } else { 100_000 }, 20);
     // Across the v2 activation: the window is v1.1, the first child is block
     // 210,537 with the anchor at 210,536 and mixed 20 s / 30 s intervals.
-    mined_chain(V2 - mine::WINDOW_LEN as u64, 14);
+    mined_chain("v2 switch", V2 - mine::WINDOW_LEN as u64, 14, |_| 800_000, 21);
     for path in std::env::args().skip(1) {
         real_headers(&path);
     }

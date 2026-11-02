@@ -29,6 +29,18 @@
 //! seconds), so a server that controls everything a phone sees can mine a
 //! fake chain. The app has to combine this with work-rate checks and a
 //! second source before trusting a tip.
+//!
+//! Still to add before the app relies on it (phase 1):
+//! - An absolute work floor: total work added since the shipped checkpoint
+//!   must keep up with elapsed time at a fraction of the checkpoint's
+//!   network rate. A step-by-step easing limit is not enough: one block at
+//!   real difficulty stamped late can drop the next target to the genesis
+//!   floor (about 2^18 hashes per block, versus about 2^44 on mainnet).
+//! - Always pass the phone's clock (`local_time`) when checking new headers.
+//! - Forks: keep 18 more headers so a reorg up to the finality depth can be
+//!   followed, pick the branch with the most work, refuse deeper reorgs.
+//! - A cap on headers per sync (elapsed time / 30 s plus slack), like the
+//!   node's batch limit.
 
 use std::collections::VecDeque;
 
@@ -159,8 +171,14 @@ impl Header {
         out
     }
 
+    /// Decode 424 hex characters. The length is checked before decoding, so
+    /// a huge string from a server is refused without being copied.
     pub fn from_hex(hex_str: &str) -> Option<Header> {
-        Header::from_bytes(&hex::decode(hex_str.trim()).ok()?)
+        let hex_str = hex_str.trim();
+        if hex_str.len() != HEADER_BYTES * 2 {
+            return None;
+        }
+        Header::from_bytes(&hex::decode(hex_str).ok()?)
     }
 }
 
@@ -544,36 +562,43 @@ pub fn expected_child_log_slots(parent_height: u64, parent_log_slots: u32, final
 // snapshot_header_staging.rs)
 // ---------------------------------------------------------------------------
 
-/// Why a header was refused. The order matches `validate_header_inner`, so
-/// the first broken rule is the one reported, same as the node.
+/// Why a header was refused. After the v2 height check, the order is that of
+/// `validate_header_inner` (the node's header extension path checks future
+/// drift later, after PoW; only the error reported can differ, never the
+/// accept/refuse answer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeaderError {
-    /// Wrong length, or not hex.
-    Malformed,
     /// From before v2; not checked here.
     TooOld,
     BadParentHash,
     BadHeight,
     BadDifficultyTarget,
+    /// Not after the median of the last 11 blocks: the chain itself is wrong.
     BadTimestamp,
+    /// More than 120 s ahead of this phone's clock. Either the server lies
+    /// or the phone's clock is behind, so the app should say which to check.
+    TooFarInFuture,
     BadPow,
     BadLogSlotsExpansion,
     /// The window doesn't hold the ancestors this header needs.
     WindowIncomplete,
+    /// The trusted run doesn't end at the expected checkpoint.
+    WrongCheckpoint,
 }
 
 impl HeaderError {
     pub fn code(self) -> &'static str {
         match self {
-            HeaderError::Malformed => "malformed",
             HeaderError::TooOld => "too_old",
             HeaderError::BadParentHash => "bad_parent_hash",
             HeaderError::BadHeight => "bad_height",
             HeaderError::BadDifficultyTarget => "bad_difficulty_target",
             HeaderError::BadTimestamp => "bad_timestamp",
+            HeaderError::TooFarInFuture => "too_far_in_future",
             HeaderError::BadPow => "bad_pow",
             HeaderError::BadLogSlotsExpansion => "bad_log_slots",
             HeaderError::WindowIncomplete => "window_incomplete",
+            HeaderError::WrongCheckpoint => "wrong_checkpoint",
         }
     }
 }
@@ -582,6 +607,12 @@ impl HeaderError {
 /// `validate_header_inner` (PoW included). `prev_timestamps` are up to 11
 /// ancestors oldest first; `finalized_active_counts` is the complete
 /// expansion window or empty; `local_time` adds the future-drift rule.
+///
+/// Like the official `validate_header_timeless_prehashed_parent`, this
+/// trusts its other inputs: `parent_id` must be `block_id(parent)`, the
+/// anchor must be the real ancestor at `asert_anchor_height(parent.height)`,
+/// and an empty or short `finalized_active_counts` silently allows no
+/// expansion. Prefer [`HeaderChain::extend`], which derives all of them.
 #[allow(clippy::too_many_arguments)]
 pub fn check_header(
     header: &Header,
@@ -617,7 +648,7 @@ pub fn check_header(
     }
     if let Some(now) = local_time {
         if header.timestamp > now.saturating_add(MAX_FUTURE_DRIFT) {
-            return Err(HeaderError::BadTimestamp);
+            return Err(HeaderError::TooFarInFuture);
         }
     }
     // 5. Proof of work.
@@ -642,14 +673,15 @@ pub struct HeaderChain {
 }
 
 impl HeaderChain {
-    /// Start from `trusted`, a contiguous run of at least [`WINDOW_LEN`]
-    /// headers ending at the checkpoint (only the last [`WINDOW_LEN`] are kept). Only linkage is checked here: the
-    /// caller vouches for these (for example, they ship inside the app).
-    pub fn from_trusted(trusted: &[Header]) -> Result<HeaderChain, HeaderError> {
-        if trusted.len() < WINDOW_LEN {
+    /// Start from `trusted`: exactly [`WINDOW_LEN`] contiguous headers ending
+    /// at the checkpoint whose block id is `checkpoint_id`. Only the links
+    /// between them and the final id are checked; the caller vouches for the
+    /// rest (they ship inside the app, next to `checkpoint_id`).
+    pub fn from_trusted(trusted: &[Header], checkpoint_id: &[u8; 32]) -> Result<HeaderChain, HeaderError> {
+        if trusted.len() != WINDOW_LEN {
             return Err(HeaderError::WindowIncomplete);
         }
-        let run = &trusted[trusted.len() - WINDOW_LEN..];
+        let run = trusted;
         // The window itself may reach back before v2 (it is only data); the
         // next header, which is checked, must be a v2 block.
         if run[WINDOW_LEN - 1].height < V2_ACTIVATION_HEIGHT - 1 {
@@ -664,6 +696,9 @@ impl HeaderChain {
                 return Err(HeaderError::BadParentHash);
             }
             id = block_id(&pair[1]);
+        }
+        if &id != checkpoint_id {
+            return Err(HeaderError::WrongCheckpoint);
         }
         Ok(HeaderChain { window: run.iter().copied().collect(), tip_id: id, work: [0u8; 32] })
     }
@@ -691,7 +726,10 @@ impl HeaderChain {
             None => Vec::new(),
             Some((start, end)) => {
                 let first = self.window.front().expect("window is never empty").height;
-                let offset = start.checked_sub(first).ok_or(HeaderError::WindowIncomplete)? as usize;
+                let offset = start
+                    .checked_sub(first)
+                    .and_then(|o| usize::try_from(o).ok())
+                    .ok_or(HeaderError::WindowIncomplete)?;
                 let mut out = Vec::with_capacity(EXPANSION_WINDOW as usize);
                 for (i, height) in (start..=end).enumerate() {
                     let a = self.window.get(offset + i).ok_or(HeaderError::WindowIncomplete)?;
@@ -812,6 +850,71 @@ mod tests {
         let mut expect = [0u8; 32];
         expect[2] = 0x04; // 2^18
         assert_eq!(w, expect);
+    }
+
+    fn window(start: u64) -> Vec<Header> {
+        let mut prev = [0u8; 32];
+        (0..WINDOW_LEN as u64)
+            .map(|i| {
+                let mut h = sample();
+                h.height = start + i;
+                h.timestamp += i * 30;
+                h.prev_block_hash = prev;
+                prev = block_id(&h);
+                h
+            })
+            .collect()
+    }
+
+    #[test]
+    fn trusted_window_must_link_and_end_at_the_checkpoint() {
+        let w = window(262_000);
+        let id = block_id(w.last().unwrap());
+        assert!(HeaderChain::from_trusted(&w, &id).is_ok());
+        assert_eq!(HeaderChain::from_trusted(&w, &[9u8; 32]).unwrap_err(), HeaderError::WrongCheckpoint);
+        assert_eq!(HeaderChain::from_trusted(&w[1..], &id).unwrap_err(), HeaderError::WindowIncomplete);
+        let mut longer = window(261_999);
+        longer.push(sample());
+        assert_eq!(HeaderChain::from_trusted(&longer, &id).unwrap_err(), HeaderError::WindowIncomplete);
+        let mut broken = w.clone();
+        broken[20].prev_block_hash[0] ^= 1;
+        assert_eq!(HeaderChain::from_trusted(&broken, &id).unwrap_err(), HeaderError::BadParentHash);
+        let mut gap = w.clone();
+        gap[20].height += 1;
+        assert_eq!(HeaderChain::from_trusted(&gap, &id).unwrap_err(), HeaderError::BadHeight);
+        // Ending before v2 - 1: the next header could not be checked here.
+        let old = window(V2_ACTIVATION_HEIGHT - 1 - WINDOW_LEN as u64);
+        assert_eq!(HeaderChain::from_trusted(&old, &block_id(old.last().unwrap())).unwrap_err(), HeaderError::TooOld);
+        let edge = window(V2_ACTIVATION_HEIGHT - WINDOW_LEN as u64);
+        assert!(HeaderChain::from_trusted(&edge, &block_id(edge.last().unwrap())).is_ok());
+    }
+
+    #[test]
+    fn refused_header_changes_nothing() {
+        let w = window(262_000);
+        let mut chain = HeaderChain::from_trusted(&w, &block_id(w.last().unwrap())).unwrap();
+        let before = (chain.tip_id(), chain.added_work(), *chain.tip());
+        let mut child = sample();
+        child.height = 262_000 + WINDOW_LEN as u64;
+        child.prev_block_hash = chain.tip_id();
+        assert!(chain.extend(&child, None).is_err());
+        assert_eq!((chain.tip_id(), chain.added_work(), *chain.tip()), before);
+        let mut old = child;
+        old.height = 100;
+        assert_eq!(chain.extend(&old, None), Err(HeaderError::TooOld));
+    }
+
+    #[test]
+    fn hex_is_length_checked_first() {
+        let h = sample();
+        let hex_str = hex::encode(h.to_bytes());
+        assert_eq!(Header::from_hex(&hex_str), Some(h));
+        assert_eq!(Header::from_hex(&format!("  {hex_str}\n")), Some(h));
+        assert_eq!(Header::from_hex(&hex_str[..423]), None);
+        assert_eq!(Header::from_hex(&format!("{hex_str}0")), None);
+        assert_eq!(Header::from_hex(&format!("{hex_str}00")), None);
+        assert_eq!(Header::from_hex(&"zz".repeat(212)), None);
+        assert_eq!(Header::from_hex(&"0".repeat(10_000_000)), None);
     }
 
     #[test]
