@@ -140,6 +140,11 @@ async function run(api: Api, serverTip: number) {
  */
 export function blockChecked(height: number, blockHash: string | null | undefined): boolean | null {
   if (!blockHash) return null;
+  const info = status.info;
+  // Blocks near the tip don't count yet: a dishonest server can get a few
+  // cheap blocks past the checks before they fail (core/src/chain.rs,
+  // MIN_CHECKED_DEPTH), so the phone waits until the block is deeper.
+  if (!info || height + info.minCheckedDepth > info.tipHeight) return null;
   const s = loadState();
   const id = s?.ids[String(height)];
   if (!id) return null;

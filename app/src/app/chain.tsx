@@ -88,7 +88,8 @@ export default function Chain() {
         <Text style={type.title}>What it does not check yet</Text>
         <Body>
           Whether a payment is really inside a block. Your balance and activity still come from the server. A later update will check payments
-          against these blocks once the Parano1d node can provide the proofs.
+          against these blocks once the Parano1d node can provide the proofs. A block only counts as checked once it is 8 blocks deep, because
+          a dishonest server could get a few cheap blocks past the check before it fails.
         </Body>
         <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>
           Checking one block takes well under a millisecond. The phone keeps the last 2,048 block ids to match recent payments against.

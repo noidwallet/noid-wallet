@@ -110,6 +110,17 @@ struct BuildArgs {
     tip_height: u64,
 }
 
+/// Pictures come from the picker's copy in the app's cache (and the media
+/// cache for token pictures). The core must not be pointed at any other file
+/// the app process can read.
+fn app_cache_path(p: &str) -> Result<PathBuf, Error> {
+    let p = p.trim_start_matches("file://");
+    if !p.starts_with('/') || p.contains("/../") || p.ends_with("/..") || !p.contains("/cache/") {
+        return Err(Error::msg("The picture must come from the app's own cache."));
+    }
+    Ok(PathBuf::from(p))
+}
+
 fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
     match method {
         "version" => Ok(json!({
@@ -137,7 +148,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 path: String,
             }
             let a: A = args(json)?;
-            let path = PathBuf::from(a.path.trim_start_matches("file://"));
+            let path = app_cache_path(&a.path)?;
             let key = photo_key_from_path(&path)?;
             Ok(json!({
                 "secretHex": key.secret.to_hex().as_str(),
@@ -338,7 +349,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 bytes: u32,
             }
             let a: A = args(json)?;
-            let path = PathBuf::from(a.path.trim_start_matches("file://"));
+            let path = app_cache_path(&a.path)?;
             let image = crate::assets::MediaImage {
                 hash: a.hash,
                 media_type: "image/png".into(),
@@ -459,6 +470,17 @@ mod tests {
         let v = ok("validateAddress", json!({ "address": "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf" }));
         assert_eq!(v["valid"], true, "{v}");
         assert_eq!(v["address"], "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf");
+    }
+
+    #[test]
+    fn pictures_only_from_the_app_cache() {
+        assert!(app_cache_path("file:///data/user/0/com.dpeluola.noid/cache/DocumentPicker/a.jpg").is_ok());
+        assert!(app_cache_path("/data/user/0/com.dpeluola.noid/cache/noid-media/x.png").is_ok());
+        for bad in ["/data/user/0/com.dpeluola.noid/files/SecureStore", "/data/user/0/x/cache/../files/a", "cache/a.jpg", "/etc/passwd"] {
+            assert!(app_cache_path(bad).is_err(), "{bad}");
+        }
+        let out: Value = serde_json::from_str(&call("photoKey", r#"{"path":"/etc/hostname"}"#)).unwrap();
+        assert!(out["error"]["message"].as_str().unwrap().contains("own cache"));
     }
 
     #[test]

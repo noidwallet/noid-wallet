@@ -448,7 +448,8 @@ pub const RELAY_FLOOR_CEILING: u64 = 100_000;
 /// the consensus minimum at full network load and a busy relay floor, plus
 /// FEE_MARGIN. `outputs` includes a change output a send may have folded into
 /// the fee. The load figures and floor come from the wallet server, so this
-/// caps what a dishonest server could add (at most about 0.12 NOID).
+/// caps what a dishonest server could add: about 0.12 NOID for a typical
+/// send, up to about 0.17 NOID for one spending the maximum 504 coins.
 pub fn max_network_fee(inputs: u64, outputs: u64) -> u64 {
     let worst = crate::fees::MIN_FEE_BASE
         + crate::fees::FEE_PER_INPUT * inputs

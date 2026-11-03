@@ -413,6 +413,18 @@ fn real_headers(path: &str) {
             refused += mutations(h, &all, &chain_before(&all));
             all.push(*h);
         }
+        // The tracker, with its work floors at the built-in checkpoint rate,
+        // must accept the real chain too.
+        {
+            use noid_mobile_core::chain::{Checkpoint, Tracker, CHECKPOINT_RATE};
+            let cp = Checkpoint::from_headers(trusted).unwrap();
+            let mut t = Tracker::with_checkpoint(&cp, CHECKPOINT_RATE);
+            for page in rest.chunks(300) {
+                let r = t.sync(page, u64::MAX / 2);
+                assert_eq!((r.accepted, r.refused), (page.len(), None), "tracker refused real headers near {}", page[0].height);
+            }
+            assert_eq!(t.tip_id(), chain.tip_id());
+        }
         let work = chain.added_work();
         let tgt = rest.last().unwrap().difficulty_target;
         println!(

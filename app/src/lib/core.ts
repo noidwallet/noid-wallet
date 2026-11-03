@@ -165,6 +165,8 @@ export interface ChainInfo {
   tipHeight: number;
   tipId: string;
   tipTimestamp: number;
+  /** Blocks closer to the tip than this are not yet counted as checked. */
+  minCheckedDepth: number;
 }
 
 export interface SyncResult {
