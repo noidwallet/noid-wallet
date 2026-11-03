@@ -21,6 +21,9 @@ Restart=always
 RestartSec=5
 UMask=0077
 
+# A runaway process must not take the whole server with it.
+MemoryMax=1G
+TasksMax=256
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -38,6 +41,7 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=link-local multicast
 RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true

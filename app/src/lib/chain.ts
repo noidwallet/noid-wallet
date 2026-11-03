@@ -77,8 +77,6 @@ export function problemText(code: string, height: number | null): string {
       return 'The chain this server sends has far less mining work behind it than the real network. Do not trust balances from this server.';
     case 'bad_state':
       return 'The saved chain data was unusable and has been reset. The check starts again from the built-in checkpoint.';
-    case 'server':
-      return 'The server did not answer with usable headers.';
     case 'less_work':
     case 'too_deep':
       return `This server follows a branch of the chain${at} that your phone will not take (${code.replace(/_/g, ' ')}). Do not trust balances from this server until this clears.`;
@@ -125,8 +123,13 @@ async function run(api: Api, serverTip: number) {
     if (out.kind === 'ready') set({ kind: 'ready', info: out.info, serverTip: out.serverTip, lastSyncAt: Date.now(), problem: null });
     else set({ kind: 'problem', info: out.info, serverTip: out.serverTip, problem: { code: out.code, height: out.height, message: problemText(out.code, out.height) } });
   } catch (e) {
-    const code = e instanceof CoreError ? e.code : 'server';
-    set({ kind: status.info ? 'problem' : 'off', problem: { code, height: null, message: problemText(code, null) } });
+    if (e instanceof CoreError) {
+      set({ kind: 'problem', problem: { code: e.code, height: null, message: problemText(e.code, null) } });
+    } else {
+      // A dropped request or a server without the route: not a verdict on the
+      // chain. Keep what was verified; the next refresh tries again.
+      set({ kind: status.info ? 'ready' : 'off' });
+    }
   }
 }
 

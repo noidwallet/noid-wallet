@@ -109,7 +109,11 @@ echo "CORE=$CORE"; echo "SUMS=$SUMS"                   # both must be filled in
 curl -fLO "$CORE" && curl -fLO "$SUMS"
 sha256sum -c --ignore-missing "$(basename "$SUMS")"     # the archive line must say: OK
 ```
-Stop if it doesn't say OK. Then install and check the CPU:
+Stop if it doesn't say OK. Parano1d publishes no signatures, so this only
+proves the download matches the release page; before installing, open that
+release page in your browser and check the SHA256SUMS line by eye too, so a
+tampered download would need both the API answer and the page changed.
+Then install and check the CPU:
 ```sh
 rm -rf /tmp/p1 && mkdir /tmp/p1 && tar xzf "$(basename "$CORE")" -C /tmp/p1
 install -m 755 "$(find /tmp/p1 -type f -name parano1d -perm -u+x | head -1)" /opt/parano1d/parano1d
@@ -128,6 +132,11 @@ sudo -u noidapi curl -s -X POST 127.0.0.1:9601 -H 'content-type: application/jso
   -d '{"jsonrpc":"2.0","id":1,"method":"paranoid_getChainInfo","params":[]}'
 ```
 Wait until its height matches your desktop wallet's height.
+
+This node holds no funds, ever. Never import a key into it, never use its
+built-in wallet, and never send NOID to an address it generates: any local
+program (the wallet API included) has owner rights on its RPC port, so a
+compromised API would be able to spend from it.
 
 ## 6. The wallet API
 
@@ -231,6 +240,11 @@ chmod 755 /etc/cron.daily/noid-index-backup
 ```
 Now and then, copy the newest one to your PC (**PC**):
 `scp root@SERVER_IP:/var/backups/noid/wallet-index-*.sqlite C:\dev\noid\backups\`
+
+Restoring a copy: stop the API first, never restore over a newer database,
+and expect a gap. The node keeps only recent block bodies, so payments made
+between the copy and the restore are missing from history for good, and the
+app shows such a payment as "unknown" until it is in the history again.
 
 ## Updating later
 

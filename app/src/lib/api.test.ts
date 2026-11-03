@@ -59,3 +59,38 @@ test('history with fractional or negative amounts is refused', async () => {
     await assert.rejects(api.history('o1abc'), (e: unknown) => e instanceof ApiError && e.code === 'bad_response');
   });
 });
+
+test('the phone never takes server data it cannot read: creation ids, headers pages, block ids, used lists', async () => {
+  const api = createApi('https://example.test');
+  const a = 'o1abc';
+  // A numeric creation id would fail inside the core later; refuse it at the door.
+  await withFetch({ address: a, balance: 5, utxos: [{ slotIndex: 1, value: 5, creationId: 9 }] }, async () => {
+    await assert.rejects(api.utxos(a), (e: ApiError) => e.code === 'bad_response');
+  });
+  const hex = 'ab'.repeat(212);
+  await withFetch({ from: 10, tip: 12, headers: [hex, hex] }, async () => {
+    assert.deepEqual((await api.headers(10, 2)).headers.length, 2);
+  });
+  for (const bad of [
+    { from: 11, tip: 12, headers: [hex] }, // not the page asked for
+    { from: 10, tip: 12, headers: [hex, hex, hex] }, // more than asked
+    { from: 10, tip: 12, headers: [hex.slice(2)] }, // not 212 bytes
+    { from: 10, tip: 12, headers: [hex.toUpperCase()] },
+    { from: 10, tip: -1, headers: [] },
+  ]) {
+    await withFetch(bad, async () => {
+      await assert.rejects(api.headers(10, 2), (e: ApiError) => e.code === 'bad_response');
+    });
+  }
+  const txid = 'c'.repeat(64);
+  await withFetch({ txid, status: 'confirmed', height: 5, confirmations: 1, blockHash: 'zz' }, async () => {
+    await assert.rejects(api.tx(txid), (e: ApiError) => e.code === 'bad_response');
+  });
+  await withFetch({ txid, status: 'confirmed', height: 5, confirmations: 1, blockHash: 'd'.repeat(64) }, async () => {
+    const r = await api.tx(txid);
+    assert.equal(r.status === 'confirmed' && r.blockHash, 'd'.repeat(64));
+  });
+  await withFetch({ used: 'o1abc' }, async () => {
+    await assert.rejects(api.addressesUsed([a]), (e: ApiError) => e.code === 'bad_response');
+  });
+});

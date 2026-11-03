@@ -131,9 +131,15 @@ export default function TxDetail() {
         {item ? <KeyValue label="Block" value={item.height.toLocaleString()} /> : null}
         {status?.status === 'confirmed' ? <KeyValue label="Confirmations" value={String(status.confirmations)} /> : null}
         {checked !== null ? (
-          <KeyValue label="Block check" value={checked ? 'On the chain your phone checked' : 'Not on the chain your phone checked'} mono={false} />
+          <KeyValue label="Block id" value={checked ? 'Matches the chain your phone checked' : 'Not on the chain your phone checked'} mono={false} />
         ) : null}
       </Card>
+      ) : null}
+      {checked === true ? (
+        <Text style={[type.bodySm, { fontSize: 13 }]}>
+          The block the server named for this payment is on the chain your phone verified. The payment itself is not checked yet; that comes in a
+          later update.
+        </Text>
       ) : null}
       {checked === false ? (
         <Banner tone="danger">

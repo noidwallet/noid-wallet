@@ -133,6 +133,8 @@ export function noidUsdFromPaprika(markets: unknown, now: number): number | null
 async function defaultFetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (noid-wallet-server)" },
+    // Never follow a redirect: a hijacked price host must not steer this process anywhere.
+    redirect: "error",
     signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) {

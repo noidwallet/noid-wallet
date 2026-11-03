@@ -276,7 +276,7 @@ export function createApi(baseUrl: string, _installId = '') {
       const ok =
         r.address === address &&
         Array.isArray(r.utxos) &&
-        r.utxos.every((u) => u && isCount(u.slotIndex) && isCount(u.value) && /^\d+$/.test(String(u.creationId))) &&
+        r.utxos.every((u) => u && isCount(u.slotIndex) && isCount(u.value) && typeof u.creationId === 'string' && /^\d+$/.test(u.creationId)) &&
         new Set(r.utxos.map((u) => u.slotIndex)).size === r.utxos.length &&
         isCount(r.balance) &&
         r.balance === r.utxos.reduce((sum, u) => sum + u.value, 0);
@@ -390,8 +390,10 @@ export function createApi(baseUrl: string, _installId = '') {
     pushUnsubscribe: (address: string, token: string) =>
       request<{ ok: true }>('/v1/push/unsubscribe', { method: 'POST', body: JSON.stringify({ address, token }) }),
     /** Which of these addresses were ever used (servers from before this return 404). */
-    addressesUsed: (addresses: string[]) =>
-      request<{ used: string[] }>('/v1/addresses/used', { method: 'POST', body: JSON.stringify({ addresses }) }),
+    addressesUsed: async (addresses: string[]) => {
+      const r = await request<{ used: string[] }>('/v1/addresses/used', { method: 'POST', body: JSON.stringify({ addresses }) });
+      return check(r, Array.isArray(r.used) && r.used.every((a) => typeof a === 'string'));
+    },
     history: async (address: string, before?: string) => {
       const r = await request<{ items: HistoryItem[]; nextBefore: string | null; indexedFrom: number | null }>(
         `/v1/address/${address}/history${before ? `?before=${encodeURIComponent(before)}` : ''}`,

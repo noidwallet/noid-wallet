@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Icon } from '@/components/Icon';
@@ -13,6 +13,7 @@ import { colors, space, type } from '@/theme';
 
 export default function Consolidate() {
   const w = useWallet();
+  const runningRef = useRef(false);
   const [plan, setPlan] = useState<ConsolidationPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -34,8 +35,12 @@ export default function Consolidate() {
   const shownError = hasPending && !done ? 'Wait until your pending payment confirms, then combine.' : error;
 
   async function run() {
-    if (!plan) return;
-    if (!(await w.confirmUser('Combine your balance pieces'))) return;
+    if (!plan || runningRef.current) return;
+    runningRef.current = true;
+    if (!(await w.confirmUser('Combine your balance pieces'))) {
+      runningRef.current = false;
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -62,6 +67,7 @@ export default function Consolidate() {
       } else setError((e as Error).message);
     } finally {
       setSending(false);
+      runningRef.current = false;
     }
   }
 

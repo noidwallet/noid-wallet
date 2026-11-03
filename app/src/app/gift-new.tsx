@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -22,6 +22,7 @@ type Step = 'form' | 'review' | 'sending';
 
 export default function NewGift() {
   const w = useWallet();
+  const creatingRef = useRef(false);
   const [theme, setTheme] = useState<GiftTheme>('celebrate');
   const [amountText, setAmountText] = useState('');
   // Currency text that can't be turned into an amount (see AmountField).
@@ -84,8 +85,12 @@ export default function NewGift() {
   }
 
   async function create() {
-    if (!plan || !amount || !armed) return;
-    if (!(await w.confirmUser(`Create a ${formatNoid(amount)} NOID gift card`))) return;
+    if (!plan || !amount || !armed || creatingRef.current) return;
+    creatingRef.current = true;
+    if (!(await w.confirmUser(`Create a ${formatNoid(amount)} NOID gift card`))) {
+      creatingRef.current = false;
+      return;
+    }
     setStep('sending');
     setError(null);
     let index = -1;
@@ -136,6 +141,8 @@ export default function NewGift() {
         setError((e as Error).message);
       }
       setStep('review');
+    } finally {
+      creatingRef.current = false;
     }
   }
 

@@ -306,39 +306,59 @@ export async function buildServer(
    * Relay a finished intent. Idempotent: resubmitting the same intent (same
    * txid) after a lost response returns success, never a second payment.
    */
+  // Submits held open at once, for all clients: each can take the node up to 90 s.
+  let submitsInFlight = 0;
+  const MAX_SUBMITS = 16;
   app.post<{ Body: { intentHex?: string; txid?: string } }>(
     "/v1/submit",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (req, reply) => {
-      const hex = String(req.body?.intentHex ?? "").trim().toLowerCase();
-      const txid = String(req.body?.txid ?? "").trim().toLowerCase();
-      if (!/^[0-9a-f]+$/.test(hex) || hex.length % 2 !== 0 || !hex.startsWith("a3") || hex.length > MAX_INTENT_HEX) {
-        throw badRequest("Invalid transaction encoding.");
-      }
-      if (!TXID_RE.test(txid)) throw badRequest("Invalid transaction ID.");
-      try {
-        const accepted = await rpc<string>("submitTxIntent", [hex], 90_000);
-        if (accepted !== txid) req.log.warn({ accepted, txid }, "node txid differs from client txid");
-        return { txid: accepted };
-      } catch (e) {
-        // Only a JSON-RPC error body is a real answer about this transaction.
-        // An HTTP-level failure (overload, restart) may come after the node
-        // accepted it, so it is handled like a timeout below.
-        if (e instanceof RpcError && !e.transport) {
-          const outcome = classifySubmitError(e.message);
-          if (outcome.kind === "accepted") return { txid, already: true };
-          // Any refusal of a resubmit can mean our own earlier submit already got
-          // in (the node checks fee and anchor before spent inputs): never call a
-          // known transaction "refused", or the phone would free its coins.
-          if (await txKnown(txid).catch(() => false)) return { txid, already: true };
-          req.log.warn({ reason: e.message.slice(0, 300) }, "submit rejected");
-          reply.code(422);
-          return { error: { code: outcome.code, message: outcome.message, retryable: outcome.retryable } };
-        }
-        // Timeout or node unreachable: the node may still have admitted it.
-        if (await txKnown(txid).catch(() => false)) return { txid, already: true };
+      if (submitsInFlight >= MAX_SUBMITS) {
         reply.code(503);
-        return { error: { code: "unknown_status", message: "The network did not answer in time. Your wallet is checking whether it went through." } };
+        return { error: { code: "busy", message: "The wallet server is busy. Try again in a moment.", retryable: true } };
+      }
+      submitsInFlight++;
+      try {
+        const hex = String(req.body?.intentHex ?? "").trim().toLowerCase();
+        const txid = String(req.body?.txid ?? "").trim().toLowerCase();
+        if (!/^[0-9a-f]+$/.test(hex) || hex.length % 2 !== 0 || !hex.startsWith("a3") || hex.length > MAX_INTENT_HEX) {
+          throw badRequest("Invalid transaction encoding.");
+        }
+        if (!TXID_RE.test(txid)) throw badRequest("Invalid transaction ID.");
+        try {
+          const accepted = await rpc<string>("submitTxIntent", [hex], 90_000);
+          if (accepted !== txid) req.log.warn({ accepted, txid }, "node txid differs from client txid");
+          return { txid: accepted };
+        } catch (e) {
+          // Only a JSON-RPC error body is a real answer about this transaction.
+          // An HTTP-level failure (overload, restart) may come after the node
+          // accepted it, so it is handled like a timeout below.
+          if (e instanceof RpcError && !e.transport) {
+            const outcome = classifySubmitError(e.message);
+            if (outcome.kind === "accepted") return { txid, already: true };
+            // Any refusal of a resubmit can mean our own earlier submit already got
+            // in (the node checks fee and anchor before spent inputs): never call a
+            // known transaction "refused", or the phone would free its coins. If
+            // that check itself fails, the answer is "unknown", never "refused".
+            let known: boolean;
+            try {
+              known = await txKnown(txid);
+            } catch {
+              reply.code(503);
+              return { error: { code: "unknown_status", message: "The network did not answer in time. Your wallet is checking whether it went through." } };
+            }
+            if (known) return { txid, already: true };
+            req.log.warn({ reason: e.message.slice(0, 300) }, "submit rejected");
+            reply.code(422);
+            return { error: { code: outcome.code, message: outcome.message, retryable: outcome.retryable } };
+          }
+          // Timeout or node unreachable: the node may still have admitted it.
+          if (await txKnown(txid).catch(() => false)) return { txid, already: true };
+          reply.code(503);
+          return { error: { code: "unknown_status", message: "The network did not answer in time. Your wallet is checking whether it went through." } };
+        }
+      } finally {
+        submitsInFlight--;
       }
     },
   );

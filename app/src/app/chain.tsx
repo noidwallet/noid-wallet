@@ -24,8 +24,8 @@ export default function Chain() {
         ? { text: 'Checking…', tone: 'neutral' as const }
         : chain.kind === 'ready'
           ? stale
-            ? { text: 'Behind', tone: 'warn' as const }
-            : { text: 'Verified', tone: 'success' as const }
+            ? { text: 'Chain verified, behind', tone: 'warn' as const }
+            : { text: 'Chain verified', tone: 'success' as const }
           : { text: 'Off', tone: 'neutral' as const };
 
   async function again() {

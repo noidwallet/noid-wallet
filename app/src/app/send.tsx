@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -40,6 +40,7 @@ type Step = 'form' | 'review' | 'sending' | 'done';
 
 export default function Send() {
   const w = useWallet();
+  const sendingRef = useRef(false);
   const [to, setTo] = useState('');
   const [amountText, setAmountText] = useState('');
   // Currency text that can't be turned into an amount (see AmountField).
@@ -212,9 +213,14 @@ export default function Send() {
   }
 
   async function confirmAndSend() {
-    if (!plan || !armed) return;
+    if (!plan || !armed || sendingRef.current) return;
+    // Set before the first await: a second tap must not start a second send.
+    sendingRef.current = true;
     const ok = await w.confirmUser(`Send ${formatNoid(plan.amount)} NOID`);
-    if (!ok) return;
+    if (!ok) {
+      sendingRef.current = false;
+      return;
+    }
     setStep('sending');
     setError(null);
     try {
@@ -252,6 +258,8 @@ export default function Send() {
         setError((e as Error).message);
       }
       setStep('review');
+    } finally {
+      sendingRef.current = false;
     }
   }
 

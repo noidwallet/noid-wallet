@@ -150,6 +150,37 @@ cannot send or trade them yet.
   signed from these screens. State proofs come with verified headers.
 - Tickers are not unique; the token screen says so and shows the token ID.
 
+## Chain check on the phone (1.1, phase 1, not released yet)
+
+The phone verifies the server's chain of block headers itself.
+
+- `core/src/headers.rs` is a port of the official header rules
+  (`noid_chain`: wire format, block id, Poseidon2b proof of work, the v2
+  ASERT target, median time past, future drift, `log_slots` expansion).
+  `tools/headers-check` runs it side by side with `noid_chain` on random
+  inputs, mined chains and real mainnet headers.
+- `core/src/chain.rs` follows the chain from a built-in checkpoint (36 real
+  headers ending at block 274,821, `checkpoint.hex`), keeps the last 54
+  headers, takes a branch from up to 18 blocks back only when it carries more
+  work, caps a batch at 4,096 headers, and refuses a chain whose total work
+  since the checkpoint falls below 1/16 of the network rate measured there
+  (this is what stops a cheap chain: ASERT lets difficulty fall to the
+  genesis floor after late timestamps). Every header is checked against the
+  phone's clock.
+- `backend/src/headers.ts` pages raw headers; `app/src/lib/chainSync.ts`
+  drives the sync; `app/src/app/chain.tsx` shows the result.
+- What it proves: the server's headers form a valid proof-of-work chain
+  from the checkpoint at close to real difficulty, so a server cannot invent
+  blocks or a fake tip. What it does not prove: that a payment, balance or
+  token is inside those blocks. The app's copy says so. A payment's "block
+  id matches" line only means the server named a real block; proving the
+  payment itself needs a slot proof from the node (asked for in Parano1d
+  issue #67).
+- Review questions: is the work floor sound (a real network losing more than
+  15/16 of its mining would be refused; is 1/16 the right margin)? Is the
+  checkpoint trust equivalent to the app's own trust (it is shipped in the
+  same signed APK)? Anything in the reorg handling a server could abuse?
+
 ## Known limits
 
 - Privacy: the server sees which addresses a phone asks about and its IP.
@@ -163,6 +194,11 @@ cannot send or trade them yet.
   built-in address and rule.
 - "NOID received" notifications are displayed by Android with text written by
   the official backend (only it holds the Firebase credentials).
+- Notification subscriptions are not authenticated: the phone has no plain
+  signing key (Parano1d uses proofs, not signatures), so anyone who knows an
+  address can subscribe to its "incoming" alerts or fill its subscription slots
+  (3 new tokens per address per hour, 10 in all). No funds are at risk. An
+  ownership proof is planned once the core can make one cheaply.
 - The app lock is enforced by the app; the secret is stored with
   expo-secure-store (Android Keystore encryption) without per-use
   authentication. Copies of the secret passed through the JSON bridge are not

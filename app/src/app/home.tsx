@@ -18,6 +18,7 @@ import { LINK_HOSTS } from '@/lib/config';
 import { inbox } from '@/lib/inbox';
 import { parseLink } from '@/lib/links';
 import { useCopied } from '@/lib/clip';
+import { useChain } from '@/lib/chain';
 import { ago, go, goHandoff, useNow } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { nextRoute, scanResult } from '@/lib/scan';
@@ -35,6 +36,7 @@ export default function Home() {
   const [showAllBanners, setShowAllBanners] = useState(false);
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const now = useNow();
+  const chain = useChain();
   const copied = useCopied();
 
   // A gift or payment link (or a code scanned from here) takes the user straight to it.
@@ -144,6 +146,16 @@ export default function Home() {
       node: (
         <Banner tone="danger" icon="server" onPress={() => go('/server')}>
           {lastUpdated ? 'Showing your last known balance. ' : ''}Can’t reach your wallet server. Tap to check it.
+        </Banner>
+      ),
+    });
+  }
+  if (chain.kind === 'problem' && chain.problem) {
+    banners.unshift({
+      key: 'chain',
+      node: (
+        <Banner tone="danger" icon="warning" onPress={() => go('/chain')}>
+          Chain check failed: {chain.problem.message} Tap for details.
         </Banner>
       ),
     });
