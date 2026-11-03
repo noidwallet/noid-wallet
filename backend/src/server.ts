@@ -3,6 +3,7 @@ import rateLimit from "@fastify/rate-limit";
 import { randomBytes } from "node:crypto";
 
 import { registerAssetRoutes, type AssetDeps } from "./assets.js";
+import { registerHeaderRoutes, type HeaderDeps } from "./headers.js";
 import type { Db } from "./db.js";
 import type { Indexer } from "./indexer.js";
 import type { PriceFeed } from "./price.js";
@@ -105,6 +106,7 @@ export async function buildServer(
     notifier?: Notifier | null;
     app?: { latest?: string; min?: string };
     assets?: AssetDeps;
+    headers?: HeaderDeps;
   },
 ): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
@@ -150,6 +152,7 @@ export async function buildServer(
   app.get("/healthz", async () => ({ ok: true }));
 
   const assets = registerAssetRoutes(app, opts.assets);
+  registerHeaderRoutes(app, opts.headers);
 
   // Every phone polls /v1/status: answer from a 2-second cache so a burst of
   // requests can't flood the node's RPC (which the indexer also needs).
@@ -178,7 +181,7 @@ export async function buildServer(
       relayFloor: mempool.fee_floor,
       mempool: { size: mempool.size, capacity: mempool.capacity },
       indexer: { indexedHeight: indexer.indexedHeight, healthy: indexer.lastError === null },
-      features: { price: !!opts.price, push: !!opts.notifier, assets: true, media: assets.mediaEnabled },
+      features: { price: !!opts.price, push: !!opts.notifier, assets: true, media: assets.mediaEnabled, headers: true },
       ...(opts.app?.latest || opts.app?.min ? { app: { latest: opts.app.latest ?? null, min: opts.app.min ?? null } } : {}),
     };
   });
@@ -346,13 +349,15 @@ export async function buildServer(
     const pending = await rpc<unknown | null>("getMempoolEntry", [txid]);
     if (pending) return { txid, status: "pending" };
     const [info, chain] = await Promise.all([rpc<TxInfo | null>("getTx", [txid]), rpc<ChainInfo>("getChainInfo")]);
-    if (info) return { txid, status: "confirmed", height: info.height, confirmations: chain.height - info.height + 1 };
+    if (info) {
+      return { txid, status: "confirmed", height: info.height, blockHash: info.block_hash, confirmations: chain.height - info.height + 1 };
+    }
     const row = db
       .prepare("SELECT t.height AS height, b.hash AS hash FROM txs t JOIN blocks b ON b.height = t.height WHERE t.txid = ?")
       .get(txid) as { height: number; hash: string } | undefined;
     // Only while that block is still in the chain the node follows (not after a reorg or a resync).
     if (row && (await rpc<string | null>("getBlockHash", [row.height]).catch(() => null)) === row.hash) {
-      return { txid, status: "confirmed", height: row.height, confirmations: chain.height - row.height + 1 };
+      return { txid, status: "confirmed", height: row.height, blockHash: row.hash, confirmations: chain.height - row.height + 1 };
     }
     return { txid, status: "unknown" };
   });
@@ -364,19 +369,21 @@ export async function buildServer(
       const a = address(req.params.address);
       const limit = intParam(req.query.limit, 30, 1, 100);
       let rows: { height: number; txid: string }[];
-      const select = "SELECT txid, height, time, direction, amount, fee, wallet_fee AS walletFee, counterparty FROM address_txs";
+      const select =
+        "SELECT a.txid, a.height, a.time, a.direction, a.amount, a.fee, a.wallet_fee AS walletFee, a.counterparty, b.hash AS blockHash" +
+        " FROM address_txs a LEFT JOIN blocks b ON b.height = a.height";
       if (req.query.before) {
         const m = /^(\d+):([0-9a-f]{64})$/.exec(req.query.before);
         if (!m) throw badRequest("Invalid history cursor.");
         const h = Number(m[1]);
         rows = db
           .prepare(
-            `${select} WHERE address = ? AND (height < ? OR (height = ? AND txid > ?))
-             ORDER BY height DESC, txid ASC LIMIT ?`,
+            `${select} WHERE a.address = ? AND (a.height < ? OR (a.height = ? AND a.txid > ?))
+             ORDER BY a.height DESC, a.txid ASC LIMIT ?`,
           )
           .all(a, h, h, m[2], limit) as typeof rows;
       } else {
-        rows = db.prepare(`${select} WHERE address = ? ORDER BY height DESC, txid ASC LIMIT ?`).all(a, limit) as typeof rows;
+        rows = db.prepare(`${select} WHERE a.address = ? ORDER BY a.height DESC, a.txid ASC LIMIT ?`).all(a, limit) as typeof rows;
       }
       const last = rows[rows.length - 1];
       const oldest = db.prepare("SELECT MIN(height) AS h FROM blocks").get() as { h: number | null };

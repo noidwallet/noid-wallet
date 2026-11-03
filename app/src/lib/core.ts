@@ -150,6 +150,31 @@ export interface AssetManifest {
   image: { hash: string; width: number; height: number; bytes: number } | null;
 }
 
+/** The phone's view of the chain (core/src/chain.rs). Opaque except `ids`. */
+export interface ChainState {
+  v: number;
+  checkpoint: number;
+  headers: string[];
+  workBefore: string;
+  /** Height (decimal string) to the block id the phone checked there. */
+  ids: Record<string, string>;
+}
+
+export interface ChainInfo {
+  checkpointHeight: number;
+  tipHeight: number;
+  tipId: string;
+  tipTimestamp: number;
+}
+
+export interface SyncResult {
+  state: ChainState;
+  info: ChainInfo;
+  accepted: number;
+  refused: { height: number; code: string } | null;
+  reorgDepth: number;
+}
+
 export const core = {
   version: () => call<{ core: string; parano1dRev: string; photoKey: string }>('version'),
   generateSecret: () => call<NewKey>('generateSecret'),
@@ -194,4 +219,9 @@ export const core = {
   /** Throws unless the file is exactly the committed picture. */
   checkImage: (path: string, image: { hash: string; width: number; height: number; bytes: number }) =>
     call<{ ok: true }>('checkImage', { path, ...image }),
+  /** Where the phone's own chain check stands (`state` null: the built-in checkpoint). */
+  chainInfo: (state: ChainState | null) => call<ChainInfo>('chainInfo', { state }),
+  /** Check raw headers (hex, contiguous, oldest first) and adopt the ones that pass. */
+  syncHeaders: (state: ChainState | null, headersHex: string[], now: number) =>
+    call<SyncResult>('syncHeaders', { state, headersHex, now }),
 };

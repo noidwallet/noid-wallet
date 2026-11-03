@@ -431,6 +431,161 @@ fn chain_before(all: &[Header]) -> HeaderChain {
     HeaderChain::from_trusted(w, &mine::block_id(w.last().unwrap())).unwrap()
 }
 
+/// A miner for the tracker scenarios: valid children of `all`, with real PoW.
+struct Miner {
+    rng: StdRng,
+}
+
+impl Miner {
+    fn child(&mut self, all: &[Header], gap: u64, salt: u8) -> Header {
+        let parent = *all.last().unwrap();
+        let i = inputs_for_child(all);
+        let mut child = Header {
+            prev_block_hash: mine::block_id(&parent),
+            state_root: [salt; 32],
+            tx_root: [self.rng.gen(); 32],
+            timestamp: parent.timestamp + gap,
+            height: parent.height + 1,
+            miner_address: [0x77; 32],
+            nonce: 0,
+            difficulty_target: mine::next_target(i.anchor_height, i.anchor_ts, &i.anchor_target, parent.height + 1, parent.timestamp)
+                .unwrap(),
+            log_slots: mine::expected_child_log_slots(parent.height, parent.log_slots, &i.counts),
+            active_slot_count: 100_000,
+            alloc_counter: parent.alloc_counter + 1,
+        };
+        child.nonce = official_pow::search_pow(&official(&child), self.rng.gen::<u64>() as u128, 1 << 26).expect("nonce found");
+        official_check(&child, all).unwrap_or_else(|e| panic!("official refused mined h={}: {e:?}", child.height));
+        child
+    }
+
+    fn run(&mut self, all: &mut Vec<Header>, n: usize, gap: u64, salt: u8) -> Vec<Header> {
+        let mut out = Vec::new();
+        for _ in 0..n {
+            let c = self.child(all, gap, salt);
+            all.push(c);
+            out.push(c);
+        }
+        out
+    }
+}
+
+/// The chain tracker (core/src/chain.rs): continuation, forks, the work
+/// floor and the stored state, on a mined chain from a test checkpoint.
+fn tracker_scenarios() {
+    use noid_mobile_core::chain::{Checkpoint, Tracker};
+    let t0 = Instant::now();
+    let start = 270_000u64;
+    let mut all: Vec<Header> = Vec::new();
+    let mut prev = [0u8; 32];
+    for i in 0..mine::WINDOW_LEN as u64 {
+        let h = Header {
+            prev_block_hash: prev,
+            state_root: [1; 32],
+            tx_root: [2; 32],
+            timestamp: 1_792_000_000 + i * 30,
+            height: start + i,
+            miner_address: [0x55; 32],
+            nonce: i as u128,
+            difficulty_target: mine::GENESIS_TARGET,
+            log_slots: 20,
+            active_slot_count: 100_000,
+            alloc_counter: 1_000 + i,
+        };
+        prev = mine::block_id(&h);
+        all.push(h);
+    }
+    // The checkpoint "network rate": one genesis-floor block (2^18) per 30 s.
+    let rate: u128 = (1u128 << 18) / 30;
+    let cp = Checkpoint::from_headers(&all).unwrap();
+    let mut tracker = Tracker::with_checkpoint(&cp, rate);
+    let mut miner = Miner { rng: StdRng::seed_from_u64(99) };
+    let now = || 1_800_000_000u64;
+
+    // 1. Continuation in two batches, with an overlap the tracker must skip.
+    let a = miner.run(&mut all, 25, 30, 10);
+    let r = tracker.sync(&a[..10], now());
+    assert_eq!((r.accepted, r.refused.clone(), r.reorg_depth), (10, None, 0));
+    let r = tracker.sync(&a[7..], now());
+    assert_eq!((r.accepted, r.refused.clone(), r.reorg_depth), (15, None, 0));
+    assert_eq!(tracker.tip().height, start + 35 + 25);
+    assert_eq!(tracker.id_at(start + 40), Some(mine::block_id(&all[40])));
+
+    // 2. The stored state round-trips, keeps ids, and refuses tampering.
+    let state = tracker.state();
+    assert_eq!(state.headers.len(), noid_mobile_core::chain::RETAIN);
+    let mut tampered = state.clone();
+    tampered.ids.insert(tracker.tip().height, "ab".repeat(32));
+    assert!(Tracker::load_with(&tampered, &cp, rate).is_err());
+    assert_eq!(Tracker::load_with(&state, &cp, rate).unwrap().tip_id(), tracker.tip_id());
+
+    // 3. A fork 5 blocks back with more work (6 blocks, same difficulty) replaces the tip.
+    let tip_before = tracker.tip().height;
+    let fork_base: Vec<Header> = all[..all.len() - 5].to_vec();
+    let mut branch_all = fork_base.clone();
+    let branch = miner.run(&mut branch_all, 6, 30, 20);
+    let r = tracker.sync(&branch, now());
+    assert_eq!(r.refused, None, "{r:?}");
+    assert_eq!((r.accepted, r.reorg_depth), (6, 5));
+    assert_eq!(tracker.tip().height, tip_before + 1);
+    assert_eq!(tracker.tip_id(), mine::block_id(branch.last().unwrap()));
+    assert_eq!(tracker.id_at(tip_before - 4), Some(mine::block_id(&branch[0])));
+    all = branch_all;
+
+    // 4. A fork with less work is refused and changes nothing.
+    let state_before = tracker.state();
+    let mut short_all = all[..all.len() - 3].to_vec();
+    let short = miner.run(&mut short_all, 2, 30, 30);
+    let r = tracker.sync(&short, now());
+    assert_eq!(r.refused.map(|x| x.code), Some("less_work"));
+    assert_eq!(tracker.state(), state_before);
+
+    // 5. A fork deeper than the finality depth is refused.
+    let mut deep_all = all[..all.len() - 19].to_vec();
+    let deep = miner.run(&mut deep_all, 25, 30, 40);
+    let r = tracker.sync(&deep, now());
+    assert_eq!(r.refused.map(|x| x.code), Some("too_deep"));
+    assert_eq!(tracker.state(), state_before);
+
+    // 6. The work floor: three blocks claiming ten hours each add 3 x 2^18
+    //    work for 108,000 s; the floor (1/16 of 2^18 per 30 s) wants about
+    //    225 x 2^18 by then, and the 60 blocks so far don't cover it.
+    //    (Three blocks claiming one hour each would pass: the floor is an
+    //    average since the checkpoint, so a short slow spell is tolerated.)
+    let mut slow_all = all.clone();
+    let slow = miner.run(&mut slow_all, 3, 36_000, 50);
+    let r = tracker.sync(&slow, now());
+    assert_eq!(r.refused.as_ref().map(|x| x.code), Some("work_too_low"), "{r:?}");
+    assert_eq!(tracker.state(), state_before);
+
+    // 7. The phone clock: a header 121 s ahead of "now" is refused, 120 s is fine.
+    let next = miner.child(&all, 30, 60);
+    let r = tracker.sync(&[next], next.timestamp - 121);
+    assert_eq!(r.refused.map(|x| x.code), Some("too_far_in_future"));
+    let r = tracker.sync(&[next], next.timestamp - 120);
+    assert_eq!((r.accepted, r.refused), (1, None));
+    all.push(next);
+
+    // 8. A bad header in the middle: the valid prefix is kept, the rest refused.
+    let more = miner.run(&mut all, 4, 30, 70);
+    let mut batch = more.clone();
+    batch[2].nonce ^= 1;
+    let r = tracker.sync(&batch, now());
+    assert_eq!(r.accepted, 2);
+    assert_eq!(r.refused.map(|x| (x.height, x.code)), Some((more[2].height, "bad_pow")));
+
+    // 9. Everything survives a store and reload, through the JSON the app keeps.
+    let json = serde_json::to_string(&tracker.state()).unwrap();
+    let back: noid_mobile_core::chain::ChainState = serde_json::from_str(&json).unwrap();
+    let reloaded = Tracker::load_with(&back, &cp, rate).unwrap();
+    assert_eq!(reloaded.tip_id(), tracker.tip_id());
+    assert_eq!(reloaded.work(), tracker.work());
+    let r = reloaded.clone().sync(&more[2..], now());
+    assert_eq!((r.accepted, r.refused), (2, None));
+
+    println!("tracker: continuation, overlap, 5-block reorg, less-work and deep forks, work floor, clock, partial batch, stored state: all as expected ({:.1?})", t0.elapsed());
+}
+
 fn main() {
     let rounds = std::env::var("ROUNDS").ok().and_then(|r| r.parse().ok()).unwrap_or(50_000);
     let blocks = std::env::var("BLOCKS").ok().and_then(|r| r.parse().ok()).unwrap_or(40);
@@ -446,6 +601,7 @@ fn main() {
     // Across the v2 activation: the window is v1.1, the first child is block
     // 210,537 with the anchor at 210,536 and mixed 20 s / 30 s intervals.
     mined_chain("v2 switch", V2 - mine::WINDOW_LEN as u64, 14, |_| 800_000, 21);
+    tracker_scenarios();
     for path in std::env::args().skip(1) {
         real_headers(&path);
     }

@@ -24,6 +24,8 @@ const CONTACTS_FILE = 'contacts-v1.json';
 const GIFTS_FILE = 'gifts-v1.json';
 const SNAPSHOT_FILE = 'snapshot-v1.json';
 const RECIPIENTS_FILE = 'recipients-v1.json';
+/** The phone's own view of the chain (public data, checked by the core). */
+const CHAIN_FILE = 'chain-v1.json';
 /** Highest gift number ever used on this phone; never reset, never reused. */
 const GIFT_HIGH_WATER = 'noid.gifthw.v1';
 
@@ -263,9 +265,22 @@ export const storage = {
     writeFileJson(GIFTS_FILE, g);
   },
 
+  loadChain: () => readFileJson<unknown>(CHAIN_FILE, null),
+  saveChain: (state: unknown) => writeFileJson(CHAIN_FILE, state),
+  clearChain() {
+    for (const name of [CHAIN_FILE, `${CHAIN_FILE}.tmp`]) {
+      try {
+        const f = new File(Paths.document, name);
+        if (f.exists) f.delete();
+      } catch {
+        // nothing to remove
+      }
+    }
+  },
+
   async wipe() {
     await Promise.all([SECRET, META].map((k) => SecureStore.deleteItemAsync(k)));
-    const files = [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE, REFUSALS_FILE, PRICE_GUARD_FILE];
+    const files = [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE, REFUSALS_FILE, PRICE_GUARD_FILE, CHAIN_FILE];
     // Also the half-written copies, so an old wallet's list can never come back.
     for (const name of [...files, ...files.map((n) => `${n}.tmp`)]) {
       try {

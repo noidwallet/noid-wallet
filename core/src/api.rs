@@ -350,6 +350,54 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
             Ok(json!({ "ok": true }))
         }
 
+        // Following the chain on the phone (see chain.rs).
+        "chainInfo" => {
+            #[derive(Deserialize)]
+            struct A {
+                state: Option<crate::chain::ChainState>,
+            }
+            let a: A = args(json)?;
+            let t = match a.state {
+                Some(s) => crate::chain::Tracker::load(&s)?,
+                None => crate::chain::Tracker::new(),
+            };
+            Ok(serde_json::to_value(crate::chain::ChainInfo::from(&t)).map_err(|e| Error::msg(e.to_string()))?)
+        }
+
+        "syncHeaders" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                state: Option<crate::chain::ChainState>,
+                headers_hex: Vec<String>,
+                /// The phone's clock, seconds since the Unix epoch.
+                now: u64,
+            }
+            let a: A = args(json)?;
+            if a.headers_hex.len() > crate::chain::MAX_BATCH {
+                return Err(Error::coded("too_many", "Too many headers in one call."));
+            }
+            let mut t = match a.state {
+                Some(s) => crate::chain::Tracker::load(&s)?,
+                None => crate::chain::Tracker::new(),
+            };
+            let mut headers = Vec::with_capacity(a.headers_hex.len());
+            for (i, hx) in a.headers_hex.iter().enumerate() {
+                headers.push(
+                    crate::headers::Header::from_hex(hx)
+                        .ok_or_else(|| Error::coded("malformed", format!("Header {i} is not a 212-byte block header.")))?,
+                );
+            }
+            let report = t.sync(&headers, a.now);
+            Ok(json!({
+                "state": t.state(),
+                "info": crate::chain::ChainInfo::from(&t),
+                "accepted": report.accepted,
+                "refused": report.refused,
+                "reorgDepth": report.reorg_depth,
+            }))
+        }
+
         _ => Err(Error::msg(format!("Unknown method: {method}"))),
     }
 }

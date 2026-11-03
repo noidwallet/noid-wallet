@@ -24,6 +24,8 @@ const ALLOWED = new Set([
   // Parano1d v2.1 tokens and NFTs: read-only public State queries.
   "getNativeHoldings",
   "getNativeMarket",
+  // Raw block headers for the phone's own chain check.
+  "getHeaderByHeight",
 ] as const);
 
 export type RpcMethod = typeof ALLOWED extends Set<infer T> ? T : never;

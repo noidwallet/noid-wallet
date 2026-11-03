@@ -30,17 +30,9 @@
 //! fake chain. The app has to combine this with work-rate checks and a
 //! second source before trusting a tip.
 //!
-//! Still to add before the app relies on it (phase 1):
-//! - An absolute work floor: total work added since the shipped checkpoint
-//!   must keep up with elapsed time at a fraction of the checkpoint's
-//!   network rate. A step-by-step easing limit is not enough: one block at
-//!   real difficulty stamped late can drop the next target to the genesis
-//!   floor (about 2^18 hashes per block, versus about 2^44 on mainnet).
-//! - Always pass the phone's clock (`local_time`) when checking new headers.
-//! - Forks: keep 18 more headers so a reorg up to the finality depth can be
-//!   followed, pick the branch with the most work, refuse deeper reorgs.
-//! - A cap on headers per sync (elapsed time / 30 s plus slack), like the
-//!   node's batch limit.
+//! The rules the app needs on top of these (a work floor since the built-in
+//! checkpoint, the phone's clock on every header, small forks, a batch cap)
+//! live in [`crate::chain`].
 
 use std::collections::VecDeque;
 

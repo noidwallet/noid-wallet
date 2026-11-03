@@ -8,6 +8,7 @@ import { makeFiatOf, makeNameOf, TX_LABEL, when } from '@/components/TxRow';
 import { Avatar, Banner, Card, IconButton, KeyValue, Pill, Screen, Skeleton, toast } from '@/components/ui';
 import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
+import { blockChecked, useChain } from '@/lib/chain';
 import { useCopied } from '@/lib/clip';
 import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
@@ -65,6 +66,11 @@ export default function TxDetail() {
               ? 'Sent'
               : 'Sending'
       : 'Transaction';
+  const chain = useChain();
+  // The phone's own chain check: is the block the server named on the chain the phone verified?
+  const blockHeight = item?.height ?? (status?.status === 'confirmed' ? status.height : null);
+  const blockHash = item?.blockHash ?? (status?.status === 'confirmed' ? status.blockHash : null) ?? null;
+  const checked = blockHeight !== null && chain.info ? blockChecked(blockHeight, blockHash) : null;
   const counterparty = item?.counterparty && item.direction !== 'self' ? item.counterparty : pend?.to ?? null;
   const partyLabel = item?.direction === 'received' || pend?.kind === 'claim' ? 'From' : 'To';
 
@@ -124,7 +130,15 @@ export default function TxDetail() {
         {walletPart > 0 ? <KeyValue label="NOID wallet fee" value={`${formatNoid(walletPart)} NOID`} /> : null}
         {item ? <KeyValue label="Block" value={item.height.toLocaleString()} /> : null}
         {status?.status === 'confirmed' ? <KeyValue label="Confirmations" value={String(status.confirmations)} /> : null}
+        {checked !== null ? (
+          <KeyValue label="Block check" value={checked ? 'On the chain your phone checked' : 'Not on the chain your phone checked'} mono={false} />
+        ) : null}
       </Card>
+      ) : null}
+      {checked === false ? (
+        <Banner tone="danger">
+          The server says this payment is in a block that is not on the chain your phone verified. Do not rely on this payment until that is resolved.
+        </Banner>
       ) : null}
 
       <Card>

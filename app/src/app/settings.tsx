@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Linking, Switch, Text, View } from 'react-native';
 
 import { Avatar, Banner, ListRow, Pill, Screen } from '@/components/ui';
+import { useChain, type ChainStatus } from '@/lib/chain';
 import { core } from '@/lib/core';
 import { go } from '@/lib/nav';
 import { disablePush, enablePush } from '@/lib/push';
@@ -31,6 +32,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export default function Settings() {
   const w = useWallet();
+  const chain = useChain();
   const [version, setVersion] = useState('');
   const [pushNote, setPushNote] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -138,6 +140,7 @@ export default function Settings() {
         <ListRow leading={<Avatar icon="contacts" />} title="Contacts" subtitle={`${w.contacts.length} saved`} chevron onPress={() => go('/contacts')} />
         <ListRow leading={<Avatar icon="gift" />} title="Gift cards" chevron onPress={() => go('/gifts')} />
         <ListRow leading={<Avatar icon="merge" />} title="Combine balance pieces" subtitle={`${w.utxos.length} ${w.utxos.length === 1 ? 'piece' : 'pieces'}`} chevron onPress={() => go('/consolidate')} />
+        <ListRow leading={<Avatar icon="shield" tone={chain.kind === 'problem' ? 'danger' : chain.kind === 'ready' ? 'success' : 'neutral'} />} title="Chain check" subtitle={chainSubtitle(chain)} chevron onPress={() => go('/chain')} />
       </Section>
 
       <Section title="Danger zone">
@@ -166,4 +169,11 @@ export default function Settings() {
       </View>
     </Screen>
   );
+}
+
+function chainSubtitle(c: ChainStatus): string {
+  if (c.kind === 'problem') return 'Problem found';
+  if (c.kind === 'syncing' && !c.info) return 'Checking…';
+  if (c.info) return `Checked to block ${c.info.tipHeight.toLocaleString()}`;
+  return 'Not available on this server';
 }

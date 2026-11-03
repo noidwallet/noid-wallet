@@ -65,6 +65,7 @@ export function isHistoryItem(i: unknown): i is HistoryItem {
     isCountValue(h.amount) &&
     isCountValue(h.fee) &&
     (h.walletFee === undefined || h.walletFee === null || isCountValue(h.walletFee)) &&
+    (h.blockHash === undefined || h.blockHash === null || (typeof h.blockHash === 'string' && /^[0-9a-f]{64}$/.test(h.blockHash))) &&
     (h.counterparty === null || (typeof h.counterparty === 'string' && ADDRESS_RE.test(h.counterparty)))
   );
 }
@@ -118,7 +119,7 @@ export interface Status extends FeeContext {
   syncStage: string;
   peers: number | null;
   /** Optional server features; missing on older servers. */
-  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean };
+  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean; headers?: boolean };
   /** App versions the server announces (see backend config). */
   app?: { latest?: string | null; min?: string | null };
 }
@@ -154,6 +155,8 @@ export interface HistoryItem {
   /** NOID wallet fee paid with this send (servers that know the fee address). */
   walletFee?: number;
   counterparty: string | null;
+  /** Id of the block it is in, for the phone's own chain check (newer servers). */
+  blockHash?: string | null;
 }
 
 /** One Parano1d v2.1 State record, passed on as the node sent it (checked by the core). */
@@ -189,7 +192,15 @@ export interface AssetMarket {
 
 export type TxStatus =
   | { txid: string; status: 'pending' | 'unknown' }
-  | { txid: string; status: 'confirmed'; height: number; confirmations: number };
+  | { txid: string; status: 'confirmed'; height: number; confirmations: number; blockHash?: string };
+
+/** One page of raw block headers (hex), contiguous from `from`. */
+export interface HeadersPage {
+  from: number;
+  tip: number;
+  headers: string[];
+}
+export const HEADERS_PAGE = 300;
 
 /** Hermes may not ship AbortSignal.timeout, so build the timeout by hand. */
 function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
@@ -297,7 +308,21 @@ export function createApi(baseUrl: string, _installId = '') {
         r.txid === txid &&
         (r.status === 'pending' ||
           r.status === 'unknown' ||
-          (r.status === 'confirmed' && isCount(r.height) && isCount(r.confirmations)));
+          (r.status === 'confirmed' &&
+            isCount(r.height) &&
+            isCount(r.confirmations) &&
+            (r.blockHash === undefined || isHex64(r.blockHash))));
+      return check(r, ok);
+    },
+    /** Raw headers from `from`, for the core to check (never trusted as given). */
+    headers: async (from: number, count = HEADERS_PAGE) => {
+      const r = await request<HeadersPage>(`/v1/headers?from=${from}&count=${count}`, undefined, 30_000);
+      const ok =
+        r.from === from &&
+        isCount(r.tip) &&
+        Array.isArray(r.headers) &&
+        r.headers.length <= count &&
+        r.headers.every((h) => typeof h === 'string' && /^[0-9a-f]{424}$/.test(h));
       return check(r, ok);
     },
     /** Tokens and NFTs: the node's raw records, checked by the core before use. */

@@ -9,6 +9,7 @@ import { createDirectPrice } from '@/lib/directPrice';
 import { emitRelock } from '@/lib/lockEvents';
 import { disablePush, ensurePushChannel, onPushTokenChange } from '@/lib/push';
 import { noteRefused, reconcileOne, setRefusalStore, settleConfirmed } from '@/lib/send';
+import { syncChain } from '@/lib/chain';
 import { perNoid } from '@/lib/currencies';
 import { judgePrice, type GuardState } from '@/lib/priceGuard';
 import {
@@ -237,6 +238,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           : Promise.resolve(null),
       ]);
       setStatus(st);
+      // The phone checks the server's chain itself, in the background (lib/chain).
+      if (st.features?.headers) void syncChain(api, st.height);
       // A failed price check keeps the last good price (it carries its own age),
       // so a value never flickers away mid-typing.
       if (px) {

@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod assets;
+pub mod chain;
 pub mod fees;
 pub mod headers;
 pub mod keys;

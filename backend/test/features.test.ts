@@ -280,3 +280,42 @@ test("push and price endpoints validate input and report when off", async () => 
   assert.equal(un.statusCode, 200);
   await on.close();
 });
+
+test("headers: pages raw headers for the phone's chain check, caches only final ones", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "noid-"));
+  const db = openDb(join(dir, "t.sqlite"));
+  const calls: number[] = [];
+  const hexAt = (h: number) => h.toString(16).padStart(8, "0").repeat(53);
+  let tip = 1000;
+  const rpc = async <T>(method: string, params: unknown[] = []): Promise<T> => {
+    if (method === "getChainInfo") return { height: tip } as T;
+    if (method === "getHeaderByHeight") {
+      const h = params[0] as number;
+      calls.push(h);
+      return (h <= tip ? hexAt(h) : null) as T;
+    }
+    throw new Error(method);
+  };
+  const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false, headers: { rpc } });
+  const page = await app.inject({ url: "/v1/headers?from=990&count=5" });
+  assert.equal(page.statusCode, 200);
+  assert.deepEqual(page.json(), { from: 990, tip: 1000, headers: [990, 991, 992, 993, 994].map(hexAt) });
+  // Past the tip: only what exists.
+  const end = await app.inject({ url: "/v1/headers?from=998&count=10" });
+  assert.deepEqual((end.json() as { headers: string[] }).headers.length, 3);
+  const none = await app.inject({ url: "/v1/headers?from=5000" });
+  assert.deepEqual(none.json(), { from: 5000, tip: 1000, headers: [] });
+  // 990 is 10 deep (not final) so it is fetched again; 980 is final and cached.
+  calls.length = 0;
+  await app.inject({ url: "/v1/headers?from=980&count=11" });
+  await app.inject({ url: "/v1/headers?from=980&count=11" });
+  assert.equal(calls.filter((h) => h === 980).length, 1);
+  assert.equal(calls.filter((h) => h === 990).length, 2);
+  for (const q of ["from=-1", "from=abc", "from=1&count=0", "from=1&count=301", ""]) {
+    const bad = await app.inject({ url: `/v1/headers?${q}` });
+    assert.equal(bad.statusCode, 400, q);
+  }
+  const status = await app.inject({ url: "/v1/status" }).catch(() => null);
+  void status;
+  await app.close();
+});
