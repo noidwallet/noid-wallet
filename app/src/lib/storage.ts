@@ -26,6 +26,7 @@ const SNAPSHOT_FILE = 'snapshot-v1.json';
 const RECIPIENTS_FILE = 'recipients-v1.json';
 /** The phone's own view of the chain (public data, checked by the core). */
 const CHAIN_FILE = 'chain-v1.json';
+const SENT_ITEMS_FILE = 'sent-items-v1.json';
 /** Highest gift number ever used on this phone; never reset, never reused. */
 const GIFT_HIGH_WATER = 'noid.gifthw.v1';
 
@@ -270,6 +271,12 @@ export const storage = {
     writeFileJson(GIFTS_FILE, g);
   },
 
+  /** What each token or NFT send carried, by txid ("1 NEMO"), for Activity. */
+  loadSentItems: (): Record<string, string> => {
+    const r = readFileJson<unknown>(SENT_ITEMS_FILE, {});
+    return r && typeof r === 'object' && !Array.isArray(r) ? (r as Record<string, string>) : {};
+  },
+  saveSentItems: (m: Record<string, string>) => writeFileJson(SENT_ITEMS_FILE, m),
   loadChain: () => readFileJson<unknown>(CHAIN_FILE, null),
   saveChain: (state: unknown) => writeFileJson(CHAIN_FILE, state),
   clearChain() {
@@ -285,7 +292,7 @@ export const storage = {
 
   async wipe() {
     await Promise.all([SECRET, META].map((k) => SecureStore.deleteItemAsync(k)));
-    const files = [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE, REFUSALS_FILE, PRICE_GUARD_FILE, CHAIN_FILE];
+    const files = [PENDING_FILE, CONTACTS_FILE, GIFTS_FILE, SNAPSHOT_FILE, RECIPIENTS_FILE, REFUSALS_FILE, PRICE_GUARD_FILE, CHAIN_FILE, SENT_ITEMS_FILE];
     // Also the half-written copies, so an old wallet's list can never come back.
     for (const name of [...files, ...files.map((n) => `${n}.tmp`)]) {
       try {

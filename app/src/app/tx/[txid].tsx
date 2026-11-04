@@ -9,6 +9,7 @@ import { Avatar, Banner, Card, IconButton, KeyValue, Pill, Screen, Skeleton, toa
 import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
 import { blockChecked, useChain } from '@/lib/chain';
+import { sentItem } from '@/lib/sentItems';
 import { useCopied } from '@/lib/clip';
 import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
@@ -53,7 +54,8 @@ export default function TxDetail() {
   const walletPart = item ? (item.direction === 'sent' ? (item.walletFee ?? 0) : 0) : pend && pend.kind !== 'claim' ? (pend.walletFee ?? 0) : 0;
   const amount = base === null ? null : base + feePart + walletPart;
   const fiatValue = amount !== null ? fiatOf(amount) : null;
-  const label = item ? TX_LABEL[item.direction] : pend
+  const sentThing = item?.direction === 'contract' ? sentItem(item.txid) : null;
+  const label = sentThing ? `Sent ${sentThing}` : item ? TX_LABEL[item.direction] : pend
       ? pend.kind === 'claim'
         ? 'Gift claim'
         : pend.kind === 'gift'

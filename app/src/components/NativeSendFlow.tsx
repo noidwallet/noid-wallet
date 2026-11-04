@@ -19,6 +19,7 @@ import { core, type NativeSendReview, type NativeTransfer } from '@/lib/core';
 import { parseLink } from '@/lib/links';
 import { knownBlockId } from '@/lib/chain';
 import { executeNativeSend, NativeFeeChanged, reviewNativeSend } from '@/lib/nativeSend';
+import { rememberSentItem } from '@/lib/sentItems';
 import { go, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
 import { contactPick, scanResult } from '@/lib/scan';
@@ -188,11 +189,13 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
         onStage: (s) => setStage(s),
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      rememberSentItem(pending.txid, what(review));
       setDoneTxid(pending.txid);
       setStep('done');
       void w.refresh();
     } catch (e) {
       if (e instanceof SubmitUnknown) {
+        rememberSentItem(e.txid, what(review));
         setUnknownTxid(e.txid);
         setStep('done');
         return;

@@ -6,6 +6,7 @@ import { fiat } from '@/lib/safety';
 import type { Currency, PendingTx } from '@/lib/storage';
 import { colors } from '@/theme';
 import type { IconName } from '@/components/Icon';
+import { sentItem } from '@/lib/sentItems';
 
 export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
@@ -51,17 +52,20 @@ export function HistoryRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: H
   // What left the wallet: amount, network fee and NOID wallet fee.
   const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee + (item.walletFee ?? 0) : 0);
   const who = item.counterparty && item.direction !== 'self' ? nameOf(item.counterparty) : null;
-  const sign = item.direction === 'contract' ? '' : outgoing ? '−' : '+';
+  // A token or NFT this phone sent: say what went; the NOID shown is what it cost.
+  const sentThing = item.direction === 'contract' ? sentItem(item.txid) : null;
+  const sign = sentThing ? '−' : item.direction === 'contract' ? '' : outgoing ? '−' : '+';
+  const label = sentThing ? `Sent ${sentThing}` : TX_LABEL[item.direction];
   return (
     <ListRow
-      leading={<Avatar icon={TX_ICON[item.direction]} tone={outgoing ? 'neutral' : 'success'} />}
-      title={who && item.direction !== 'mined' ? `${TX_LABEL[item.direction]} · ${who}` : TX_LABEL[item.direction]}
+      leading={<Avatar icon={sentThing ? 'send' : TX_ICON[item.direction]} tone={outgoing ? 'neutral' : 'success'} />}
+      title={who && item.direction !== 'mined' ? `${label} · ${who}` : label}
       subtitle={when(item.time)}
       value={hidden ? HIDDEN : `${sign}${formatNoid(shown)}`}
       valueSub={hidden ? null : fiatOf?.(shown)}
       valueColor={outgoing ? colors.text : colors.accent}
       onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
-      accessibilityLabel={`${TX_LABEL[item.direction]}${hidden ? '' : ` ${formatNoid(shown)} NOID`}${who ? `, ${who}` : ''}, ${when(item.time)}`}
+      accessibilityLabel={`${label}${hidden ? '' : ` ${formatNoid(shown)} NOID`}${who ? `, ${who}` : ''}, ${when(item.time)}`}
     />
   );
 }

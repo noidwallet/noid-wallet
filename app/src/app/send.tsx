@@ -560,7 +560,7 @@ function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice:
 
   return (
     <Screen
-      header={{ title: 'Send NOID' }}
+      header={{ title: 'Send' }}
       footer={
         <Button title="Continue" busy={busy} disabled={!to || !amountText || amountInvalid || tooMuch || !!blocker || connecting} onPress={review} />
       }
