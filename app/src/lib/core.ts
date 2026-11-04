@@ -158,6 +158,8 @@ export interface ChainState {
   workBefore: string;
   /** Height (decimal string) to the block id the phone checked there. */
   ids: Record<string, string>;
+  /** Highest trimmed block that had counted as checked (0 or missing: none). */
+  checkedFloor?: number;
 }
 
 export interface ChainInfo {

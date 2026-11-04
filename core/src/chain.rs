@@ -31,9 +31,17 @@
 //!   a payment was reported in is on the chain the phone checked.
 //!
 //! What this proves: the headers the server gave form a valid proof-of-work
-//! chain from the checkpoint, at close to the real network's difficulty. What
-//! it does not prove: that a payment is inside one of those blocks. That
-//! needs slot proofs (phase 2, after Parano1d adds an RPC for them).
+//! chain from the checkpoint that passes every consensus rule and the work
+//! floor, and every block counted as checked has real work on top of it.
+//! The newest blocks may be cheap (a server can append some). What it does
+//! not prove: that a payment is inside one of those blocks. That needs slot
+//! proofs (phase 2, after Parano1d adds an RPC for them).
+//!
+//! A server holding back blocks from a phone that was away for over an hour
+//! can stamp one real block late and append a cheap branch more than 18
+//! blocks long; the phone then refuses the honest chain as too deep. Nothing
+//! on that branch counts as checked, and the app offers a fresh check from
+//! the checkpoint, which starts over with the chain the server sends now.
 
 use std::collections::BTreeMap;
 
@@ -108,6 +116,10 @@ pub struct ChainState {
     pub work_before: String,
     /// Recent block ids by height.
     pub ids: BTreeMap<u64, String>,
+    /// Highest trimmed block that counted as checked before it was trimmed
+    /// (0: none yet; states saved before this field read as 0).
+    #[serde(default)]
+    pub checked_floor: u64,
 }
 
 /// What one sync did.
@@ -152,6 +164,10 @@ pub struct Tracker {
     retained: Vec<Entry>,
     work_before: [u8; 32],
     ids: BTreeMap<u64, [u8; 32]>,
+    /// Highest trimmed block that counted as checked when it was trimmed.
+    /// Trimmed blocks are over 18 deep, beyond any branch the phone takes,
+    /// so once counted they stay counted.
+    checked_floor: u64,
 }
 
 fn hex32(b: &[u8; 32]) -> String {
@@ -180,7 +196,7 @@ impl Tracker {
     /// Start from another checkpoint (tests and `tools/headers-check`).
     pub fn with_checkpoint(cp: &Checkpoint, rate: u128) -> Tracker {
         let retained = cp.headers.iter().map(|h| Entry { header: *h, id: block_id(h), work: [0u8; 32] }).collect();
-        Tracker { cp_height: cp.height, cp_timestamp: cp.timestamp, rate, retained, work_before: [0u8; 32], ids: BTreeMap::new() }
+        Tracker { cp_height: cp.height, cp_timestamp: cp.timestamp, rate, retained, work_before: [0u8; 32], ids: BTreeMap::new(), checked_floor: cp.height }
     }
 
     /// Rebuild from a stored state. Anything inconsistent is refused (code
@@ -241,7 +257,13 @@ impl Tracker {
         if ids.len() > RECENT_IDS {
             return Err(bad("too many ids"));
         }
-        let t = Tracker { cp_height: cp.height, cp_timestamp: cp.timestamp, rate, retained, work_before, ids };
+        let first = retained[0].header.height;
+        let checked_floor = match state.checked_floor {
+            0 => cp.height,
+            f if f >= cp.height && f < first => f,
+            _ => return Err(bad("checked floor outside the trimmed blocks")),
+        };
+        let t = Tracker { cp_height: cp.height, cp_timestamp: cp.timestamp, rate, retained, work_before, ids, checked_floor };
         // The chain in the state must itself pass the work floor.
         if t.below_floor() {
             return Err(bad("work below floor"));
@@ -256,6 +278,7 @@ impl Tracker {
             headers: self.retained.iter().map(|e| hex::encode(e.header.to_bytes())).collect(),
             work_before: hex32(&self.work_before),
             ids: self.ids.iter().map(|(h, id)| (*h, hex32(id))).collect(),
+            checked_floor: if self.checked_floor > self.cp_height { self.checked_floor } else { 0 },
         }
     }
 
@@ -288,8 +311,8 @@ impl Tracker {
     /// The highest block that counts as checked: at least
     /// [`MIN_CHECKED_DEPTH`] below the tip, with at least
     /// [`CHECKED_WORK_SECONDS`] of checkpoint-rate work on top of it. Found
-    /// among the retained headers; if none of them qualifies (a long run of
-    /// very cheap blocks), nothing past the checkpoint counts.
+    /// among the retained headers; when none of them qualifies (a long run
+    /// of cheap blocks), the highest trimmed block that had counted.
     pub fn checked_height(&self) -> u64 {
         let tip = self.retained.last().expect("never empty");
         let need = required_work(CHECKED_WORK_SECONDS, self.rate, 1);
@@ -305,7 +328,7 @@ impl Tracker {
                 return e.header.height;
             }
         }
-        self.cp_height
+        self.checked_floor
     }
 
     /// The block id the phone has at `height`, if it still remembers it.
@@ -340,8 +363,12 @@ impl Tracker {
             let first = *self.ids.keys().next().expect("non-empty");
             self.ids.remove(&first);
         }
+        let checked = if self.retained.len() > RETAIN { self.checked_height() } else { 0 };
         while self.retained.len() > RETAIN {
             let gone = self.retained.remove(0);
+            if gone.header.height <= checked {
+                self.checked_floor = self.checked_floor.max(gone.header.height);
+            }
             if gone.header.height > self.cp_height {
                 self.work_before = add_work(&self.work_before, &block_work(&gone.header.difficulty_target));
             }
@@ -379,6 +406,12 @@ impl Tracker {
         }
         let fork = first.height <= tip;
         if fork && (first.height <= self.cp_height || first.height + CONSENSUS_FINALITY_DEPTH <= tip) {
+            return SyncReport { refused: Some(Refused { height: first.height, code: "too_deep" }), ..none };
+        }
+        // A branch needs a full check window of kept headers below it. After
+        // an earlier branch with more work but fewer blocks the phone keeps
+        // fewer than RETAIN, so the depth alone doesn't guarantee that.
+        if fork && self.retained.iter().filter(|e| e.header.height < first.height).count() < WINDOW_LEN {
             return SyncReport { refused: Some(Refused { height: first.height, code: "too_deep" }), ..none };
         }
 
@@ -540,6 +573,12 @@ mod tests {
         (Tracker::with_checkpoint(&cp, rate), target)
     }
 
+    fn test_world_checkpoint() -> Checkpoint {
+        let (t, _) = test_world();
+        let headers: Vec<Header> = t.retained.iter().map(|e| e.header).collect();
+        Checkpoint::from_headers(&headers).unwrap()
+    }
+
     /// Pushing straight in (no PoW check) models headers the checks accepted.
     fn push(t: &mut Tracker, gap: u64, target: [u8; 32]) {
         let tip = *t.tip();
@@ -593,11 +632,50 @@ mod tests {
                 assert_eq!(t.checked_height(), last_real - 4, "after {} cheap blocks", i + 1);
             }
         }
-        // Once the tail is longer than the retained headers, nothing counts.
+        // A tail longer than the retained headers: the blocks that counted
+        // were trimmed while counted, so they still count (they are far
+        // beyond any branch the phone takes), and nothing in the tail does.
         for _ in 0..RETAIN {
             push(&mut t, 30, eased(&target, 20));
         }
-        assert_eq!(t.checked_height(), cp);
+        assert_eq!(t.checked_height(), last_real - 4);
+        assert!(t.checked_id_at(last_real - 4).is_some());
+        assert_eq!(t.checked_id_at(last_real - 3), None);
+        // The floor survives a save and load, and a tampered one is refused.
+        let state = t.state();
+        assert_eq!(state.checked_floor, last_real - 4);
+        let mut bad = state.clone();
+        bad.checked_floor = t.tip().height;
+        let world = test_world_checkpoint();
+        let rate: u128 = (1u128 << 44) / 30;
+        assert_eq!(Tracker::load_with(&state, &world, rate).unwrap().checked_height(), last_real - 4);
+        assert!(Tracker::load_with(&bad, &world, rate).is_err());
+        // A state saved before the field existed reads as no floor.
+        let mut old = state;
+        old.checked_floor = 0;
+        assert_eq!(Tracker::load_with(&old, &world, rate).unwrap().checked_height(), cp);
+    }
+
+    /// After a branch with more work but fewer blocks the phone keeps fewer
+    /// than RETAIN headers; a later branch from 17 back must be refused
+    /// cleanly (it used to panic in `chain()` before any check ran).
+    #[test]
+    fn a_branch_below_the_kept_window_is_refused_not_a_panic() {
+        let (mut t, target) = test_world();
+        for _ in 0..100 {
+            push(&mut t, 30, target);
+        }
+        assert_eq!(t.retained.len(), RETAIN);
+        let tip = t.tip().height;
+        t.truncate(tip - 14); // 39 kept, as after such a branch
+        assert_eq!(t.retained.len(), 39);
+        let new_tip = t.tip().height;
+        let mut h = t.retained[t.retained.len() - 18].header;
+        h.nonce ^= 1;
+        assert_eq!(h.height, new_tip - 17);
+        assert!(h.height > t.checkpoint_height());
+        let r = t.sync(&[h], h.timestamp);
+        assert_eq!((r.accepted, r.refused.map(|x| x.code)), (0, Some("too_deep")));
     }
 
     /// What mainnet did at block 279,458: a 994 s gap, the next block 41x

@@ -175,7 +175,17 @@ The phone verifies the server's chain of block headers itself.
   at least 120 s of checkpoint-rate work (four blocks' worth, about
   2^46.3 hashes) is built on top of it. A server can append cheap blocks
   and move the phone's tip, but it cannot get a block counted without that
-  work. The app shows both heights.
+  work. The app shows both heights. Blocks that counted keep counting after
+  they are trimmed (`checked_floor`, stored with the state).
+- Known limits of phase 1: a server holding back blocks from a phone that
+  was away for over an hour can stamp one real block late and append a
+  cheap branch over 18 blocks long, after which the phone refuses the honest
+  chain as too deep. Nothing on that branch counts as checked; the screen
+  shows the problem and offers "Start over from the checkpoint". The 120 s
+  bar is fixed at the checkpoint rate, so a patient attacker withholding the
+  real chain can mine past it privately (about 4 h at 1% of the network);
+  what that buys is limited, since a server can already name a real block
+  for a fake payment. Slot proofs (phase 2) are the real fix for both.
 - `backend/src/headers.ts` pages raw headers; `app/src/lib/chainSync.ts`
   drives the sync; `app/src/app/chain.tsx` shows the result.
 - What it proves: the server's headers form a valid proof-of-work chain

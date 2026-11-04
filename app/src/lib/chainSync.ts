@@ -48,6 +48,10 @@ export async function runSync(deps: SyncDeps, serverTip: number): Promise<SyncOu
   }
   let tip = serverTip;
   let from = info.tipHeight + 1;
+  // The phone is ahead of the server: the server is on another branch (or
+  // the phone was fed one). Ask from a little below the server's tip so the
+  // core can weigh the two; it refuses the server's branch if it has less work.
+  if (serverTip < info.tipHeight) from = Math.max(info.checkpointHeight + 1, serverTip - FORK_LOOKBACK);
   let retriedFork = false;
   for (let page = 0; page < MAX_PAGES_PER_SYNC && from <= tip; page++) {
     const r = await deps.headers(from, PAGE);

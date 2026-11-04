@@ -135,6 +135,20 @@ async function run(api: Api, serverTip: number) {
 }
 
 /**
+ * Forget the saved chain view and check again from the built-in checkpoint.
+ * For when the phone refuses the server's chain as a deeper branch: blocks
+ * that never counted as checked may have come from a server holding back the
+ * real chain.
+ */
+export function restartChain(api: Api, serverTip: number): Promise<void> {
+  if (inFlight) return inFlight;
+  state = null;
+  storage.clearChain();
+  set({ info: null, problem: null });
+  return syncChain(api, serverTip);
+}
+
+/**
  * Whether the block the server reported for a payment is on the chain the
  * phone checked: true (same id), false (a different block at that height),
  * or null (that height is not checked or no longer remembered).

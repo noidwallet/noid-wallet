@@ -39,21 +39,29 @@ for h in $(seq 210501 210620) $(seq $((tip-400)) $tip); do rpc getHeaderByHeight
 wc -l /root/headers.jsonl
 ```
 
-## Results (Nov 2, 2026)
+## Results (Nov 4, 2026)
 
-All checks agree, including 449 real mainnet headers: blocks 210,537 to
-210,620 (the v2 switch) and 274,457 to 274,821.
+All checks agree, including 5,106 real mainnet headers after the built-in
+checkpoint: blocks 274,822 to 279,927, across the v2.1 activation at
+279,370. Earlier run (Nov 2): blocks 210,537 to 210,620 (the v2 switch) and
+274,457 to 274,821.
 
 What the real headers show about mainnet difficulty:
 
-- About 2^44 hashes per block recently (2.2 x 10^13), roughly 80 million
-  times the genesis floor. Network rate about 7.5 x 10^11 Poseidon2b
-  hashes per second, average block 29.3 s.
-- Faking one block at that difficulty takes about as much work as the whole
-  network does in 30 seconds. The cheap path is to let ASERT lower the
-  difficulty with late timestamps, so the phone must refuse chains whose
-  target eases too fast. On real blocks the target never eased more than
-  x1.6 from one block to the next, or more than x3.0 within any 18 blocks.
-- An easing limit alone is not enough: one real block stamped late can make
-  the next target the genesis floor (about 2^18 hashes). The phone also needs
-  a floor on total work since its shipped checkpoint (see core/src/headers.rs).
+- About 2^44 hashes per block (2.2 x 10^13), roughly 80 million times the
+  genesis floor. Network rate at the checkpoint about 7.5 x 10^11 Poseidon2b
+  hashes per second, average block about 30 s.
+- ASERT really does ease fast after a gap. Block 279,458 came 994 s after
+  its parent (Nov 4, 04:51 UTC, about an hour after v2.1 activated), so block
+  279,459 was 41x easier, and the following dozens of blocks were cheap and
+  fast while the target recovered. Both the official code and the phone
+  accept this stretch. An earlier phone design (no more than 4x easing per
+  block, and a 19-block work floor at 1/8 of the checkpoint rate) refused
+  it; the first phone test caught that.
+- So the phone accepts cheap blocks that pass consensus and instead counts a
+  block as checked only once it is 8 deep with at least 120 s of
+  checkpoint-rate work on top. On these headers "counted as checked"
+  trails the tip by 8 blocks normally and by at most 38 during the recovery
+  after block 279,458.
+- A floor on total work since the shipped checkpoint (1/16 of the
+  checkpoint rate) still stops a whole fake chain from the checkpoint.

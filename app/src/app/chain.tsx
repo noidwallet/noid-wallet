@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Banner, Body, Button, Card, KeyValue, Pill, Screen } from '@/components/ui';
-import { STALE_AFTER_MS, syncChain, useChain } from '@/lib/chain';
+import { restartChain, STALE_AFTER_MS, syncChain, useChain } from '@/lib/chain';
 import { ago, useNow } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
@@ -28,11 +28,11 @@ export default function Chain() {
             : { text: 'Chain verified', tone: 'success' as const }
           : { text: 'Off', tone: 'neutral' as const };
 
-  async function again() {
+  async function again(fresh: boolean) {
     if (!status) return;
     setBusy(true);
     try {
-      await syncChain(api, status.height);
+      await (fresh ? restartChain(api, status.height) : syncChain(api, status.height));
     } finally {
       setBusy(false);
     }
@@ -47,7 +47,7 @@ export default function Chain() {
             <Text adjustsFontSizeToFit numberOfLines={1} style={type.display}>
               {info.tipHeight.toLocaleString()}
             </Text>
-            <Text style={type.bodySm}>last block checked on this phone{tipAge !== null ? `, mined ${ago(info.tipTimestamp * 1000, now)}` : ''}</Text>
+            <Text style={type.bodySm}>newest block that passed the checks on this phone{tipAge !== null ? `, mined ${ago(info.tipTimestamp * 1000, now)}` : ''}</Text>
           </>
         ) : null}
       </View>
@@ -82,14 +82,24 @@ export default function Chain() {
         {chain.lastSyncAt ? <KeyValue label="Last check" value={ago(chain.lastSyncAt, now)} mono={false} /> : null}
       </Card>
 
-      <Button title={busy || chain.kind === 'syncing' ? 'Checking…' : 'Check again'} kind="secondary" disabled={busy || chain.kind === 'syncing' || !status} onPress={() => void again()} />
+      <Button title={busy || chain.kind === 'syncing' ? 'Checking…' : 'Check again'} kind="secondary" disabled={busy || chain.kind === 'syncing' || !status} onPress={() => void again(false)} />
+      {chain.kind === 'problem' ? (
+        <>
+          <Button title="Start over from the checkpoint" kind="secondary" disabled={busy || !status} onPress={() => void again(true)} />
+          <Body>
+            Checks the chain again from block 274,821, as a fresh install would. Use this if the problem stays after checking again, for
+            example after switching servers. It does not touch your wallet or balance.
+          </Body>
+        </>
+      ) : null}
 
       <View style={{ gap: space.sm }}>
         <Text style={type.title}>What this checks</Text>
         <Body>
           Your phone verifies the chain of blocks itself, starting from block 274,821, which is built into this version of the app. For every block
-          after it, the phone checks the proof of work, the difficulty rule, the timestamps, the link to the previous block, and that the whole chain
-          carries real mining work. A wallet server cannot get a block counted as checked without real mining work behind it.
+          after it, the phone checks the proof of work, the difficulty rule, the timestamps and the link to the previous block, and that the chain
+          since the checkpoint carries real mining work overall. The newest blocks can be cheap, so a block only counts as checked once real
+          mining work is built on top of it: a wallet server cannot get a block counted without paying for that work.
         </Body>
         <Text style={type.title}>What it does not check yet</Text>
         <Body>

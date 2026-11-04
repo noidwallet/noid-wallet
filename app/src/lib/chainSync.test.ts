@@ -109,3 +109,14 @@ test('unusable saved data is cleared and the sync restarts from the checkpoint',
   assert.equal(deps.cleared, 1);
   assert.equal(deps.calls[0]!.from, CP + 1);
 });
+
+test('when the phone is ahead of the server, it asks from below the server tip so the core can weigh the branch', async () => {
+  const deps = fakeCore({ serverTip: 275_500 });
+  const ahead: ChainState = { v: 1, checkpoint: CP, headers: [], workBefore: '00', ids: { 275_600: 'id275600' } };
+  deps.load = () => ahead;
+  const out = await runSync(deps, 275_500);
+  assert.equal(deps.calls.length, 1);
+  assert.deepEqual(deps.calls[0], { from: 275_500 - FORK_LOOKBACK, n: PAGE });
+  // The fake core already has every height it was sent: nothing new, no refusal.
+  assert.equal(out.kind, 'ready');
+});
