@@ -8,8 +8,10 @@ import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-nat
 
 import { Icon } from '@/components/Icon';
 import { TokenRow } from '@/components/AssetRows';
+import { NftThumb } from '@/components/AssetSheet';
+import { NoidMark } from '@/components/SendPickers';
 import { HistoryRow, makeFiatOf, makeNameOf, PendingRow } from '@/components/TxRow';
-import { Avatar, Banner, Button, EmptyState, IconAction, IconButton, Link, ListRow, Skeleton, toast } from '@/components/ui';
+import { Banner, Button, EmptyState, IconAction, IconButton, Link, ListRow, Skeleton, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import Constants from 'expo-constants';
 import { UPDATE_URL, updateNotice } from '@/lib/appVersion';
@@ -27,7 +29,7 @@ import { colors, fonts, radius, space, type } from '@/theme';
 
 /** Suggest merging once a wallet holds this many separate coins. */
 const MERGE_HINT_AT = 20;
-const ACTIVITY_ON_HOME = 10;
+const ACTIVITY_ON_HOME = 5;
 const TOKENS_ON_HOME = 3;
 
 export default function Home() {
@@ -478,13 +480,20 @@ export default function Home() {
           </View>
         ) : null}
 
-        {/* Tokens and NFTs: only once the address holds any */}
+        {/* Assets: NOID first, then tokens and NFTs (only once the address holds any) */}
         {heldHere ? (
           <View style={{ gap: space.xs }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={type.h2}>Tokens</Text>
+              <Text style={type.h2}>Assets</Text>
               <Link title="See all" onPress={() => go('/assets')} />
             </View>
+            <ListRow
+              leading={<NoidMark />}
+              title="NOID"
+              subtitle="The Parano1d coin"
+              value={hidden ? '••••' : formatNoid(shownBalance, { maxDecimals: 4 })}
+              valueSub={hidden ? null : fiatOf(shownBalance)}
+            />
             {heldHere.tokens.slice(0, TOKENS_ON_HOME).map((t) => (
               <TokenRow key={t.assetId} api={w.api} token={t} hidden={hidden} />
             ))}
@@ -493,9 +502,17 @@ export default function Home() {
             ) : null}
             {heldHere.nfts.length > 0 ? (
               <ListRow
-                leading={<Avatar initials="NFT" tone="info" />}
+                leading={
+                  <View style={{ flexDirection: 'row', width: 40 + Math.min(heldHere.nfts.length - 1, 2) * 14 }}>
+                    {heldHere.nfts.slice(0, 3).map((n, i) => (
+                      <View key={`${n.collection}-${n.serial}`} style={{ marginLeft: i === 0 ? 0 : -26, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.bg }}>
+                        <NftThumb api={w.api} nft={n} size={36} />
+                      </View>
+                    ))}
+                  </View>
+                }
                 title={`${heldHere.nfts.length} NFT${heldHere.nfts.length === 1 ? '' : 's'}`}
-                subtitle="Tap to see them"
+                subtitle="See your collection"
                 onPress={() => go('/assets')}
                 chevron
               />

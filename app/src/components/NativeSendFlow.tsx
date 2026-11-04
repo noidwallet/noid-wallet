@@ -1,7 +1,7 @@
 // Send a token or NFT (NOID 1.2). Form -> review (computed on the phone from
 // the decoded transfer, never from the server's numbers) -> confirm -> sent.
 import { useCallback, useRef, useState } from 'react';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Pressable, Text, View } from 'react-native';
@@ -9,6 +9,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Icon } from '@/components/Icon';
 import { TokenIcon } from '@/components/AssetRows';
 import { SendProgress } from '@/components/Progress';
+import { AssetSheet, NftThumb, type AssetChoice } from '@/components/AssetSheet';
 import { AssetSelector, RecentRecipients, recentRecipients } from '@/components/SendPickers';
 import { Avatar, Banner, Body, Button, Card, Field, IconButton, KeyValue, Screen, SuccessMark, Title } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
@@ -20,7 +21,7 @@ import { knownBlockId } from '@/lib/chain';
 import { executeNativeSend, NativeFeeChanged, reviewNativeSend } from '@/lib/nativeSend';
 import { go, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
-import { assetPick, contactPick, scanResult } from '@/lib/scan';
+import { contactPick, scanResult } from '@/lib/scan';
 import { hasUnresolvedSend, overrideRefusals, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { formatUnits, nftKey, parseUnits, toBig } from '@/lib/tokenMath';
@@ -29,14 +30,21 @@ import { colors, fonts, space, type } from '@/theme';
 
 type Step = 'form' | 'review' | 'sending' | 'done';
 
-export default function NativeSend() {
-  const { kind, id, to: toParam } = useLocalSearchParams<{ kind: string; id: string; to?: string }>();
+/**
+ * The Send screen for a token or NFT (`asset` is "token:<id>" or
+ * "nft:<key>"). Choosing something else in the sheet hands the choice and
+ * the recipient back to the Send screen, which swaps the form in place.
+ */
+export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoice; initialTo: string; onAsset: (choice: AssetChoice, to: string) => void }) {
+  const [kind, ...idParts] = asset.split(':');
+  const id = idParts.join(':');
   const w = useWallet();
+  const [sheet, setSheet] = useState(false);
   const shown = shownAssets(useAssets(), w.meta?.address);
   const token = kind === 'token' ? shown?.tokens.find((t) => t.assetId === id) : undefined;
   const nft = kind === 'nft' ? shown?.nfts.find((n) => nftKey(n.collection, n.serial) === id) : undefined;
   const sendingRef = useRef(false);
-  const [to, setTo] = useState(typeof toParam === 'string' ? toParam : '');
+  const [to, setTo] = useState(initialTo);
   const [toError, setToError] = useState<string | null>(null);
   const [amountText, setAmountText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -81,17 +89,7 @@ export default function NativeSend() {
         setTo(picked);
         setToError(null);
       }
-      // Something else chosen in the picker: NOID has its own form; another
-      // token or NFT reuses this one. The recipient carries over.
-      const what = assetPick.take();
-      if (what === 'noid') router.replace({ pathname: '/send', params: { to } });
-      else if (what) {
-        const [k, ...rest] = what.split(':');
-        setAmountText('');
-        setError(null);
-        router.setParams({ kind: k, id: rest.join(':') });
-      }
-    }, [setTo, setToError, setAmountText, setError, to]),
+    }, [setTo, setToError]),
   );
 
   const armed = useArmed(step === 'review' ? review : null);
@@ -121,6 +119,7 @@ export default function NativeSend() {
     return (
       <Screen header={{ title: 'Send' }}>
         <Banner tone="neutral">This is no longer at your address.</Banner>
+        <Button title="Send NOID instead" kind="secondary" onPress={() => onAsset('noid', to)} />
       </Screen>
     );
   }
@@ -381,17 +380,12 @@ export default function NativeSend() {
       }
     >
       <AssetSelector
-        leading={
-          token ? (
-            <TokenIcon api={w.api} token={token} />
-          ) : (
-            <Avatar initials={nft ? `#${nft.serial}`.slice(0, 3) : '?'} />
-          )
-        }
+        leading={token ? <TokenIcon api={w.api} token={token} /> : nft ? <NftThumb api={w.api} nft={nft} /> : <Avatar initials="?" />}
         title={itemTitle}
         subtitle={token && spendable !== null ? `You can send ${formatUnits(spendable)}${symbol ? ` ${symbol}` : ''}` : nft ? `NFT #${nft.serial}` : undefined}
-        onPress={() => go('/send-asset')}
+        onPress={() => setSheet(true)}
       />
+      <AssetSheet visible={sheet} current={asset} onPick={(c) => c !== asset && onAsset(c, to)} onClose={() => setSheet(false)} />
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
       <Field
         label="To"

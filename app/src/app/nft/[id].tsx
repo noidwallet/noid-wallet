@@ -89,7 +89,7 @@ export default function NftDetail() {
       </Card>
 
       {status?.features?.nativeSend ? (
-        <Button title="Send NFT" icon="send" onPress={() => go({ pathname: '/native-send', params: { kind: 'nft', id: nftKey(nft.collection, nft.serial) } })} />
+        <Button title="Send NFT" icon="send" onPress={() => go({ pathname: '/send', params: { asset: `nft:${nftKey(nft.collection, nft.serial)}` } })} />
       ) : (
         <Banner tone="neutral">
           Your wallet server can’t prepare NFT transfers yet. This NFT is safe at your address, and you can use it in the official Parano1d

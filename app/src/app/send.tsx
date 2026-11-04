@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Pressable, Text, View } from 'react-native';
@@ -7,6 +7,8 @@ import { Pressable, Text, View } from 'react-native';
 import { AmountField } from '@/components/AmountField';
 import { Icon } from '@/components/Icon';
 import { SendProgress } from '@/components/Progress';
+import { AssetSheet, type AssetChoice } from '@/components/AssetSheet';
+import { NativeSendFlow } from '@/components/NativeSendFlow';
 import { AssetSelector, NoidMark, RecentRecipients, recentRecipients } from '@/components/SendPickers';
 import {
   Avatar,
@@ -30,7 +32,7 @@ import { inbox } from '@/lib/inbox';
 import { parseLink, type ParsedLink } from '@/lib/links';
 import { go, goHandoff, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
-import { assetPick, contactPick, scanResult } from '@/lib/scan';
+import { contactPick, scanResult } from '@/lib/scan';
 import { shownAssets, useAssets } from '@/lib/assets';
 import { executeSend, FeeChanged, hasUnresolvedSend, overrideRefusals, planSend, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
@@ -40,12 +42,29 @@ import { colors, fonts, radius, space, type } from '@/theme';
 
 type Step = 'form' | 'review' | 'sending' | 'done';
 
+/**
+ * One Send screen for NOID, tokens and NFTs. `asset` ("token:<id>" or
+ * "nft:<key>") opens it on a token or NFT, as the token and NFT screens do.
+ * Switching what to send swaps the form in place and keeps the recipient.
+ */
 export default function Send() {
+  const params = useLocalSearchParams<{ asset?: string }>();
+  const [asset, setAsset] = useState<AssetChoice>(typeof params.asset === 'string' && params.asset ? params.asset : 'noid');
+  const [carryTo, setCarryTo] = useState('');
+  const switchTo = useCallback((choice: AssetChoice, to: string) => {
+    setCarryTo(to);
+    setAsset(choice);
+  }, []);
+  if (asset === 'noid') return <NoidSend key="noid" initialTo={carryTo} onAsset={switchTo} />;
+  return <NativeSendFlow key={asset} asset={asset} initialTo={carryTo} onAsset={switchTo} />;
+}
+
+function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice: AssetChoice, to: string) => void }) {
   const w = useWallet();
-  const params = useLocalSearchParams<{ to?: string }>();
   const shownHoldings = shownAssets(useAssets(), w.meta?.address);
   const sendingRef = useRef(false);
-  const [to, setTo] = useState(typeof params.to === 'string' ? params.to : '');
+  const [sheet, setSheet] = useState(false);
+  const [to, setTo] = useState(initialTo);
   const [amountText, setAmountText] = useState('');
   // Currency text that can't be turned into an amount (see AmountField).
   const [amountInvalid, setAmountInvalid] = useState(false);
@@ -119,13 +138,7 @@ export default function Send() {
         setTo(picked);
         setToError(null);
       }
-      // A token or NFT chosen in the picker: its own send form, same recipient.
-      const what = assetPick.take();
-      if (what && what !== 'noid') {
-        const [kind, ...rest] = what.split(':');
-        router.replace({ pathname: '/native-send', params: { kind, id: rest.join(':'), to } });
-      }
-    }, [fill, to]),
+    }, [fill]),
   );
 
   // The Send button sits where Continue was. A second tap on Continue (easy
@@ -557,9 +570,10 @@ export default function Send() {
           leading={<NoidMark />}
           title="NOID"
           subtitle={`You have ${formatNoid(available)} NOID available`}
-          onPress={() => go('/send-asset')}
+          onPress={() => setSheet(true)}
         />
       ) : null}
+      <AssetSheet visible={sheet} current="noid" onPick={(c) => c !== 'noid' && onAsset(c, to)} onClose={() => setSheet(false)} />
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
       {connecting ? <Banner tone="neutral">Connecting to the network…</Banner> : null}
       {fromLink ? <Banner tone="warn">Filled in from a link someone sent you. Check the address and amount before you send.</Banner> : null}

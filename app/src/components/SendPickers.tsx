@@ -3,6 +3,7 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Icon } from '@/components/Icon';
+import { LogoMark } from '@/components/Logo';
 import { Avatar, initialsOf, toneFor } from '@/components/ui';
 import { shortAddress } from '@/lib/amount';
 import { colors, fonts, radius, space, type } from '@/theme';
@@ -86,7 +87,7 @@ export function AssetSelector({ leading, title, subtitle, onPress }: { leading: 
 export function NoidMark({ size = 40 }: { size?: number }) {
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: colors.accent, fontFamily: fonts.monoBold, fontSize: size * 0.4 }}>N</Text>
+      <LogoMark size={size * 0.7} glow={false} />
     </View>
   );
 }
