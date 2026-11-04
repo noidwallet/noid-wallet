@@ -1,14 +1,16 @@
 // Send a token or NFT (NOID 1.2). Form -> review (computed on the phone from
 // the decoded transfer, never from the server's numbers) -> confirm -> sent.
 import { useCallback, useRef, useState } from 'react';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Pressable, Text, View } from 'react-native';
 
 import { Icon } from '@/components/Icon';
+import { TokenIcon } from '@/components/AssetRows';
 import { SendProgress } from '@/components/Progress';
-import { Banner, Body, Button, Card, Field, IconButton, KeyValue, Screen, SuccessMark, Title } from '@/components/ui';
+import { AssetSelector, RecentRecipients, recentRecipients } from '@/components/SendPickers';
+import { Avatar, Banner, Body, Button, Card, Field, IconButton, KeyValue, Screen, SuccessMark, Title } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { nftName, shownAssets, tokenName, useAssets } from '@/lib/assets';
 import { LINK_HOSTS } from '@/lib/config';
@@ -18,7 +20,7 @@ import { knownBlockId } from '@/lib/chain';
 import { executeNativeSend, NativeFeeChanged, reviewNativeSend } from '@/lib/nativeSend';
 import { go, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
-import { contactPick, scanResult } from '@/lib/scan';
+import { assetPick, contactPick, scanResult } from '@/lib/scan';
 import { hasUnresolvedSend, overrideRefusals, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { formatUnits, nftKey, parseUnits, toBig } from '@/lib/tokenMath';
@@ -28,13 +30,13 @@ import { colors, fonts, space, type } from '@/theme';
 type Step = 'form' | 'review' | 'sending' | 'done';
 
 export default function NativeSend() {
-  const { kind, id } = useLocalSearchParams<{ kind: string; id: string }>();
+  const { kind, id, to: toParam } = useLocalSearchParams<{ kind: string; id: string; to?: string }>();
   const w = useWallet();
   const shown = shownAssets(useAssets(), w.meta?.address);
   const token = kind === 'token' ? shown?.tokens.find((t) => t.assetId === id) : undefined;
   const nft = kind === 'nft' ? shown?.nfts.find((n) => nftKey(n.collection, n.serial) === id) : undefined;
   const sendingRef = useRef(false);
-  const [to, setTo] = useState('');
+  const [to, setTo] = useState(typeof toParam === 'string' ? toParam : '');
   const [toError, setToError] = useState<string | null>(null);
   const [amountText, setAmountText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +81,17 @@ export default function NativeSend() {
         setTo(picked);
         setToError(null);
       }
-    }, [setTo, setToError]),
+      // Something else chosen in the picker: NOID has its own form; another
+      // token or NFT reuses this one. The recipient carries over.
+      const what = assetPick.take();
+      if (what === 'noid') router.replace({ pathname: '/send', params: { to } });
+      else if (what) {
+        const [k, ...rest] = what.split(':');
+        setAmountText('');
+        setError(null);
+        router.setParams({ kind: k, id: rest.join(':') });
+      }
+    }, [setTo, setToError, setAmountText, setError, to]),
   );
 
   const armed = useArmed(step === 'review' ? review : null);
@@ -203,7 +215,7 @@ export default function NativeSend() {
   if (step === 'sending' && review) {
     return (
       <Screen>
-        <SendProgress stage={stage} title={`Sending ${what(review)}`} />
+        <SendProgress stage={stage} title={`Sending ${what(review)}`} signing="Signing your transfer" />
       </Screen>
     );
   }
@@ -358,7 +370,7 @@ export default function NativeSend() {
 
   return (
     <Screen
-      header={{ title: token ? `Send ${symbol || 'token'}` : 'Send NFT' }}
+      header={{ title: 'Send' }}
       footer={
         <Button
           title="Continue"
@@ -368,8 +380,19 @@ export default function NativeSend() {
         />
       }
     >
+      <AssetSelector
+        leading={
+          token ? (
+            <TokenIcon api={w.api} token={token} />
+          ) : (
+            <Avatar initials={nft ? `#${nft.serial}`.slice(0, 3) : '?'} />
+          )
+        }
+        title={itemTitle}
+        subtitle={token && spendable !== null ? `You can send ${formatUnits(spendable)}${symbol ? ` ${symbol}` : ''}` : nft ? `NFT #${nft.serial}` : undefined}
+        onPress={() => go('/send-asset')}
+      />
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
-      <Text style={type.title}>{itemTitle}</Text>
       <Field
         label="To"
         mono
@@ -401,6 +424,15 @@ export default function NativeSend() {
           </>
         }
       />
+      {!to ? (
+        <RecentRecipients
+          recents={recentRecipients(w.contacts, w.sentTo)}
+          onPick={(a) => {
+            setTo(a);
+            setToError(null);
+          }}
+        />
+      ) : null}
       {token ? (
         <Field
           label={`Amount${symbol ? ` (${symbol})` : ''}`}

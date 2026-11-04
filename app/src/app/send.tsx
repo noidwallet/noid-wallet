@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { AmountField } from '@/components/AmountField';
 import { Icon } from '@/components/Icon';
 import { SendProgress } from '@/components/Progress';
+import { AssetSelector, NoidMark, RecentRecipients, recentRecipients } from '@/components/SendPickers';
 import {
   Avatar,
   Banner,
@@ -29,7 +30,8 @@ import { inbox } from '@/lib/inbox';
 import { parseLink, type ParsedLink } from '@/lib/links';
 import { go, goHandoff, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
-import { contactPick, scanResult } from '@/lib/scan';
+import { assetPick, contactPick, scanResult } from '@/lib/scan';
+import { shownAssets, useAssets } from '@/lib/assets';
 import { executeSend, FeeChanged, hasUnresolvedSend, overrideRefusals, planSend, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
 import { maxSendable, WALLET_FEE_TEXT, walletFeeLabel } from '@/lib/walletFee';
@@ -40,8 +42,10 @@ type Step = 'form' | 'review' | 'sending' | 'done';
 
 export default function Send() {
   const w = useWallet();
+  const params = useLocalSearchParams<{ to?: string }>();
+  const shownHoldings = shownAssets(useAssets(), w.meta?.address);
   const sendingRef = useRef(false);
-  const [to, setTo] = useState('');
+  const [to, setTo] = useState(typeof params.to === 'string' ? params.to : '');
   const [amountText, setAmountText] = useState('');
   // Currency text that can't be turned into an amount (see AmountField).
   const [amountInvalid, setAmountInvalid] = useState(false);
@@ -115,7 +119,13 @@ export default function Send() {
         setTo(picked);
         setToError(null);
       }
-    }, [fill]),
+      // A token or NFT chosen in the picker: its own send form, same recipient.
+      const what = assetPick.take();
+      if (what && what !== 'noid') {
+        const [kind, ...rest] = what.split(':');
+        router.replace({ pathname: '/native-send', params: { kind, id: rest.join(':'), to } });
+      }
+    }, [fill, to]),
   );
 
   // The Send button sits where Continue was. A second tap on Continue (easy
@@ -155,10 +165,10 @@ export default function Send() {
   };
 
   // Recent people to pay: contacts first, then addresses you paid before.
-  const recents = [
-    ...w.contacts.map((c) => ({ address: c.address, name: c.name })),
-    ...w.sentTo.filter((a) => !w.contacts.some((c) => c.address === a)).map((a) => ({ address: a, name: shortAddress(a, 4) })),
-  ].slice(0, 8);
+  const recents = recentRecipients(w.contacts, w.sentTo);
+  // NOID, a token or an NFT: offered when there is something else to send.
+  const canSendOthers =
+    !!w.status?.features?.nativeSend && ((shownHoldings?.tokens.length ?? 0) > 0 || (shownHoldings?.nfts.length ?? 0) > 0);
 
   async function review() {
     setError(null);
@@ -542,6 +552,14 @@ export default function Send() {
         <Button title="Continue" busy={busy} disabled={!to || !amountText || amountInvalid || tooMuch || !!blocker || connecting} onPress={review} />
       }
     >
+      {canSendOthers ? (
+        <AssetSelector
+          leading={<NoidMark />}
+          title="NOID"
+          subtitle={`You have ${formatNoid(available)} NOID available`}
+          onPress={() => go('/send-asset')}
+        />
+      ) : null}
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
       {connecting ? <Banner tone="neutral">Connecting to the network…</Banner> : null}
       {fromLink ? <Banner tone="warn">Filled in from a link someone sent you. Check the address and amount before you send.</Banner> : null}
@@ -583,40 +601,14 @@ export default function Send() {
           </>
         }
       />
-      {recents.length > 0 && !to ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={{ gap: space.sm, alignItems: 'center' }}
-        >
-          {recents.map((r) => (
-            <Pressable
-              key={r.address}
-              accessibilityRole="button"
-              accessibilityLabel={`Pay ${r.name}`}
-              onPress={() => {
-                setTo(r.address);
-                setToError(null);
-              }}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: space.sm,
-                backgroundColor: pressed ? colors.s3 : colors.s2,
-                borderRadius: radius.pill,
-                paddingLeft: 6,
-                paddingRight: space.md,
-                paddingVertical: 6,
-              })}
-            >
-              <Avatar initials={initialsOf(r.name)} tone={toneFor(r.name)} size={28} />
-              <Text style={{ color: colors.text, fontFamily: fonts.uiSemi }} numberOfLines={1}>
-                {r.name}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+      {!to ? (
+        <RecentRecipients
+          recents={recents}
+          onPick={(a) => {
+            setTo(a);
+            setToError(null);
+          }}
+        />
       ) : null}
       {note ? <Banner tone="neutral">Payment request: {note}</Banner> : null}
       <AmountField

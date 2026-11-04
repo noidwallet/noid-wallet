@@ -390,7 +390,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       gifts,
       // Only what this phone itself sent: server-supplied history could plant
       // an address here and silence the first-payment warning.
-      sentTo: [...new Set([...recipients, ...pending.filter((p) => p.kind === 'send' && p.to).map((p) => p.to!)])],
+      sentTo: [
+        ...new Set([
+          ...recipients,
+          ...pending.filter((p) => (p.kind === 'send' || p.kind === 'token' || p.kind === 'nft') && p.to).map((p) => p.to!),
+        ]),
+      ],
       refresh,
       createWallet,
       async markBackedUp() {

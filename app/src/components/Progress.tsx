@@ -16,7 +16,7 @@ const ORDER: Record<Stage, number> = { preparing: 0, retrying: 0, forging: 1, su
  * Three-step checklist for a send, gift or claim. Securing the payment (the
  * proof) can take up to a minute on slower phones, so progress must be visible.
  */
-export function SendProgress({ stage, title }: { stage: Stage; title: string }) {
+export function SendProgress({ stage, title, signing }: { stage: Stage; title: string; signing?: string }) {
   const current = ORDER[stage];
   return (
     <View style={{ flex: 1, justifyContent: 'center', gap: space.xl }}>
@@ -44,7 +44,7 @@ export function SendProgress({ stage, title }: { stage: Stage; title: string }) 
                 ) : null}
               </View>
               <Text style={[type.body, { color: done || active ? colors.text : colors.faint }]}>
-                {s.label}
+                {s.stage === 'forging' && signing ? signing : s.label}
                 {active && stage === 'retrying' ? ' (new block, trying again)' : ''}
               </Text>
             </View>

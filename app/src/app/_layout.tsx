@@ -106,6 +106,7 @@ function Routes() {
             <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="chain" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="native-send" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="send-asset" options={{ animation: 'slide_from_bottom' }} />
             <Stack.Screen name="backup" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="tx/[txid]" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="assets" options={{ animation: 'slide_from_right' }} />
