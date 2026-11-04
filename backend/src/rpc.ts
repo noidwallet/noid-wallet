@@ -26,6 +26,11 @@ const ALLOWED = new Set([
   "getNativeMarket",
   // Raw block headers for the phone's own chain check.
   "getHeaderByHeight",
+  // Token and NFT transfers: the stateless planner for an address the phone
+  // names. It reads State and the mempool only; it never uses the node's own
+  // wallet or keys, and it signs nothing (docs/reference/client-native-rpc.md).
+  // Only plain transfers are ever requested (native.ts builds the request).
+  "prepareNativeIntent",
 ] as const);
 
 export type RpcMethod = typeof ALLOWED extends Set<infer T> ? T : never;

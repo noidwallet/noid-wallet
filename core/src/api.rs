@@ -300,6 +300,38 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
         }
 
         // Parano1d v2.1 tokens and NFTs (see assets.rs).
+        // Token and NFT sends: check the server's plan (no secret) for the
+        // review screen, then build and prove it.
+        "checkNativeSend" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                owner: String,
+                request: crate::native_send::NativeSendRequest,
+                #[serde(default)]
+                pending_output_slots: Vec<u32>,
+            }
+            let mut a: A = args(json)?;
+            a.request.slot_hints.retain(|s| !a.pending_output_slots.contains(s));
+            Ok(serde_json::to_value(crate::native_send::check_native_send(&a.owner, &a.request)?).unwrap())
+        }
+
+        "buildNativeSend" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct A {
+                secret_hex: Zeroizing<String>,
+                key_index: u32,
+                request: crate::native_send::NativeSendRequest,
+                #[serde(default)]
+                pending_output_slots: Vec<u32>,
+            }
+            let mut a: A = args(json)?;
+            a.request.slot_hints.retain(|s| !a.pending_output_slots.contains(s));
+            let secret = MasterSecret::from_hex(&a.secret_hex)?;
+            Ok(serde_json::to_value(crate::native_send::build_native_send(&secret, a.key_index, &a.request)?).unwrap())
+        }
+
         "checkAssets" => {
             #[derive(Deserialize)]
             struct A {

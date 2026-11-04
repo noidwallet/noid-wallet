@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 
 import { registerAssetRoutes, type AssetDeps } from "./assets.js";
 import { registerHeaderRoutes, type HeaderDeps } from "./headers.js";
+import { registerNativeRoutes, type NativeDeps } from "./native.js";
 import type { Db } from "./db.js";
 import type { Indexer } from "./indexer.js";
 import type { PriceFeed } from "./price.js";
@@ -107,6 +108,7 @@ export async function buildServer(
     app?: { latest?: string; min?: string };
     assets?: AssetDeps;
     headers?: HeaderDeps;
+    native?: NativeDeps;
   },
 ): Promise<FastifyInstance> {
   // Only trust X-Forwarded-For from the local reverse proxy (Caddy).
@@ -153,6 +155,7 @@ export async function buildServer(
 
   const assets = registerAssetRoutes(app, opts.assets);
   registerHeaderRoutes(app, opts.headers);
+  registerNativeRoutes(app, opts.native);
 
   // Every phone polls /v1/status: answer from a 2-second cache so a burst of
   // requests can't flood the node's RPC (which the indexer also needs).
@@ -181,7 +184,7 @@ export async function buildServer(
       relayFloor: mempool.fee_floor,
       mempool: { size: mempool.size, capacity: mempool.capacity },
       indexer: { indexedHeight: indexer.indexedHeight, healthy: indexer.lastError === null },
-      features: { price: !!opts.price, push: !!opts.notifier, assets: true, media: assets.mediaEnabled, headers: true },
+      features: { price: !!opts.price, push: !!opts.notifier, assets: true, media: assets.mediaEnabled, headers: true, nativeSend: true },
       ...(opts.app?.latest || opts.app?.min ? { app: { latest: opts.app.latest ?? null, min: opts.app.min ?? null } } : {}),
     };
   });

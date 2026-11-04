@@ -8,6 +8,7 @@ import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
 import { noidUsdFromPaprika, noidUsdFromPeatio, PriceFeed, saneRates } from "../src/price.js";
 import { Notifier, type PushSender } from "../src/push.js";
+import { RpcError } from "../src/rpc.js";
 import { buildServer, clientKey } from "../src/server.js";
 
 const A = "o1wrznmh6td3mgg9mu0a3kkxxn2lnfu827uykrnpaa90mex8su9zcs5sjxrk";
@@ -317,5 +318,79 @@ test("headers: pages raw headers for the phone's chain check, caches only final 
   }
   const status = await app.inject({ url: "/v1/status" }).catch(() => null);
   void status;
+  await app.close();
+});
+
+test("native prepare: only plain transfers, strict fields, planner errors mapped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "noid-"));
+  const db = openDb(join(dir, "t.sqlite"));
+  const B = "o1s32s5m9ughjv2ktvxm8m7y0gmu0swys5t0ufkdnyhv02nudc23cqg7y34s";
+  const ASSET = "26dd19b5" + "0".repeat(52) + "ff0a";
+  const seen: { method: string; params: unknown[] }[] = [];
+  let synced = true;
+  let fail: RpcError | null = null;
+  const rpc = async <T>(method: string, params: unknown[] = []): Promise<T> => {
+    seen.push({ method, params });
+    if (method === "getNodeStatus") return { synced } as T;
+    if (method === "prepareNativeIntent") {
+      if (fail) throw fail;
+      return { schema_version: 1, unsigned_intent_hex: "00" } as T;
+    }
+    if (method === "getSlotHintsSalted") return [11, 12, 13, 14] as T;
+    if (method === "getMempoolStats") return { fee_floor: 1000 } as T;
+    throw new Error(method);
+  };
+  // 10 requests a minute per client: give each batch its own client address.
+  let client = 0;
+  const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false, native: { rpc } });
+  const post = (payload: object) =>
+    app.inject({ method: "POST", url: "/v1/native/prepare", payload, remoteAddress: `10.0.0.${Math.floor(client++ / 9) + 1}` });
+
+  const ok = await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "0050", recipient: B });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(ok.json(), { plan: { schema_version: 1, unsigned_intent_hex: "00" }, slotHints: [11, 12, 13, 14], relayFloor: 1000 });
+  const call = seen.find((c) => c.method === "prepareNativeIntent");
+  // Canonical amount, exact field set, no parent pin.
+  assert.deepEqual(call?.params, [A, { action: "transfer_token", asset_id: ASSET, units: "50", recipient: B }]);
+
+  seen.length = 0;
+  const nft = await post({ owner: A, action: "transfer_nft", collectionId: ASSET, serial: "0", recipient: B });
+  assert.equal(nft.statusCode, 200);
+  assert.deepEqual(seen.find((c) => c.method === "prepareNativeIntent")?.params, [A, { action: "transfer_nft", collection_id: ASSET, serial: "0", recipient: B }]);
+
+  // Anything else is refused before the node is asked.
+  seen.length = 0;
+  const bad = [
+    { owner: A, action: "trade", assetId: ASSET, units: "1", recipient: B },
+    { owner: A, action: "burn_token", assetId: ASSET, units: "1" },
+    { owner: A, action: "transfer_token", assetId: ASSET, units: "0", recipient: B },
+    { owner: A, action: "transfer_token", assetId: ASSET, units: "18446744073709551616", recipient: B },
+    { owner: A, action: "transfer_token", assetId: ASSET, units: "1.5", recipient: B },
+    { owner: A, action: "transfer_token", assetId: ASSET.toUpperCase(), units: "1", recipient: B },
+    { owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: A },
+    { owner: "nope", action: "transfer_token", assetId: ASSET, units: "1", recipient: B },
+    { owner: A, action: "transfer_token", assetId: ASSET, units: 1, recipient: B },
+  ];
+  for (const p of bad) assert.equal((await post(p)).statusCode, 400, JSON.stringify(p));
+  assert.equal(seen.length, 0);
+
+  fail = new RpcError("native planning State changed; prepare the operation again", -32041);
+  const changed = await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B });
+  assert.equal(changed.statusCode, 409);
+  fail = new RpcError("insufficient NOID for native fee", -32000);
+  const cannot = await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B });
+  assert.equal(cannot.statusCode, 422);
+  assert.equal((cannot.json() as { error: { message: string } }).error.message, "insufficient NOID for native fee");
+  fail = null;
+  synced = false;
+  assert.equal((await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B })).statusCode, 503);
+  // The 11th request in a minute from one client is refused.
+  synced = true;
+  const codes: number[] = [];
+  for (let i = 0; i < 11; i++) {
+    const r = await app.inject({ method: "POST", url: "/v1/native/prepare", remoteAddress: "10.9.9.9", payload: { owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B } });
+    codes.push(r.statusCode);
+  }
+  assert.deepEqual([codes.slice(0, 10).every((c) => c === 200), codes[10]], [true, 429]);
   await app.close();
 });

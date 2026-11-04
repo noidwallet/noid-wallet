@@ -613,6 +613,13 @@ fn tracker_scenarios() {
 fn main() {
     let rounds = std::env::var("ROUNDS").ok().and_then(|r| r.parse().ok()).unwrap_or(50_000);
     let blocks = std::env::var("BLOCKS").ok().and_then(|r| r.parse().ok()).unwrap_or(40);
+    // Token and NFT sends sign for this chain identity (core/src/native_send.rs).
+    assert_eq!(
+        hex::encode(noid_chain::state::native_assets::native_chain_id()),
+        noid_mobile_core::native_send::NATIVE_CHAIN_ID_HEX,
+        "native chain id"
+    );
+    println!("native chain id matches noid_chain");
     fuzz(rounds);
     // All counts above 75% of 2^20: the first child must expand to 21.
     mined_chain("expansion", 262_000, blocks, |_| 800_000, 21);
