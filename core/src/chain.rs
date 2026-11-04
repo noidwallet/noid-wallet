@@ -1,4 +1,4 @@
-//! Following the chain from a built-in checkpoint (NOID 1.1, phase 1).
+//! Following the chain from a built-in checkpoint (NOID 1.2, phase 1).
 //!
 //! [`headers`](crate::headers) checks one header at a time. This module keeps
 //! the phone's view of the chain between app runs and adds the rules the

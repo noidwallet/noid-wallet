@@ -1,6 +1,6 @@
 # headers-check
 
-NOID 1.1 lets the phone check block headers itself. The rules live in
+NOID 1.2 lets the phone check block headers itself. The rules live in
 `core/src/headers.rs`, a port of the official `noid_chain` crate (Parano1d
 v2.1.0, rev 848209d). `noid_chain` can't be built for Android, so this tool
 runs both side by side on the host and stops at the first difference.

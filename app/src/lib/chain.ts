@@ -1,4 +1,4 @@
-// The phone's own chain check (NOID 1.1).
+// The phone's own chain check (NOID 1.2).
 //
 // Starting from a checkpoint built into the app (block 274,821), the core
 // checks every block header the server sends: proof of work, difficulty,

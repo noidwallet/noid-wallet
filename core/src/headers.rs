@@ -1,4 +1,4 @@
-//! Block header checks on the phone (NOID 1.1, phase 0).
+//! Block header checks on the phone (NOID 1.2, phase 0).
 //!
 //! A port of the header rules in the official `noid_chain` crate, Parano1d
 //! v2.1.0 (rev 848209d), Apache-2.0, Copyright (C) 2026 Paranoid Zero:

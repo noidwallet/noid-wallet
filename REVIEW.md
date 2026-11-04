@@ -150,7 +150,7 @@ cannot send or trade them yet.
   signed from these screens. State proofs come with verified headers.
 - Tickers are not unique; the token screen says so and shows the token ID.
 
-## Chain check on the phone (1.1, phase 1, not released yet)
+## Chain check on the phone (1.2, phase 1, not released yet)
 
 The phone verifies the server's chain of block headers itself.
 

@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { rpc as nodeRpc, type ChainInfo, type RpcMethod } from "./rpc.js";
 
 /**
- * Raw block headers for the phone's own chain check (NOID 1.1).
+ * Raw block headers for the phone's own chain check (NOID 1.2).
  *
  * The phone starts from a checkpoint built into the app and checks every
  * header after it itself (proof of work, difficulty, timestamps, links), so
