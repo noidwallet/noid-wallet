@@ -51,18 +51,32 @@ export default function Send() {
   const params = useLocalSearchParams<{ asset?: string }>();
   const [asset, setAsset] = useState<AssetChoice>(typeof params.asset === 'string' && params.asset ? params.asset : 'noid');
   const [carryTo, setCarryTo] = useState('');
-  const switchTo = useCallback((choice: AssetChoice, to: string) => {
+  // Filled in from a payment link: the warning follows the address across a switch.
+  const [carryFromLink, setCarryFromLink] = useState(false);
+  const switchTo = useCallback((choice: AssetChoice, to: string, fromLink = false) => {
     setCarryTo(to);
+    setCarryFromLink(fromLink);
     setAsset(choice);
   }, []);
-  if (asset === 'noid') return <NoidSend key="noid" initialTo={carryTo} onAsset={switchTo} />;
-  return <NativeSendFlow key={asset} asset={asset} initialTo={carryTo} onAsset={switchTo} />;
+  if (asset === 'noid') return <NoidSend key="noid" initialTo={carryTo} initialFromLink={carryFromLink} onAsset={switchTo} />;
+  return (
+    <NativeSendFlow key={asset} asset={asset} initialTo={carryTo} fromLink={carryFromLink} onAsset={(c, to) => switchTo(c, to, carryFromLink && to === carryTo)} />
+  );
 }
 
-function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice: AssetChoice, to: string) => void }) {
+function NoidSend({
+  initialTo,
+  initialFromLink,
+  onAsset,
+}: {
+  initialTo: string;
+  initialFromLink: boolean;
+  onAsset: (choice: AssetChoice, to: string, fromLink?: boolean) => void;
+}) {
   const w = useWallet();
   const shownHoldings = shownAssets(useAssets(), w.meta?.address);
   const sendingRef = useRef(false);
+  const reviewingRef = useRef(false);
   const [sheet, setSheet] = useState(false);
   const [to, setTo] = useState(initialTo);
   const [amountText, setAmountText] = useState('');
@@ -83,7 +97,7 @@ function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice:
   const [checkedLookalike, setCheckedLookalike] = useState(false);
   const [contactName, setContactName] = useState('');
   const [savedContact, setSavedContact] = useState(false);
-  const [fromLink, setFromLink] = useState(false);
+  const [fromLink, setFromLink] = useState(initialFromLink);
   const [showDetails, setShowDetails] = useState(false);
   // The plan whose review offered the override: a new review (new plan) hides it.
   const [refusedFor, setRefusedFor] = useState<unknown>(null);
@@ -184,25 +198,28 @@ function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice:
     !!w.status?.features?.nativeSend && ((shownHoldings?.tokens.length ?? 0) > 0 || (shownHoldings?.nfts.length ?? 0) > 0);
 
   async function review() {
+    // Set synchronously: a fast second tap on Continue must not plan twice.
+    if (reviewingRef.current) return;
+    reviewingRef.current = true;
+    setBusy(true);
     setError(null);
     setToError(null);
-    const check = await core.validateAddress(to);
-    if (!check.valid || !check.address) {
-      setToError(check.error ?? 'That is not a valid NOID address.');
-      return;
-    }
-    if (check.address === meta.address) {
-      setToError('This is your own address.');
-      return;
-    }
-    if (!amount) {
-      setError('Enter an amount like 1500 or 1.5: a dot for decimals, no commas for thousands.');
-      return;
-    }
-    setBusy(true);
-    setCheckedLookalike(false);
-    setShowDetails(false);
     try {
+      const check = await core.validateAddress(to);
+      if (!check.valid || !check.address) {
+        setToError(check.error ?? 'That is not a valid NOID address.');
+        return;
+      }
+      if (check.address === meta.address) {
+        setToError('This is your own address.');
+        return;
+      }
+      if (!amount) {
+        setError('Enter an amount like 1500 or 1.5: a dot for decimals, no commas for thousands.');
+        return;
+      }
+      setCheckedLookalike(false);
+      setShowDetails(false);
       const { plan } = await planSend(w.api, meta.address, w.pending, amount);
       setTo(check.address);
       setPlan(plan);
@@ -210,6 +227,7 @@ function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice:
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      reviewingRef.current = false;
       setBusy(false);
     }
   }
@@ -573,7 +591,7 @@ function NoidSend({ initialTo, onAsset }: { initialTo: string; onAsset: (choice:
           onPress={() => setSheet(true)}
         />
       ) : null}
-      <AssetSheet visible={sheet} current="noid" onPick={(c) => c !== 'noid' && onAsset(c, to)} onClose={() => setSheet(false)} />
+      <AssetSheet visible={sheet} current="noid" onPick={(c) => c !== 'noid' && onAsset(c, to, fromLink)} onClose={() => setSheet(false)} />
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
       {connecting ? <Banner tone="neutral">Connecting to the network…</Banner> : null}
       {fromLink ? <Banner tone="warn">Filled in from a link someone sent you. Check the address and amount before you send.</Banner> : null}

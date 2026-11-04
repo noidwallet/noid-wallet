@@ -33,3 +33,8 @@ export function rememberSentItem(txid: string, item: string) {
     // Memory still has it for this session.
   }
 }
+
+/** The wallet was removed: its labels go with it (the file is wiped too). */
+export function clearSentItems() {
+  cache = {};
+}

@@ -11,21 +11,20 @@ import { TokenIcon } from '@/components/AssetRows';
 import { SendProgress } from '@/components/Progress';
 import { AssetSheet, NftThumb, type AssetChoice } from '@/components/AssetSheet';
 import { AssetSelector, RecentRecipients, recentRecipients } from '@/components/SendPickers';
-import { Avatar, Banner, Body, Button, Card, Field, IconButton, KeyValue, Screen, SuccessMark, Title } from '@/components/ui';
+import { Avatar, Banner, Body, Button, Card, Field, IconButton, KeyValue, Pill, Screen, SuccessMark, Title } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
-import { nftName, shownAssets, tokenName, useAssets } from '@/lib/assets';
+import { nftName, posesAsNoid, shownAssets, tokenName, useAssets } from '@/lib/assets';
 import { LINK_HOSTS } from '@/lib/config';
 import { core, type NativeSendReview, type NativeTransfer } from '@/lib/core';
 import { parseLink } from '@/lib/links';
 import { knownBlockId } from '@/lib/chain';
 import { executeNativeSend, NativeFeeChanged, reviewNativeSend } from '@/lib/nativeSend';
-import { rememberSentItem } from '@/lib/sentItems';
 import { go, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
 import { contactPick, scanResult } from '@/lib/scan';
 import { hasUnresolvedSend, overrideRefusals, RefusedButSpent, SubmitUnknown, type Stage } from '@/lib/send';
 import { storage } from '@/lib/storage';
-import { formatUnits, nftKey, parseUnits, toBig } from '@/lib/tokenMath';
+import { formatUnits, nftKey, parseUnits, shortId, toBig } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
 
@@ -36,7 +35,18 @@ type Step = 'form' | 'review' | 'sending' | 'done';
  * "nft:<key>"). Choosing something else in the sheet hands the choice and
  * the recipient back to the Send screen, which swaps the form in place.
  */
-export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoice; initialTo: string; onAsset: (choice: AssetChoice, to: string) => void }) {
+export function NativeSendFlow({
+  asset,
+  initialTo,
+  fromLink,
+  onAsset,
+}: {
+  asset: AssetChoice;
+  initialTo: string;
+  /** The recipient came from a payment link (keep the warning across a switch). */
+  fromLink?: boolean;
+  onAsset: (choice: AssetChoice, to: string) => void;
+}) {
   const [kind, ...idParts] = asset.split(':');
   const id = idParts.join(':');
   const w = useWallet();
@@ -50,6 +60,10 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
   const [amountText, setAmountText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set synchronously: a fast second tap on Continue must not prepare twice.
+  const reviewingRef = useRef(false);
+  // How the item was named when the review was made (holdings can change under it).
+  const [label, setLabel] = useState<{ ticker: string; title: string; fake: boolean } | null>(null);
   const [step, setStep] = useState<Step>('form');
   const [stage, setStage] = useState<Stage>('preparing');
   const [review, setReview] = useState<NativeSendReview | null>(null);
@@ -97,7 +111,9 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
 
   if (!w.meta) return null;
   const meta = w.meta;
-  const symbol = token?.manifest?.symbol ?? '';
+  // A token named or ticked like NOID is not the coin: never call it plain "NOID".
+  const fake = !!token && posesAsNoid(token);
+  const symbol = token?.manifest?.symbol && !fake ? token.manifest.symbol : '';
   const itemTitle = token ? tokenName(token) : nft ? nftName(nft) : '';
   const held = token ? toBig(token.units) : null;
   const spendable = token && held !== null ? held - BigInt(token.lockedUnits) - BigInt(token.reservedUnits) : null;
@@ -113,8 +129,12 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
     const f = fiat(micro, w.price, currency);
     return `${formatNoid(micro)} NOID${f ? ` (${f})` : ''}`;
   };
-  const what = (r: NativeSendReview) =>
-    r.kind === 'token' ? `${formatUnits(r.units ?? '0')} ${symbol || 'tokens'}` : nft ? nftName(nft) : `NFT #${r.serial}`;
+  const what = (r: NativeSendReview) => {
+    if (r.kind !== 'token') return label?.title ?? (nft ? nftName(nft) : `NFT #${r.serial}`);
+    const ticker = label ? label.ticker : symbol;
+    const amount = formatUnits(r.units ?? '0');
+    return ticker ? `${amount} ${ticker}` : `${amount} of token ${shortId(r.assetId ?? '')}`;
+  };
 
   if (!token && !nft && step === 'form') {
     return (
@@ -126,31 +146,34 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
   }
 
   async function toReview() {
+    if (reviewingRef.current) return;
+    reviewingRef.current = true;
+    setBusy(true);
     setError(null);
     setToError(null);
-    const check = await core.validateAddress(to);
-    if (!check.valid || !check.address) {
-      setToError(check.error ?? 'That is not a valid NOID address.');
-      return;
-    }
-    if (check.address === meta.address) {
-      setToError('This is your own address.');
-      return;
-    }
-    let t: NativeTransfer;
-    if (token) {
-      if (!units) {
-        setError('Enter an amount like 30 or 1.5: a dot for decimals, no commas for thousands.');
+    try {
+      const check = await core.validateAddress(to);
+      if (!check.valid || !check.address) {
+        setToError(check.error ?? 'That is not a valid NOID address.');
         return;
       }
-      t = { kind: 'token', assetId: token.assetId, units, recipient: check.address };
-    } else if (nft) {
-      t = { kind: 'nft', collectionId: nft.collection, serial: nft.serial, recipient: check.address };
-    } else return;
-    setBusy(true);
-    setCheckedLookalike(false);
-    try {
+      if (check.address === meta.address) {
+        setToError('This is your own address.');
+        return;
+      }
+      let t: NativeTransfer;
+      if (token) {
+        if (!units) {
+          setError('Enter an amount like 30 or 1.5: a dot for decimals, no commas for thousands.');
+          return;
+        }
+        t = { kind: 'token', assetId: token.assetId, units, recipient: check.address };
+      } else if (nft) {
+        t = { kind: 'nft', collectionId: nft.collection, serial: nft.serial, recipient: check.address };
+      } else return;
+      setCheckedLookalike(false);
       const r = await reviewNativeSend(w.api, meta.address, w.pending, t, undefined, knownBlockId);
+      setLabel({ ticker: symbol, title: itemTitle, fake });
       setTo(check.address);
       setTransfer(t);
       setReview(r.review);
@@ -158,6 +181,7 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      reviewingRef.current = false;
       setBusy(false);
     }
   }
@@ -189,13 +213,11 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
         onStage: (s) => setStage(s),
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      rememberSentItem(pending.txid, what(review));
       setDoneTxid(pending.txid);
       setStep('done');
       void w.refresh();
     } catch (e) {
       if (e instanceof SubmitUnknown) {
-        rememberSentItem(e.txid, what(review));
         setUnknownTxid(e.txid);
         setStep('done');
         return;
@@ -275,8 +297,22 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
           <Text adjustsFontSizeToFit numberOfLines={1} maxFontSizeMultiplier={1.3} style={type.display}>
             {review.kind === 'token' ? formatUnits(review.units ?? '0') : `#${review.serial}`}
           </Text>
-          <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>{review.kind === 'token' ? symbol || itemTitle : itemTitle}</Text>
+          <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>
+            {review.kind === 'token' ? label?.ticker || label?.title || 'Token' : label?.title ?? 'NFT'}
+          </Text>
+          {label?.fake ? <Pill text="Not the NOID coin" tone="danger" /> : null}
         </View>
+        {review.kind === 'token' ? (
+          <Card>
+            <KeyValue label="Token ID" value={shortId(review.assetId ?? '')} />
+            <Text style={type.bodySm}>Anyone can give a token any name or ticker. The token ID is what tells it apart.</Text>
+          </Card>
+        ) : (
+          <Card>
+            <KeyValue label="Collection" value={shortId(review.collectionId ?? '')} />
+            <KeyValue label="Number" value={`#${review.serial}`} />
+          </Card>
+        )}
         <Card>
           <Text style={type.caption}>To</Text>
           <Text style={type.title}>{recipientName ?? 'NOID address'}</Text>
@@ -385,11 +421,18 @@ export function NativeSendFlow({ asset, initialTo, onAsset }: { asset: AssetChoi
       <AssetSelector
         leading={token ? <TokenIcon api={w.api} token={token} /> : nft ? <NftThumb api={w.api} nft={nft} /> : <Avatar initials="?" />}
         title={itemTitle}
-        subtitle={token && spendable !== null ? `You can send ${formatUnits(spendable)}${symbol ? ` ${symbol}` : ''}` : nft ? `NFT #${nft.serial}` : undefined}
+        subtitle={
+          token && spendable !== null
+            ? `${fake ? 'Not the NOID coin · ' : ''}You can send ${formatUnits(spendable)}${symbol ? ` ${symbol}` : ''}`
+            : nft
+              ? `NFT #${nft.serial}`
+              : undefined
+        }
         onPress={() => setSheet(true)}
       />
       <AssetSheet visible={sheet} current={asset} onPick={(c) => c !== asset && onAsset(c, to)} onClose={() => setSheet(false)} />
       {blocker ? <Banner tone="warn">{blocker}</Banner> : null}
+      {fromLink ? <Banner tone="warn">The address was filled in from a link someone sent you. Check it before you send.</Banner> : null}
       <Field
         label="To"
         mono

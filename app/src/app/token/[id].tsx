@@ -58,7 +58,7 @@ export default function TokenDetail() {
       </View>
 
       {status?.features?.nativeSend ? (
-        <Button title={`Send ${symbol || 'token'}`} icon="send" onPress={() => go({ pathname: '/send', params: { asset: `token:${token.assetId}` } })} />
+        <Button title={`Send ${symbol && !posesAsNoid(token) ? symbol : 'token'}`} icon="send" onPress={() => go({ pathname: '/send', params: { asset: `token:${token.assetId}` } })} />
       ) : (
         <Banner tone="neutral">
           Your wallet server can’t prepare token transfers yet. The token is safe at your address, and you can use it in the official Parano1d

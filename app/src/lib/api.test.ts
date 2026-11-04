@@ -21,6 +21,10 @@ test('only known server refusals count as definitely not sent', () => {
   assert.equal(new ApiError('bad_request', 'x', 400).ambiguous, false);
   assert.equal(new ApiError('http_error', 'x', 404).ambiguous, true, 'a proxy 404 might have forwarded it');
   assert.equal(new ApiError('offline', 'x', 0).ambiguous, true);
+  // Our server's busy on submit comes before relaying; a bare 503 might not.
+  assert.equal(new ApiError('busy', 'x', 503, true).ambiguous, false);
+  assert.equal(new ApiError('http_error', 'x', 503).ambiguous, true);
+  assert.equal(new ApiError('busy', 'x', 503, false).ambiguous, true);
   assert.equal(new ApiError('unknown_status', 'x', 503).ambiguous, true);
 });
 

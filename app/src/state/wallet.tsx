@@ -10,6 +10,7 @@ import { emitRelock } from '@/lib/lockEvents';
 import { disablePush, ensurePushChannel, onPushTokenChange } from '@/lib/push';
 import { noteRefused, reconcileOne, setRefusalStore, settleConfirmed } from '@/lib/send';
 import { syncChain } from '@/lib/chain';
+import { clearSentItems, rememberSentItem } from '@/lib/sentItems';
 import { perNoid } from '@/lib/currencies';
 import { judgePrice, type GuardState } from '@/lib/priceGuard';
 import {
@@ -407,6 +408,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       async removeWallet() {
         if (meta && settings.pushToken) await disablePush(api, meta.address, settings.pushToken);
         await storage.wipe();
+        clearSentItems();
         assets.clear();
         setContacts([]);
         setRecipients([]);
@@ -473,7 +475,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setGifts(next);
       },
       recordPending(p: PendingTx) {
-        if (p.kind === 'send' && p.to && p.state === 'submitted') {
+        // What a token or NFT send carried, for Activity: saved with the record,
+        // so it survives the app closing mid-send or a background re-send.
+        if ((p.kind === 'token' || p.kind === 'nft') && p.item) rememberSentItem(p.txid, p.item);
+        if ((p.kind === 'send' || p.kind === 'token' || p.kind === 'nft') && p.to && p.state === 'submitted') {
           const to = p.to;
           setRecipients((prev) => {
             if (prev.includes(to)) return prev;

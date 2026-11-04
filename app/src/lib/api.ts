@@ -111,6 +111,8 @@ export class ApiError extends Error {
     if (this.status === 422 && DEFINITE_REJECTIONS.has(this.code)) return false;
     if (this.status === 400 && this.code === 'bad_request') return false;
     if (this.status === 429) return false;
+    // Our server's own "busy" on submit comes before it relays anything.
+    if (this.status === 503 && this.code === 'busy' && this.retryable) return false;
     return true;
   }
 }
