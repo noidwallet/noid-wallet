@@ -3,9 +3,10 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { Image, Text, View, useWindowDimensions } from 'react-native';
 
-import { Banner, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
+import { Banner, Button, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
 import { nftName, shownAssets, useAssets, usePicture } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
+import { go } from '@/lib/nav';
 import { openProjectWebsite, websiteHost } from '@/lib/openWebsite';
 import { formatUnits, nftKey } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
@@ -13,7 +14,7 @@ import { colors, fonts, radius, space, type } from '@/theme';
 
 export default function NftDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, meta } = useWallet();
+  const { api, meta, status } = useWallet();
   const copied = useCopied();
   const { width } = useWindowDimensions();
   const shown = shownAssets(useAssets(), meta?.address);
@@ -87,10 +88,15 @@ export default function NftDetail() {
         </Text>
       </Card>
 
-      <Banner tone="neutral">
-        Sending and selling NFTs from NOID is coming in an update. This NFT is safe at your address, and you can use it now in the official
-        Parano1d wallet by restoring your NOID secret there.
-      </Banner>
+      {status?.features?.nativeSend ? (
+        <Button title="Send NFT" icon="send" onPress={() => go({ pathname: '/native-send', params: { kind: 'nft', id: nftKey(nft.collection, nft.serial) } })} />
+      ) : (
+        <Banner tone="neutral">
+          Your wallet server can’t prepare NFT transfers yet. This NFT is safe at your address, and you can use it in the official Parano1d
+          wallet by restoring your NOID secret there.
+        </Banner>
+      )}
+      <Text style={type.bodySm}>Selling and listing NFTs stay in the official Parano1d wallet for now.</Text>
       <Banner tone="warn">Anyone can copy a picture. Only the collection ID and number identify an NFT.</Banner>
     </Screen>
   );

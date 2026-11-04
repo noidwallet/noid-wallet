@@ -71,6 +71,8 @@ const PENDING_LABEL: Record<PendingTx['kind'], string> = {
   consolidate: 'Combining pieces',
   gift: 'Creating gift card',
   claim: 'Claiming gift',
+  token: 'Sending token',
+  nft: 'Sending NFT',
 };
 
 /** Shown for the few seconds between "confirmed" and the history row arriving. */
@@ -79,6 +81,8 @@ const CONFIRMED_LABEL: Record<PendingTx['kind'], string> = {
   consolidate: 'Combined pieces',
   gift: 'Gift card',
   claim: 'Gift claimed',
+  token: 'Token sent',
+  nft: 'NFT sent',
 };
 
 export function PendingRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: PendingTx }) {
@@ -86,7 +90,15 @@ export function PendingRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: P
   const micro = incoming ? item.amount : item.kind === 'consolidate' ? item.fee : item.amount + item.fee + (item.walletFee ?? 0);
   const value = `${incoming ? '+' : '−'}${formatNoid(micro)}`;
   const where =
-    item.kind === 'claim' ? 'Into your wallet' : item.kind === 'gift' ? 'Gift card' : item.to ? nameOf(item.to) : 'To yourself';
+    item.kind === 'claim'
+      ? 'Into your wallet'
+      : item.kind === 'gift'
+        ? 'Gift card'
+        : (item.kind === 'token' || item.kind === 'nft') && item.item
+          ? `${item.item} to ${item.to ? nameOf(item.to) : 'someone'}`
+          : item.to
+            ? nameOf(item.to)
+            : 'To yourself';
   const state = item.confirmedAt ? 'Confirmed' : item.state === 'submitting' ? 'Checking with the network' : 'Waiting for a block';
   return (
     <ListRow

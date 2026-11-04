@@ -4,10 +4,11 @@ import { useLocalSearchParams } from 'expo-router';
 import { Text, View } from 'react-native';
 
 import { TokenIcon } from '@/components/AssetRows';
-import { Banner, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
+import { Banner, Button, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
 import { posesAsNoid, shownAssets, tokenName, useAssets } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
+import { go } from '@/lib/nav';
 import { openProjectWebsite, websiteHost } from '@/lib/openWebsite';
 import { formatUnits, noidValue, unitPrice } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
@@ -15,7 +16,7 @@ import { colors, fonts, space, type } from '@/theme';
 
 export default function TokenDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, settings, meta } = useWallet();
+  const { api, settings, meta, status } = useWallet();
   const copied = useCopied();
   const shown = shownAssets(useAssets(), meta?.address);
   const token = shown?.tokens.find((t) => t.assetId === id);
@@ -56,10 +57,14 @@ export default function TokenDetail() {
         {reserved > 0n ? <Pill text={hidden ? 'Some in a pending transaction' : `${formatUnits(reserved)} in a pending transaction`} tone="warn" /> : null}
       </View>
 
-      <Banner tone="neutral">
-        Sending this token from NOID is coming in an update. It’s safe at your address, and you can use it now in the official Parano1d wallet by
-        restoring your NOID secret there.
-      </Banner>
+      {status?.features?.nativeSend ? (
+        <Button title={`Send ${symbol || 'token'}`} icon="send" onPress={() => go({ pathname: '/native-send', params: { kind: 'token', id: token.assetId } })} />
+      ) : (
+        <Banner tone="neutral">
+          Your wallet server can’t prepare token transfers yet. The token is safe at your address, and you can use it in the official Parano1d
+          wallet by restoring your NOID secret there.
+        </Banner>
+      )}
 
       {m?.description || m?.website ? (
         <Card>

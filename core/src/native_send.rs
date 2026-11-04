@@ -118,10 +118,21 @@ pub struct BuiltNativeSend {
     pub review: NativeSendReview,
     pub intent_hex: String,
     pub txid: String,
-    /// Slots this send spends (NOID and token records) and creates.
-    pub input_slots: Vec<u32>,
+    /// This address's NOID coins the send spends (slot, origin id as a
+    /// decimal string: the app's pending and refusal tracking uses them).
+    pub noid_inputs: Vec<NoidInput>,
+    /// Token and NFT records the send spends.
+    pub record_input_slots: Vec<u32>,
+    /// Every output slot it creates.
     pub output_slots: Vec<u32>,
     pub prove_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoidInput {
+    pub slot_index: u32,
+    pub creation_id: String,
 }
 
 fn bad(message: &str) -> Error {
@@ -414,7 +425,13 @@ pub fn build_native_send(secret: &MasterSecret, key_index: u32, req: &NativeSend
     Ok(BuiltNativeSend {
         txid: review.txid.clone(),
         intent_hex: hex::encode(bytes),
-        input_slots: facts.inputs.iter().map(|c| c.input.slot_index).collect(),
+        noid_inputs: facts
+            .inputs
+            .iter()
+            .filter(|c| c.opening.is_none())
+            .map(|c| NoidInput { slot_index: c.input.slot_index, creation_id: c.input.creation_id.to_string() })
+            .collect(),
+        record_input_slots: facts.inputs.iter().filter(|c| c.opening.is_some()).map(|c| c.input.slot_index).collect(),
         output_slots: facts.outputs.iter().map(|c| c.output.slot_index).collect(),
         review,
         prove_ms,
@@ -550,6 +567,9 @@ mod tests {
         let secret = MasterSecret::from_hex(SECRET).unwrap();
         let built = build_native_send(&secret, 0, &req).unwrap();
         assert_eq!(built.review, review);
+        assert_eq!(built.noid_inputs, vec![NoidInput { slot_index: 1, creation_id: "42".into() }]);
+        assert_eq!(built.record_input_slots, vec![2]);
+        assert_eq!(built.output_slots.len(), 4);
         let sent = NativeIntent::from_bytes(&hex::decode(&built.intent_hex).unwrap()).unwrap();
         let facts = sent.checked(chain(), HEIGHT).unwrap();
         assert_eq!(facts.pages.fee, fee);

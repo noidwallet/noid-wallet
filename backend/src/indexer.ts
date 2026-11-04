@@ -42,6 +42,30 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
   const sender = tx.input_owner;
   const others = [...received].filter(([a]) => a !== sender);
   const rows: AddressRow[] = [];
+  const native = tx.native as
+    | { operation?: unknown; token_outputs?: { owner?: unknown }[]; nft_outputs?: { owner?: unknown }[] }
+    | null
+    | undefined;
+  if (nativeFinance && (native?.operation === "transfer_token" || native?.operation === "transfer_nft")) {
+    // A token or NFT transfer (NOID 1.2 sends one with a wallet fee output):
+    // the sender's row shows the NOID that left (network fee plus any plain
+    // outputs to others), not its own change; the recipient gets a row too.
+    let spent = 0;
+    try {
+      spent = Number(BigInt(tx.input_sum_micronoid) - BigInt(received.get(sender) ?? 0));
+    } catch {
+      spent = tx.fee_micronoid;
+    }
+    const walletFee = others.filter(([a]) => feeAddresses.has(a.toLowerCase())).reduce((s, [, v]) => s + v, 0);
+    const owners = [...(native.token_outputs ?? []), ...(native.nft_outputs ?? [])]
+      .map((o) => o.owner)
+      .filter((o): o is string => typeof o === "string" && o !== sender);
+    const to = [...new Set(owners)];
+    rows.push({ address: sender, direction: "contract", amount: spent, fee: tx.fee_micronoid, walletFee, counterparty: to.length === 1 ? to[0]! : null });
+    for (const [address, amount] of others) rows.push({ address, direction: "contract", amount, fee: 0, walletFee: 0, counterparty: sender });
+    for (const address of to) if (!received.has(address)) rows.push({ address, direction: "contract", amount: 0, fee: 0, walletFee: 0, counterparty: sender });
+    return rows;
+  }
   if (tx.contract || nativeFinance) {
     // Contract call or close, or v2.1 native finance (token, curve, DEX, NFT):
     // value moves under contract rules, not a plain payment.

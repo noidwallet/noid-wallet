@@ -93,8 +93,13 @@ export interface GiftRecord {
 
 export interface PendingTx {
   txid: string;
-  /** gift: funding a gift card. claim: moving a gift into this wallet (its inputs are not ours). */
-  kind: 'send' | 'consolidate' | 'gift' | 'claim';
+  /**
+   * gift: funding a gift card. claim: moving a gift into this wallet (its inputs are not ours).
+   * token, nft: sending a token or NFT (`amount` is 0 NOID; `item` says what went).
+   */
+  kind: 'send' | 'consolidate' | 'gift' | 'claim' | 'token' | 'nft';
+  /** For token and NFT sends: what was sent, as shown ("30 NEMO", "Cool Cats #3"). */
+  item?: string;
   /**
    * submitting: built and saved, but the server has not confirmed it received it.
    *   Never build another transaction while one is in this state; re-send this one.

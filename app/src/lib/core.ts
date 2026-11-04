@@ -179,6 +179,47 @@ export interface SyncResult {
   reorgDepth: number;
 }
 
+/** What the user asked to send (core/src/native_send.rs Transfer). */
+export type NativeTransfer =
+  | { kind: 'token'; assetId: string; units: string; recipient: string }
+  | { kind: 'nft'; collectionId: string; serial: string; recipient: string };
+
+export interface NativeSendRequest {
+  plan: unknown;
+  transfer: NativeTransfer;
+  slotHints: number[];
+  relayFloor: number;
+}
+
+/** Every figure computed on the phone from the decoded transfer. */
+export interface NativeSendReview {
+  kind: 'token' | 'nft';
+  recipient: string;
+  assetId: string | null;
+  units: string | null;
+  collectionId: string | null;
+  serial: string | null;
+  networkFee: number;
+  walletFee: number;
+  /** Network fee plus wallet fee: all the NOID this send costs. */
+  noidDebit: number;
+  inputCount: number;
+  outputCount: number;
+  parentHeight: number;
+  parentId: string;
+  txid: string;
+}
+
+export interface BuiltNativeSend {
+  review: NativeSendReview;
+  intentHex: string;
+  txid: string;
+  noidInputs: { slotIndex: number; creationId: string }[];
+  recordInputSlots: number[];
+  outputSlots: number[];
+  proveMs: number;
+}
+
 export const core = {
   version: () => call<{ core: string; parano1dRev: string; photoKey: string }>('version'),
   generateSecret: () => call<NewKey>('generateSecret'),
@@ -215,6 +256,12 @@ export const core = {
     slotHints: number[];
     pendingOutputSlots: number[];
   }) => call<BuiltTx>('buildTransaction', a),
+  /** Check the server's plan for a token or NFT send (no secret): the review screen. */
+  checkNativeSend: (owner: string, request: NativeSendRequest, pendingOutputSlots: number[]) =>
+    call<NativeSendReview>('checkNativeSend', { owner, request, pendingOutputSlots }),
+  /** Check again, add the wallet fee, prove and encode. */
+  buildNativeSend: (secretHex: string, keyIndex: number, request: NativeSendRequest, pendingOutputSlots: number[]) =>
+    call<BuiltNativeSend>('buildNativeSend', { secretHex, keyIndex, request, pendingOutputSlots }),
   /** Decode and check the server's token/NFT records for `owner`. */
   checkAssets: (owner: string, page: AssetsPage) => call<CheckedAssets>('checkAssets', { owner, page }),
   checkToken: (assetId: string, market: AssetMarket) => call<TokenInfo>('checkToken', { assetId, market }),

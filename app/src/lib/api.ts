@@ -31,6 +31,8 @@ const APP_TEXT: Record<string, string> = {
   media_unavailable: 'Token names and pictures are not available right now.',
   media_disabled: 'This wallet server does not show token names and pictures.',
   media_too_large: 'This token’s picture is too large to show.',
+  state_changed: 'A new block arrived while the transfer was being prepared. Try again.',
+  cannot_prepare: 'Your wallet server could not prepare this transfer. Check that you still hold it and have a little NOID for the fees, then try again.',
 };
 
 /** App text for a server answer (exported for tests). */
@@ -119,7 +121,7 @@ export interface Status extends FeeContext {
   syncStage: string;
   peers: number | null;
   /** Optional server features; missing on older servers. */
-  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean; headers?: boolean };
+  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean; headers?: boolean; nativeSend?: boolean };
   /** App versions the server announces (see backend config). */
   app?: { latest?: string | null; min?: string | null };
 }
@@ -137,6 +139,17 @@ export interface Price {
   receivedAt?: number;
   /** False when it is far off the last price this phone trusted: no typed-currency amounts. */
   typingOk?: boolean;
+}
+
+export type NativePrepareBody =
+  | { owner: string; action: 'transfer_token'; assetId: string; units: string; recipient: string }
+  | { owner: string; action: 'transfer_nft'; collectionId: string; serial: string; recipient: string };
+
+export interface NativePrepared {
+  /** The node's NativeClientPlan, passed to the core as it came. */
+  plan: unknown;
+  slotHints: number[];
+  relayFloor: number;
 }
 
 export interface Prepared extends FeeContext {
@@ -312,6 +325,36 @@ export function createApi(baseUrl: string, _installId = '') {
             isCount(r.height) &&
             isCount(r.confirmations) &&
             (r.blockHash === undefined || isHex64(r.blockHash))));
+      return check(r, ok);
+    },
+    /**
+     * The node's unsigned plan for a token or NFT transfer from `owner`. Only
+     * its shape is checked here; the core decodes and checks every input and
+     * output before anything is signed (core/src/native_send.rs).
+     */
+    nativePrepare: async (body: NativePrepareBody) => {
+      const r = await request<NativePrepared>('/v1/native/prepare', { method: 'POST', body: JSON.stringify(body) }, 90_000);
+      const p = r.plan as Record<string, unknown> | null;
+      const ok =
+        !!p &&
+        typeof p === 'object' &&
+        p.schema_version === 1 &&
+        typeof p.owner === 'string' &&
+        p.owner === body.owner &&
+        isCount(p.candidate_height) &&
+        typeof p.parent_header_hex === 'string' &&
+        /^[0-9a-f]{424}$/.test(p.parent_header_hex) &&
+        isHex64(p.chain_id) &&
+        isHex64(p.epoch_anchor) &&
+        p.owner_authorization_version === 4 &&
+        p.intent_kind === 'operation' &&
+        typeof p.unsigned_intent_hex === 'string' &&
+        p.unsigned_intent_hex.length <= 400_000 &&
+        /^[0-9a-f]+$/.test(p.unsigned_intent_hex) &&
+        Array.isArray(r.slotHints) &&
+        r.slotHints.length <= 16 &&
+        r.slotHints.every(isCount) &&
+        isCount(r.relayFloor);
       return check(r, ok);
     },
     /** Raw headers from `from`, for the core to check (never trusted as given). */

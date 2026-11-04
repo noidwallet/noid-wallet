@@ -90,7 +90,7 @@ export default function Home() {
   const live = new Map(utxos.map((u) => [u.slotIndex, u.value]));
   const inFlight = pending.filter((p) => p.inputSlots.length > 0 && p.inputSlots.every((s) => live.has(s)));
   const pendingOut = inFlight.reduce(
-    (s, p) => s + (p.kind === 'send' || p.kind === 'gift' ? p.amount + (p.walletFee ?? 0) : 0) + p.fee,
+    (s, p) => s + (p.kind === 'send' || p.kind === 'gift' || p.kind === 'token' || p.kind === 'nft' ? p.amount + (p.walletFee ?? 0) : 0) + p.fee,
     0,
   );
   // Gift claims coming in (their coins are not ours yet, so not in `balance`).

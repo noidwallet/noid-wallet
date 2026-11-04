@@ -133,3 +133,24 @@ test("v2.1 native finance: shown as contract activity, commitment-owned slots le
   const pay = classify(tx({ native: null, trades: [], outputs: [{ slot_index: 1, amount_micronoid: 1_000, owner: B, native: false }] }));
   assert.equal(pay[0]!.direction, "sent");
 });
+
+test("token transfer: the sender sees the NOID that left, not its change; the recipient gets a row", () => {
+  const FEE = "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf";
+  const rows = classify(
+    tx({
+      input_owner: A,
+      fee_micronoid: 12_000,
+      input_sum_micronoid: "1000000",
+      native: { operation: "transfer_token", token_outputs: [{ owner: B, units: "30" }, { owner: A, units: "70" }], nft_outputs: [] },
+      outputs: [
+        { slot_index: 1, amount_micronoid: 0, owner: "o1rootrecipient", native: true },
+        { slot_index: 2, amount_micronoid: 0, owner: "o1rootchange", native: true },
+        { slot_index: 3, amount_micronoid: 983_000, owner: A },
+        { slot_index: 4, amount_micronoid: 5_000, owner: FEE },
+      ],
+    }),
+    new Set([FEE]),
+  );
+  assert.deepEqual(rows.find((r) => r.address === A), { address: A, direction: "contract", amount: 17_000, fee: 12_000, walletFee: 5_000, counterparty: B });
+  assert.deepEqual(rows.find((r) => r.address === B), { address: B, direction: "contract", amount: 0, fee: 0, walletFee: 0, counterparty: A });
+});

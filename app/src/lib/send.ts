@@ -136,7 +136,7 @@ export function overrideRefusals(address: string) {
   persist();
 }
 
-function clearRefusals(address: string, inputSlots: number[]) {
+export function clearRefusals(address: string, inputSlots: number[]) {
   // The new payment shares coins with these, so only one of them can ever confirm.
   const before = refused.length;
   refused = refused.filter((r) => r.address !== address || !r.slots.some((s) => inputSlots.includes(s)));

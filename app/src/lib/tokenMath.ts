@@ -22,6 +22,25 @@ export function formatUnits(units: bigint | string, opts: { maxDecimals?: number
 }
 
 /**
+ * "30" or "1.5" (or "1,5", like NOID amounts) -> base units as a decimal
+ * string. At most 6 decimals; no thousands separators ("1,500" is refused:
+ * it could mean 1500 or 1.5). Null for anything else, zero, or above u64.
+ */
+export function parseUnits(input: string): string | null {
+  const raw = input.trim().replace(/\s/g, '');
+  if (raw.includes(',') && raw.includes('.')) return null;
+  if ((raw.match(/,/g) ?? []).length > 1) return null;
+  if (/^\d{1,3},\d{3}$/.test(raw)) return null;
+  const s = raw.replace(',', '.');
+  if (!/^\d*(\.\d{0,6})?$/.test(s) || s === '' || s === '.') return null;
+  const [whole = '0', frac = ''] = s.split('.');
+  if (whole.length > 20) return null;
+  const v = BigInt(whole || '0') * SCALE + BigInt((frac + '000000').slice(0, TOKEN_DECIMALS));
+  if (v === 0n || v > (1n << 64n) - 1n) return null;
+  return v.toString();
+}
+
+/**
  * What `units` of a token are worth in μNOID at a price of
  * numerator / denominator NOID base units per token base unit (rounded down).
  * Null when the price is missing or the result is too large to show.

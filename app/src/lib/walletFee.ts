@@ -41,6 +41,13 @@ export function walletFeeLabel(amount: number, fee: number, rule: FeeRule = WALL
   return `NOID wallet fee (${rule.bps / 100}%)`;
 }
 
+/**
+ * Sending a token or NFT: a flat 0.005 NOID, paid as its own output inside
+ * the same transfer. Must match NATIVE_WALLET_FEE in core/src/native_send.rs
+ * (the core adds the output; the app only shows and checks it).
+ */
+export const NATIVE_WALLET_FEE = 5_000;
+
 /** "0.25%, at least 0.005 NOID, at most 0.5 NOID", for help text. */
 export const WALLET_FEE_TEXT = '0.25% of the amount (at least 0.005 NOID, at most 0.5 NOID)';
 

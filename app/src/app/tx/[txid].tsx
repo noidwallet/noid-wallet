@@ -58,7 +58,11 @@ export default function TxDetail() {
         ? 'Gift claim'
         : pend.kind === 'gift'
           ? 'Gift card'
-          : pend.kind === 'consolidate'
+          : pend.kind === 'token' || pend.kind === 'nft'
+            ? pend.confirmedAt
+              ? `${pend.kind === 'nft' ? 'NFT' : 'Token'} sent`
+              : `Sending ${pend.kind === 'nft' ? 'NFT' : 'token'}`
+            : pend.kind === 'consolidate'
             ? pend.confirmedAt
               ? 'Combined pieces'
               : 'Combining pieces'
