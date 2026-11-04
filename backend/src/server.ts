@@ -21,6 +21,8 @@ import {
 
 const ADDRESS_RE = /^o1[02-9ac-hj-np-z]{20,100}$/;
 const TXID_RE = /^[0-9a-f]{64}$/;
+/** "NOIDNT21": a native token/NFT operation (noid_tx native_assets/wire.rs). */
+const NATIVE_INTENT_HEX_MAGIC = Buffer.from("NOIDNT21").toString("hex");
 /** submitTxIntent decodes at most 303,495 bytes; hex doubles that. */
 const MAX_INTENT_HEX = 303_495 * 2;
 
@@ -324,7 +326,10 @@ export async function buildServer(
       try {
         const hex = String(req.body?.intentHex ?? "").trim().toLowerCase();
         const txid = String(req.body?.txid ?? "").trim().toLowerCase();
-        if (!/^[0-9a-f]+$/.test(hex) || hex.length % 2 !== 0 || !hex.startsWith("a3") || hex.length > MAX_INTENT_HEX) {
+        // A payment (paged spend, marker 0xa3) or a token/NFT transfer
+        // ("NOIDNT21", NOID 1.2). Trade policies and contracts aren't sent from NOID.
+        const kindOk = hex.startsWith("a3") || hex.startsWith(NATIVE_INTENT_HEX_MAGIC);
+        if (!/^[0-9a-f]+$/.test(hex) || hex.length % 2 !== 0 || !kindOk || hex.length > MAX_INTENT_HEX) {
           throw badRequest("Invalid transaction encoding.");
         }
         if (!TXID_RE.test(txid)) throw badRequest("Invalid transaction ID.");

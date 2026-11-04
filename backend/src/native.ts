@@ -89,7 +89,9 @@ export function registerNativeRoutes(app: FastifyInstance, deps: NativeDeps = {}
 
   app.post<{ Body: Body }>(
     "/v1/native/prepare",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }, bodyLimit: 4096 },
+    // Planning is heavy for the node (it scans the address's records), so a
+    // phone gets a few plans a minute; a send needs one or two.
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } }, bodyLimit: 4096 },
     async (req, reply) => {
       const { owner, request } = nativeRequest(req.body ?? {});
       if (inFlight >= MAX_IN_FLIGHT) {
@@ -117,9 +119,10 @@ export function registerNativeRoutes(app: FastifyInstance, deps: NativeDeps = {}
           }
           if (e instanceof RpcError && !e.transport) {
             // The planner's own reason (not enough NOID for the fee, no such
-            // token in this wallet...): short, plain text, no secrets.
+            // token in this wallet...) goes to the log only; the app shows its own text.
+            req.log.info({ reason: e.message.slice(0, 200) }, "native plan refused");
             reply.code(422);
-            return { error: { code: "cannot_prepare", message: e.message.replace(/[^\x20-\x7e]/g, "").slice(0, 200) } };
+            return { error: { code: "cannot_prepare", message: "The node could not prepare this transfer." } };
           }
           throw e;
         }

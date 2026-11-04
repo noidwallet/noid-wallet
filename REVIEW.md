@@ -201,6 +201,32 @@ The phone verifies the server's chain of block headers itself.
   checkpoint trust equivalent to the app's own trust (it is shipped in the
   same signed APK)? Anything in the reorg handling a server could abuse?
 
+## Token and NFT sends (1.2, not released yet)
+
+- `backend/src/native.ts`: `POST /v1/native/prepare` asks the node's
+  stateless planner (`paranoid_prepareNativeIntent`, read-only, owner RPC
+  on loopback) for a plain `transfer_token` or `transfer_nft` only. The
+  request is built from checked fields; 2 plans at a time, 5 a minute per
+  client. `/v1/submit` accepts payments (0xa3) and `NOIDNT21` intents only.
+- `core/src/native_send.rs`: decodes the plan with official `noid_tx`,
+  runs `NativeIntent::checked`, and refuses unless: the phone's address
+  signs; the operation, asset or NFT and recipient are the requested ones;
+  inputs are this address's NOID and the chosen token or NFT only; outputs
+  are exactly one unlocked record to the recipient (exact units), at most
+  one token change record and one NOID change output back here; the fee is
+  within the payment cap. It then adds the 0.005 NOID wallet fee as one
+  plain output (fee raised by one output's worth, never below the relay
+  floor), re-runs the official check, proves with
+  `prove_native_asset_authorization` (V4) and verifies. The native chain id
+  is checked against `noid_chain` by `tools/headers-check`.
+- `app/src/lib/nativeSend.ts`: the payment safety rules (saved before
+  sending, identical re-sends, refusals remembered by NOID coins, no silent
+  fee change); a plan built on a block the phone's chain check knows
+  differently is refused.
+- Review questions: anything a consensus-valid plan could still do that
+  the review does not show? Is editing the planner's pages (change, fee,
+  appended output) always admissible?
+
 ## Known limits
 
 - Privacy: the server sees which addresses a phone asks about and its IP.

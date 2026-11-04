@@ -148,6 +148,12 @@ export function restartChain(api: Api, serverTip: number): Promise<void> {
   return syncChain(api, serverTip);
 }
 
+/** The block id the phone verified at `height`, if it still remembers it (any depth). */
+export function knownBlockId(height: number): string | null {
+  const s = loadState();
+  return s?.ids[String(height)] ?? null;
+}
+
 /**
  * Whether the block the server reported for a payment is on the chain the
  * phone checked: true (same id), false (a different block at that height),

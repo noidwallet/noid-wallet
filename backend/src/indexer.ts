@@ -49,7 +49,7 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
   if (nativeFinance && (native?.operation === "transfer_token" || native?.operation === "transfer_nft")) {
     // A token or NFT transfer (NOID 1.2 sends one with a wallet fee output):
     // the sender's row shows the NOID that left (network fee plus any plain
-    // outputs to others), not its own change; the recipient gets a row too.
+    // outputs to others), not its own change.
     let spent = 0;
     try {
       spent = Number(BigInt(tx.input_sum_micronoid) - BigInt(received.get(sender) ?? 0));
@@ -63,7 +63,8 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
     const to = [...new Set(owners)];
     rows.push({ address: sender, direction: "contract", amount: spent, fee: tx.fee_micronoid, walletFee, counterparty: to.length === 1 ? to[0]! : null });
     for (const [address, amount] of others) rows.push({ address, direction: "contract", amount, fee: 0, walletFee: 0, counterparty: sender });
-    for (const address of to) if (!received.has(address)) rows.push({ address, direction: "contract", amount: 0, fee: 0, walletFee: 0, counterparty: sender });
+    // No row for the token recipient: no NOID reached them, and apps show a
+    // contract row as outgoing. Their tokens show in their token list.
     return rows;
   }
   if (tx.contract || nativeFinance) {

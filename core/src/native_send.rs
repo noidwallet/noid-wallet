@@ -217,6 +217,9 @@ fn prepare(owner: Address, req: &NativeSendRequest) -> Result<Prepared, Error> {
     }
 
     // Inputs: this address's NOID, and only the token or NFT being sent.
+    if facts.inputs.len() > crate::tx::MAX_SEND_INPUTS {
+        return Err(bad("too many inputs"));
+    }
     let mut spent_nft = false;
     for claim in &facts.inputs {
         match &claim.opening {
@@ -234,7 +237,12 @@ fn prepare(owner: Address, req: &NativeSendRequest) -> Result<Prepared, Error> {
 
     // Outputs: the recipient gets exactly what was asked, unlocked; all else
     // comes back here. Plain NOID outputs are change to this address only.
+    // The planner's shape (noid_rpc planner `finish`): one record to the
+    // recipient, at most one token change record, one NOID change output.
+    // Anything more would only add fees or leave the recipient with dust.
     let mut to_recipient = 0u64;
+    let mut recipient_records = 0usize;
+    let mut change_records = 0usize;
     let mut nft_out = false;
     let mut change: Vec<usize> = Vec::new();
     for (i, claim) in facts.outputs.iter().enumerate() {
@@ -243,7 +251,10 @@ fn prepare(owner: Address, req: &NativeSendRequest) -> Result<Prepared, Error> {
             Some(NativeOpening::TokenBalance(b)) if Some(b.asset.0) == wanted_asset && b.unlock_height == 0 => {
                 if b.owner == to {
                     to_recipient = to_recipient.checked_add(b.units).ok_or_else(|| bad("amount"))?;
-                } else if b.owner != owner {
+                    recipient_records += 1;
+                } else if b.owner == owner {
+                    change_records += 1;
+                } else {
                     return Err(bad("tokens go to a third address"));
                 }
             }
@@ -257,6 +268,9 @@ fn prepare(owner: Address, req: &NativeSendRequest) -> Result<Prepared, Error> {
     }
     if wanted_asset.is_some() && to_recipient != wanted_units {
         return Err(bad("the amount differs"));
+    }
+    if recipient_records > 1 || change_records > 1 || change.len() > 1 {
+        return Err(bad("more outputs than a transfer needs"));
     }
     if wanted_nft.is_some() && !nft_out {
         return Err(bad("the NFT doesn't reach the recipient"));
@@ -583,13 +597,29 @@ mod tests {
     }
 
     #[test]
-    fn full_output_pages_get_a_new_page_for_the_fee() {
-        // Four outputs fill two pages: the fee output needs a third page.
-        let plan = token_intent(30, vec![noid_out(104, 50_000, me())]);
-        assert_eq!(plan.pages.len(), 3);
-        let req = request(&plan, send_tokens(30));
+    fn the_fee_output_goes_on_the_first_page_with_room() {
+        // A whole send (no token change): the two outputs fill the first data
+        // page, and the fee output goes on the next page (the token input's
+        // own page: inputs with another owner always get a page of their own,
+        // so a transfer of this shape never needs a new page).
+        let fee = plan_fee(1, 2);
+        let to = parse_address(RECIPIENT).unwrap();
+        let plan = intent(
+            NativeOperation::TransferToken { asset: AssetId([9; 32]) },
+            vec![native_in(2, token(me(), 100)), noid_in(1, 1_000_000, me())],
+            vec![native_out(101, token(to, 100)), noid_out(103, 1_000_000 - fee, me())],
+            fee,
+        );
+        let before = plan.pages.len();
+        let req = request(&plan, send_tokens(100));
         let review = check_native_send(&me().to_bech32(), &req).unwrap();
-        assert_eq!(review.output_count, 5);
+        assert_eq!(review.output_count, 3);
+        let secret = MasterSecret::from_hex(SECRET).unwrap();
+        let built = build_native_send(&secret, 0, &req).unwrap();
+        let sent = NativeIntent::from_bytes(&hex::decode(&built.intent_hex).unwrap()).unwrap();
+        sent.checked(chain(), HEIGHT).unwrap();
+        assert_eq!(sent.pages.len(), before);
+        assert_eq!(sent.pages[2].body.live_output_count(), 1);
     }
 
     #[test]
@@ -641,6 +671,16 @@ mod tests {
             )
         };
         assert!(refused(&greedy, send_tokens(30)).contains("network fee"));
+        // Change split into many outputs (each adds fee room), or the
+        // recipient's tokens split into dust records.
+        assert!(refused(&token_intent(30, vec![noid_out(104, 50_000, me())]), send_tokens(30)).contains("more outputs"));
+        let dust = intent(
+            NativeOperation::TransferToken { asset: AssetId([9; 32]) },
+            vec![noid_in(1, 1_000_000, me()), native_in(2, token(me(), 100))],
+            vec![native_out(101, token(to, 15)), native_out(105, token(to, 15)), native_out(102, token(me(), 70)), noid_out(103, 1_000_000 - plan_fee(2, 4), me())],
+            plan_fee(2, 4),
+        );
+        assert!(refused(&dust, send_tokens(30)).contains("more outputs"));
     }
 
     #[test]

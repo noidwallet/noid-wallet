@@ -14,6 +14,7 @@ import { nftName, shownAssets, tokenName, useAssets } from '@/lib/assets';
 import { LINK_HOSTS } from '@/lib/config';
 import { core, type NativeSendReview, type NativeTransfer } from '@/lib/core';
 import { parseLink } from '@/lib/links';
+import { knownBlockId } from '@/lib/chain';
 import { executeNativeSend, NativeFeeChanged, reviewNativeSend } from '@/lib/nativeSend';
 import { go, goHome, useArmed, useHardwareBack } from '@/lib/nav';
 import { checkAddress, fiat, groupAddress } from '@/lib/safety';
@@ -137,7 +138,7 @@ export default function NativeSend() {
     setBusy(true);
     setCheckedLookalike(false);
     try {
-      const r = await reviewNativeSend(w.api, meta.address, w.pending, t);
+      const r = await reviewNativeSend(w.api, meta.address, w.pending, t, undefined, knownBlockId);
       setTo(check.address);
       setTransfer(t);
       setReview(r.review);
@@ -172,6 +173,7 @@ export default function NativeSend() {
         transfer,
         reviewed: review,
         itemLabel: what(review),
+        knownBlockId,
         onStage: (s) => setStage(s),
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

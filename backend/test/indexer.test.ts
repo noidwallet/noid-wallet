@@ -134,7 +134,7 @@ test("v2.1 native finance: shown as contract activity, commitment-owned slots le
   assert.equal(pay[0]!.direction, "sent");
 });
 
-test("token transfer: the sender sees the NOID that left, not its change; the recipient gets a row", () => {
+test("token transfer: the sender sees the NOID that left, not its change", () => {
   const FEE = "o155fsn6m5au9ardteuw0qc77agzzp6a99c8j5k60qumdwus5ajwesf9magf";
   const rows = classify(
     tx({
@@ -152,5 +152,5 @@ test("token transfer: the sender sees the NOID that left, not its change; the re
     new Set([FEE]),
   );
   assert.deepEqual(rows.find((r) => r.address === A), { address: A, direction: "contract", amount: 17_000, fee: 12_000, walletFee: 5_000, counterparty: B });
-  assert.deepEqual(rows.find((r) => r.address === B), { address: B, direction: "contract", amount: 0, fee: 0, walletFee: 0, counterparty: A });
+  assert.equal(rows.find((r) => r.address === B), undefined);
 });

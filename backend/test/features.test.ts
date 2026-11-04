@@ -340,11 +340,11 @@ test("native prepare: only plain transfers, strict fields, planner errors mapped
     if (method === "getMempoolStats") return { fee_floor: 1000 } as T;
     throw new Error(method);
   };
-  // 10 requests a minute per client: give each batch its own client address.
+  // 5 requests a minute per client: give each batch its own client address.
   let client = 0;
   const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false, native: { rpc } });
   const post = (payload: object) =>
-    app.inject({ method: "POST", url: "/v1/native/prepare", payload, remoteAddress: `10.0.0.${Math.floor(client++ / 9) + 1}` });
+    app.inject({ method: "POST", url: "/v1/native/prepare", payload, remoteAddress: `10.0.0.${Math.floor(client++ / 4) + 1}` });
 
   const ok = await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "0050", recipient: B });
   assert.equal(ok.statusCode, 200);
@@ -380,17 +380,33 @@ test("native prepare: only plain transfers, strict fields, planner errors mapped
   fail = new RpcError("insufficient NOID for native fee", -32000);
   const cannot = await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B });
   assert.equal(cannot.statusCode, 422);
-  assert.equal((cannot.json() as { error: { message: string } }).error.message, "insufficient NOID for native fee");
+  assert.equal((cannot.json() as { error: { code: string } }).error.code, "cannot_prepare");
   fail = null;
   synced = false;
   assert.equal((await post({ owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B })).statusCode, 503);
-  // The 11th request in a minute from one client is refused.
+  // The 6th request in a minute from one client is refused.
   synced = true;
   const codes: number[] = [];
-  for (let i = 0; i < 11; i++) {
+  for (let i = 0; i < 6; i++) {
     const r = await app.inject({ method: "POST", url: "/v1/native/prepare", remoteAddress: "10.9.9.9", payload: { owner: A, action: "transfer_token", assetId: ASSET, units: "1", recipient: B } });
     codes.push(r.statusCode);
   }
-  assert.deepEqual([codes.slice(0, 10).every((c) => c === 200), codes[10]], [true, 429]);
+  assert.deepEqual([codes.slice(0, 5).every((c) => c === 200), codes[5]], [true, 429]);
+  await app.close();
+});
+
+test("submit: payments and token/NFT transfers are relayed, other intent kinds are refused", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "noid-"));
+  const db = openDb(join(dir, "t.sqlite"));
+  const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false });
+  const txid = "ab".repeat(32);
+  const send = (intentHex: string) => app.inject({ method: "POST", url: "/v1/submit", payload: { intentHex, txid } });
+  const native = Buffer.from("NOIDNT21").toString("hex") + "00".repeat(8);
+  const trade = Buffer.from("NOIDTO21").toString("hex") + "00".repeat(8);
+  // Past the encoding check (the test has no node, so the relay itself fails).
+  assert.notEqual((await send("a3" + "00".repeat(8))).statusCode, 400);
+  assert.notEqual((await send(native)).statusCode, 400);
+  assert.equal((await send(trade)).statusCode, 400);
+  assert.equal((await send("ff00")).statusCode, 400);
   await app.close();
 });

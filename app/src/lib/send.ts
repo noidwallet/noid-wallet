@@ -84,11 +84,12 @@ export class RefusedButSpent extends Error {
    * gone through). False when they are, but this payment can't use them.
    */
   readonly missing: boolean;
-  constructor(missing = true) {
+  constructor(missing = true, message?: string) {
     super(
-      missing
-        ? 'Your last payment was reported as refused, but the money it used is no longer in your balance. It may have gone through. Check Activity before paying again.'
-        : 'Your last payment was refused a short while ago. To be safe, the next payment must reuse the same money, and this one can’t. Try a different amount, or try again in a few hours.',
+      message ??
+        (missing
+          ? 'Your last payment was reported as refused, but the money it used is no longer in your balance. It may have gone through. Check Activity before paying again.'
+          : 'Your last payment was refused a short while ago. To be safe, the next payment must reuse the same money, and this one can’t. Try a different amount, or try again in a few hours.'),
     );
     this.missing = missing;
   }

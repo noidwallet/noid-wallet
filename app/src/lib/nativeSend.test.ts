@@ -155,3 +155,15 @@ test('send: refuses to reuse NOID from a payment still pending', async () => {
   await assert.rejects(executeNativeSend(h.c), /hasn’t confirmed/);
   assert.equal(h.calls.submit.length, 0);
 });
+
+test('review: a plan built on a block the phone knows differently is refused', async () => {
+  const h = harness();
+  await assert.rejects(
+    reviewNativeSend(h.c.api, ME, [], transfer, h.c.core, (height) => (height === 280_000 ? 'c'.repeat(64) : null)),
+    /different chain/,
+  );
+  const ok = await reviewNativeSend(h.c.api, ME, [], transfer, h.c.core, (height) => (height === 280_000 ? 'b'.repeat(64) : null));
+  assert.equal(ok.review.parentHeight, 280_000);
+  // Unknown to the phone (the usual case: the plan is on the newest block): no verdict.
+  await reviewNativeSend(h.c.api, ME, [], transfer, h.c.core, () => null);
+});

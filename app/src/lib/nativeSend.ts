@@ -8,7 +8,7 @@
 // that changed after review is never charged silently.
 import { ApiError, type Api, type NativePrepareBody } from './api';
 import type { BuiltNativeSend, NativeSendRequest, NativeSendReview, NativeTransfer, Utxo } from './core';
-import { checkRefusals, clearRefusals, feeLooksWrong, hasUnresolvedSend, noteRefused, SubmitUnknown, type Stage } from './send';
+import { checkRefusals, clearRefusals, feeLooksWrong, hasUnresolvedSend, noteRefused, RefusedButSpent, SubmitUnknown, type Stage } from './send';
 import type { PendingTx } from './storage';
 import { NATIVE_WALLET_FEE } from './walletFee';
 
@@ -55,12 +55,20 @@ export async function reviewNativeSend(
   pending: PendingTx[],
   transfer: NativeTransfer,
   core?: NativeCore,
+  /** The block id the phone verified at a height, if it remembers one (lib/chain.ts). */
+  knownBlockId?: (height: number) => string | null,
 ): Promise<{ request: NativeSendRequest; review: NativeSendReview }> {
   const prepared = await api.nativePrepare(body(owner, transfer));
   const request: NativeSendRequest = { plan: prepared.plan, transfer, slotHints: prepared.slotHints, relayFloor: prepared.relayFloor };
   const review = await (core ?? (await realCore())).checkNativeSend(owner, request, pendingOutputs(pending));
   if (!reviewMatches(review, transfer)) {
     throw new Error('The transfer your wallet server prepared is not the one you asked for, so nothing was signed.');
+  }
+  // Built on a block the phone's own chain check knows differently: the
+  // server is on another chain than the one your phone verified.
+  const known = knownBlockId?.(review.parentHeight);
+  if (known && known !== review.parentId) {
+    throw new Error('Your wallet server prepared this transfer on a different chain than the one your phone checked, so nothing was signed. See Settings, Chain check.');
   }
   return { request, review };
 }
@@ -79,6 +87,7 @@ export interface NativeSendOpts {
   /** Shown in Activity: "30 NEMO", "Cool Cats #3". */
   itemLabel: string;
   onStage?: (stage: Stage, attempt: number) => void;
+  knownBlockId?: (height: number) => string | null;
   /** Test hooks. */
   core?: NativeCore;
   utxos?: () => Promise<Utxo[]>;
@@ -92,7 +101,7 @@ export async function executeNativeSend(c: NativeSendOpts): Promise<{ built: Bui
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     c.onStage?.(attempt === 0 ? 'preparing' : 'retrying', attempt);
-    const { request, review } = await reviewNativeSend(c.api, c.address, c.pending, c.transfer, core);
+    const { request, review } = await reviewNativeSend(c.api, c.address, c.pending, c.transfer, core, c.knownBlockId);
     if (review.noidDebit !== c.reviewed.noidDebit) throw new NativeFeeChanged(review);
 
     c.onStage?.('forging', attempt);
@@ -112,7 +121,17 @@ export async function executeNativeSend(c: NativeSendOpts): Promise<{ built: Bui
       throw new Error('This transfer would reuse NOID from a payment that hasn’t confirmed yet. Try again in a minute.');
     }
     const utxos = c.utxos ? await c.utxos() : (await c.api.utxos(c.address)).utxos;
-    checkRefusals(c.address, utxos, noidSlots, Date.now(), b.parentHeight);
+    try {
+      checkRefusals(c.address, utxos, noidSlots, Date.now(), b.parentHeight);
+    } catch (e) {
+      if (!(e instanceof RefusedButSpent)) throw e;
+      throw new RefusedButSpent(
+        e.missing,
+        e.missing
+          ? 'Your last send was reported as refused, but the NOID it used is no longer in your balance. It may have gone through. Check Activity before sending again.'
+          : 'Your last send was refused a short while ago. To be safe, the next one must reuse the same NOID, and the transfer your server prepared doesn’t. Try again in a few minutes, or in a few hours at most.',
+      );
+    }
 
     const record: PendingTx = {
       txid: built.txid,
