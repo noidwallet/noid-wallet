@@ -8,7 +8,7 @@ const CP = 274_821;
 
 /** A fake core: header "hex" is just the height as a string; `bad` heights are refused. */
 function fakeCore(opts: { bad?: Map<number, string>; forkAt?: number; serverTip?: number } = {}) {
-  const info = (tip: number): ChainInfo => ({ checkpointHeight: CP, tipHeight: tip, tipId: `id${tip}`, tipTimestamp: 1_793_627_659 + (tip - CP) * 30, minCheckedDepth: 8 });
+  const info = (tip: number): ChainInfo => ({ checkpointHeight: CP, tipHeight: tip, tipId: `id${tip}`, tipTimestamp: 1_793_627_659 + (tip - CP) * 30, checkedHeight: Math.max(CP, tip - 8) });
   const stateFor = (tip: number): ChainState => ({ v: 1, checkpoint: CP, headers: [], workBefore: '00', ids: { [tip]: `id${tip}` } });
   const tipOf = (s: ChainState | null) => (s ? Number(Object.keys(s.ids)[0]) : CP);
   const calls: { from: number; n: number }[] = [];

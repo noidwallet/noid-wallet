@@ -424,6 +424,18 @@ fn real_headers(path: &str) {
                 assert_eq!((r.accepted, r.refused), (page.len(), None), "tracker refused real headers near {}", page[0].height);
             }
             assert_eq!(t.tip_id(), chain.tip_id());
+            // How far "counted as checked" trails the tip, one header at a time.
+            let mut t = Tracker::with_checkpoint(&cp, CHECKPOINT_RATE);
+            let (mut worst, mut worst_at) = (0u64, 0u64);
+            for h in rest {
+                let r = t.sync(std::slice::from_ref(h), u64::MAX / 2);
+                assert_eq!(r.accepted, 1);
+                let lag = t.tip().height - t.checked_height();
+                if t.tip().height >= cp.height + 64 && lag > worst {
+                    (worst, worst_at) = (lag, t.tip().height);
+                }
+            }
+            println!("  counted as checked trails the tip by at most {worst} blocks (at tip {worst_at}; 8 on a normal network)");
         }
         let work = chain.added_work();
         let tgt = rest.last().unwrap().difficulty_target;

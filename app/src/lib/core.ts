@@ -165,8 +165,8 @@ export interface ChainInfo {
   tipHeight: number;
   tipId: string;
   tipTimestamp: number;
-  /** Blocks closer to the tip than this are not yet counted as checked. */
-  minCheckedDepth: number;
+  /** Highest block that counts as checked (8+ deep, enough work on top); the checkpoint height when none does yet. */
+  checkedHeight: number;
 }
 
 export interface SyncResult {

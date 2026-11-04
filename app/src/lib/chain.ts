@@ -2,11 +2,12 @@
 //
 // Starting from a checkpoint built into the app (block 274,821), the core
 // checks every block header the server sends: proof of work, difficulty,
-// timing, links and a floor on total work (core/src/chain.rs). The result is
-// kept on the phone between runs. Screens read it with useChain().
+// timing, links and a floor on total work (core/src/chain.rs). A block only
+// counts as checked once it is 8 deep with enough real work on top. The
+// result is kept on the phone between runs. Screens read it with useChain().
 //
-// What it gives: a wallet server can't invent blocks or a fake chain tip
-// without the phone noticing. What it doesn't give yet: proof that a payment
+// What it gives: a wallet server can't get a block counted as checked
+// without real mining work. What it doesn't give yet: proof that a payment
 // is inside a block. The server still reports that; a later update checks it.
 import { useSyncExternalStore } from 'react';
 
@@ -141,10 +142,10 @@ async function run(api: Api, serverTip: number) {
 export function blockChecked(height: number, blockHash: string | null | undefined): boolean | null {
   if (!blockHash) return null;
   const info = status.info;
-  // Blocks near the tip don't count yet: a dishonest server can get a few
-  // cheap blocks past the checks before they fail (core/src/chain.rs,
-  // MIN_CHECKED_DEPTH), so the phone waits until the block is deeper.
-  if (!info || height + info.minCheckedDepth > info.tipHeight) return null;
+  // Blocks near the tip don't count yet: a block counts once it is 8 deep
+  // and enough real mining work is built on top of it (core/src/chain.rs,
+  // checked_height), so cheap blocks from a server can't make it count.
+  if (!info || height > info.checkedHeight || height <= info.checkpointHeight) return null;
   const s = loadState();
   const id = s?.ids[String(height)];
   if (!id) return null;

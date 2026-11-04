@@ -163,21 +163,31 @@ The phone verifies the server's chain of block headers itself.
   headers ending at block 274,821, `checkpoint.hex`), keeps the last 54
   headers, takes a branch from up to 18 blocks back only when it carries more
   work, caps a batch at 4,096 headers, and refuses a chain whose total work
-  since the checkpoint falls below 1/16 of the network rate measured there
-  (this is what stops a cheap chain: ASERT lets difficulty fall to the
-  genesis floor after late timestamps). Every header is checked against the
-  phone's clock.
+  since the checkpoint falls below 1/16 of the network rate measured there.
+  Every header is checked against the phone's clock.
+- ASERT lets difficulty fall fast after late timestamps, and mainnet does
+  it: after a 994 s gap at block 279,458 (Nov 4, 2026) the next block was
+  41x easier and dozens of cheap blocks followed. An earlier design refused
+  any block easing more than 4x and any 19-block stretch below 1/8 of the
+  checkpoint rate; both refused this real stretch (found in the first phone
+  test). Cheap blocks are now accepted when they pass consensus, and a block
+  only counts as checked (`Tracker::checked_height`) once it is 8 deep and
+  at least 120 s of checkpoint-rate work (four blocks' worth, about
+  2^46.3 hashes) is built on top of it. A server can append cheap blocks
+  and move the phone's tip, but it cannot get a block counted without that
+  work. The app shows both heights.
 - `backend/src/headers.ts` pages raw headers; `app/src/lib/chainSync.ts`
   drives the sync; `app/src/app/chain.tsx` shows the result.
 - What it proves: the server's headers form a valid proof-of-work chain
-  from the checkpoint at close to real difficulty, so a server cannot invent
-  blocks or a fake tip. What it does not prove: that a payment, balance or
+  from the checkpoint, and every block counted as checked has real work on
+  top of it. What it does not prove: that a payment, balance or
   token is inside those blocks. The app's copy says so. A payment's "block
   id matches" line only means the server named a real block; proving the
   payment itself needs a slot proof from the node (asked for in Parano1d
   issue #67).
 - Review questions: is the work floor sound (a real network losing more than
-  15/16 of its mining would be refused; is 1/16 the right margin)? Is the
+  15/16 of its mining would be refused; is 1/16 the right margin)? Is 120 s
+  of checkpoint-rate work on top enough before a block id counts? Is the
   checkpoint trust equivalent to the app's own trust (it is shipped in the
   same signed APK)? Anything in the reorg handling a server could abuse?
 

@@ -8,19 +8,20 @@
 //!   (`checkpoint.hex`, fetched from our node on Nov 2, 2026 and checked
 //!   against the official code by `tools/headers-check`). Everything after
 //!   it is checked on the phone.
-//! - A work floor. ASERT lets difficulty fall fast when timestamps run late,
-//!   so a fake chain can be cheap after one real-difficulty block. Two
-//!   checks against the network rate measured at the checkpoint (about
-//!   7.5 x 10^11 hashes per second): the work since the checkpoint must be
-//!   at least 1/16 of that rate times the time claimed since then, and the
-//!   work of the last 19 headers at least 1/8 of it times the time they
-//!   claim (at least 30 s per block). A real chain only fails this if the
-//!   network loses most of its mining for a stretch; a fake run has to be
-//!   mined at no less than 1/8 of the real network's pace.
-//!   On top, no block may ease the target more than 4x over its parent
-//!   (a real block has to be over six minutes late for that; mainnet has
-//!   never gone past 1.6x), so walking the difficulty down takes many
-//!   late-stamped blocks, which the window floor then refuses.
+//! - A work floor: the work since the checkpoint must be at least 1/16 of
+//!   the network rate measured there (about 7.5 x 10^11 hashes per second)
+//!   times the time claimed since then. A whole fake chain from the
+//!   checkpoint can't pass it without real mining.
+//! - Work on top before a block counts. ASERT lets difficulty fall fast when
+//!   timestamps run late, and real mainnet does this: after a 994 s gap at
+//!   block 279,458 (Nov 4, 2026, just after v2.1 activated) the next block
+//!   was 41x easier, and the recovery took dozens of cheap blocks. A rule
+//!   that refuses cheap stretches would refuse the real chain, so cheap
+//!   blocks are accepted (they pass every consensus rule), and instead a
+//!   block only counts as checked once it is [`MIN_CHECKED_DEPTH`] deep and
+//!   at least [`CHECKED_WORK_SECONDS`] of the checkpoint rate's mining (four
+//!   blocks' worth) is built on top of it. A server can append cheap blocks,
+//!   but it can't get a block counted without paying for real work.
 //! - The phone's clock: every header is checked for future drift.
 //! - Small forks: the last 54 headers are kept, so a branch that starts up
 //!   to 18 blocks back (the node's finality depth) can replace the tip when
@@ -48,22 +49,19 @@ const CHECKPOINT_HEX: &str = include_str!("checkpoint.hex");
 pub const CHECKPOINT_RATE: u128 = 745_126_342_524;
 /// The chain must carry at least this fraction of the checkpoint rate.
 pub const WORK_FLOOR_DIVISOR: u128 = 16;
-/// Recent headers the sliding work floor looks at (the finality depth plus one).
-pub const FLOOR_WINDOW: usize = CONSENSUS_FINALITY_DEPTH as usize + 1;
-/// The sliding floor is stricter (1/8): over 19 blocks, chance alone moves
-/// the claimed time by well under 2x, and the cap bounds what a fake run can
-/// cost the attacker to about 1/8 of honest mining for a few blocks.
-pub const WINDOW_FLOOR_DIVISOR: u128 = 8;
+/// Work that must be built on top of a block before it counts as checked:
+/// this many seconds of the whole network's mining at the checkpoint rate
+/// (120 s, four 30-second blocks' worth, about 2^46.3 hashes).
+pub const CHECKED_WORK_SECONDS: u64 = 120;
 /// Headers kept: a full check window plus the finality depth.
 pub const RETAIN: usize = WINDOW_LEN + CONSENSUS_FINALITY_DEPTH as usize;
 /// Most headers accepted in one call (the node's `MAX_STAGED_HEADER_BATCH`).
 pub const MAX_BATCH: usize = 4096;
 /// Block ids remembered for payment checks (about 17 hours of blocks).
 pub const RECENT_IDS: usize = 2048;
-/// A block id counts as checked only this deep below the phone's tip. A
-/// server with about 1/20 of the network's hashing for ten minutes can get
-/// up to about seven cheap blocks past the floors before the check fails
-/// (see the tests), so the app waits until a block is deeper than that.
+/// A block id counts as checked only this deep below the phone's tip, and
+/// only with [`CHECKED_WORK_SECONDS`] of work above it. On a normal network
+/// the depth decides; after a gap, when blocks are cheap, the work does.
 pub const MIN_CHECKED_DEPTH: u64 = 8;
 
 pub struct Checkpoint {
@@ -130,7 +128,7 @@ pub struct Refused {
     /// the tip + 1), `too_deep` (a branch from more than 18 blocks back, or
     /// from before the checkpoint), `less_work` (a branch with no more work
     /// than the current one), `work_too_low` (the chain fails the work
-    /// floor), `eases_too_fast` (target over 4x its parent's), `too_many`
+    /// floor), `too_many`
     /// (more than [`MAX_BATCH`] headers).
     pub code: &'static str,
 }
@@ -163,23 +161,6 @@ fn hex32(b: &[u8; 32]) -> String {
 fn unhex32(s: &str) -> Option<[u8; 32]> {
     let v = hex::decode(s).ok()?;
     v.try_into().ok()
-}
-
-/// Most a target may grow from one block to the next.
-pub const MAX_EASING_SHIFT: u32 = 2; // 4x
-
-/// `child > parent * 4` as little-endian 256-bit targets.
-fn eases_too_fast(parent: &[u8; 32], child: &[u8; 32]) -> bool {
-    let mut limit = [0u8; 32];
-    let mut carry = 0u8;
-    for i in 0..32 {
-        limit[i] = (parent[i] << MAX_EASING_SHIFT) | carry;
-        carry = parent[i] >> (8 - MAX_EASING_SHIFT);
-    }
-    if carry != 0 {
-        return false; // the limit overflows 256 bits: anything is allowed
-    }
-    le256_lt(&limit, child)
 }
 
 /// `seconds * rate / divisor` as a little-endian 256-bit value.
@@ -296,12 +277,35 @@ impl Tracker {
     }
 
     /// The block id the phone checked at `height`, if it still remembers it
-    /// and the block is at least [`MIN_CHECKED_DEPTH`] below the tip.
+    /// and the block is at or below [`Tracker::checked_height`].
     pub fn checked_id_at(&self, height: u64) -> Option<[u8; 32]> {
-        if height + MIN_CHECKED_DEPTH > self.tip().height {
+        if height > self.checked_height() || height <= self.cp_height {
             return None;
         }
         self.id_at(height)
+    }
+
+    /// The highest block that counts as checked: at least
+    /// [`MIN_CHECKED_DEPTH`] below the tip, with at least
+    /// [`CHECKED_WORK_SECONDS`] of checkpoint-rate work on top of it. Found
+    /// among the retained headers; if none of them qualifies (a long run of
+    /// very cheap blocks), nothing past the checkpoint counts.
+    pub fn checked_height(&self) -> u64 {
+        let tip = self.retained.last().expect("never empty");
+        let need = required_work(CHECKED_WORK_SECONDS, self.rate, 1);
+        for e in self.retained.iter().rev() {
+            if e.header.height + MIN_CHECKED_DEPTH > tip.header.height {
+                continue;
+            }
+            if e.header.height <= self.cp_height {
+                break;
+            }
+            // Work above e = tip.work - e.work; compare without subtracting.
+            if !le256_lt(&tip.work, &add_work(&e.work, &need)) {
+                return e.header.height;
+            }
+        }
+        self.cp_height
     }
 
     /// The block id the phone has at `height`, if it still remembers it.
@@ -312,31 +316,14 @@ impl Tracker {
         self.ids.get(&height).copied()
     }
 
-    /// Two floors: the work since the checkpoint against the time claimed
-    /// since then (1/16 of the checkpoint rate), and the work of the last
-    /// [`FLOOR_WINDOW`] headers against the time they claim (1/8). The second
-    /// is what stops a fake tail: a long honest stretch banks a surplus
-    /// against the first floor, and without the window check one real block
-    /// stamped late (dropping the ASERT target to the genesis floor) would
-    /// let near-free blocks spend that surplus for hours.
+    /// The work since the checkpoint against the time claimed since then
+    /// (1/16 of the checkpoint rate). A cheap tail after an honest stretch
+    /// can pass this (the honest work banks a surplus); that is why blocks
+    /// need work on top before they count ([`Tracker::checked_height`]),
+    /// rather than a stricter floor here, which real gaps would trip.
     fn below_floor(&self) -> bool {
         let elapsed = self.tip().timestamp.saturating_sub(self.cp_timestamp);
-        if le256_lt(&self.work(), &required_work(elapsed, self.rate, WORK_FLOOR_DIVISOR)) {
-            return true;
-        }
-        let n = self.retained.len();
-        let start = n.saturating_sub(FLOOR_WINDOW);
-        let window = &self.retained[start..];
-        let mut work = [0u8; 32];
-        for e in &window[1..] {
-            work = add_work(&work, &block_work(&e.header.difficulty_target));
-        }
-        let span = self.tip().timestamp.saturating_sub(window[0].header.timestamp);
-        // The window counts blocks after its first header; the time they
-        // claim is at least the target interval each (a chain can't earn a
-        // pass by stamping blocks a second apart).
-        let claimed = span.max((window.len() as u64 - 1) * crate::headers::V2_BLOCK_TIME);
-        le256_lt(&work, &required_work(claimed, self.rate, WINDOW_FLOOR_DIVISOR))
+        le256_lt(&self.work(), &required_work(elapsed, self.rate, WORK_FLOOR_DIVISOR))
     }
 
     fn chain(&self) -> HeaderChain {
@@ -403,14 +390,6 @@ impl Tracker {
         let mut accepted = 0;
         let mut refused = None;
         for h in headers {
-            // The ASERT rule is checked inside `extend`; on top of it, no
-            // block may ease the target more than 4x over its parent. A real
-            // block needs to be over six minutes late for that; it is the
-            // signature of a chain being walked down to the genesis floor.
-            if eases_too_fast(&chain.tip().difficulty_target, &h.difficulty_target) {
-                refused = Some(Refused { height: h.height, code: "eases_too_fast" });
-                break;
-            }
             match chain.extend(h, Some(now)) {
                 Ok(()) => {
                     next.push(*h, chain.tip_id());
@@ -451,8 +430,9 @@ pub struct ChainInfo {
     pub tip_height: u64,
     pub tip_id: String,
     pub tip_timestamp: u64,
-    /// Blocks closer to the tip than this are not yet counted as checked.
-    pub min_checked_depth: u64,
+    /// The highest block that counts as checked (deep enough, with enough
+    /// work on top); the checkpoint height when none does yet.
+    pub checked_height: u64,
 }
 
 impl From<&Tracker> for ChainInfo {
@@ -462,7 +442,7 @@ impl From<&Tracker> for ChainInfo {
             tip_height: t.tip().height,
             tip_id: hex32(&t.tip_id()),
             tip_timestamp: t.tip().timestamp,
-            min_checked_depth: MIN_CHECKED_DEPTH,
+            checked_height: t.checked_height(),
         }
     }
 }
@@ -531,19 +511,15 @@ mod tests {
         assert_eq!((r.accepted, r.refused), (0, None));
     }
 
-    /// The attack the audit ran: a long honest stretch banks a surplus
-    /// against the average floor, then one real block stamped late drops
-    /// the target to the genesis floor and near-free blocks follow. The
-    /// sliding window must refuse that tail within a few blocks.
-    #[test]
-    fn banked_slack_cannot_pay_for_a_cheap_tail() {
-        // A test world where real blocks are 2^44 work (target 2^212), 30 s apart.
+    /// A test world where real blocks are 2^44 work (target 2^212), 30 s
+    /// apart, with a checkpoint of 36 such blocks.
+    fn test_world() -> (Tracker, [u8; 32]) {
         let mut target = [0u8; 32];
         target[26] = 0x10;
         let mut headers: Vec<Header> = Vec::new();
         let mut prev = [0u8; 32];
         for i in 0..WINDOW_LEN as u64 {
-            let mut h = Header {
+            let h = Header {
                 prev_block_hash: prev,
                 state_root: [0; 32],
                 tx_root: [0; 32],
@@ -556,68 +532,102 @@ mod tests {
                 active_slot_count: 1,
                 alloc_counter: 1,
             };
-            h.prev_block_hash = prev;
             prev = block_id(&h);
             headers.push(h);
         }
         let cp = Checkpoint::from_headers(&headers).unwrap();
         let rate: u128 = (1u128 << 44) / 30;
-        let mut t = Tracker::with_checkpoint(&cp, rate);
-        // Pushing straight in (no PoW check) models headers the checks accepted.
-        let push = |t: &mut Tracker, gap: u64, target: [u8; 32]| {
-            let tip = *t.tip();
-            let h = Header { prev_block_hash: t.tip_id(), height: tip.height + 1, timestamp: tip.timestamp + gap, difficulty_target: target, ..tip };
-            let id = block_id(&h);
-            t.push(h, id);
-        };
-        // Two hours of honest blocks: 16x more work than the average floor needs.
+        (Tracker::with_checkpoint(&cp, rate), target)
+    }
+
+    /// Pushing straight in (no PoW check) models headers the checks accepted.
+    fn push(t: &mut Tracker, gap: u64, target: [u8; 32]) {
+        let tip = *t.tip();
+        let h = Header { prev_block_hash: t.tip_id(), height: tip.height + 1, timestamp: tip.timestamp + gap, difficulty_target: target, ..tip };
+        let id = block_id(&h);
+        t.push(h, id);
+    }
+
+    /// `target * 2^shift`, saturating at the top.
+    fn eased(target: &[u8; 32], shift: u32) -> [u8; 32] {
+        let mut v = *target;
+        for _ in 0..shift {
+            let mut carry = 0u8;
+            for b in &mut v {
+                let next = *b >> 7;
+                *b = (*b << 1) | carry;
+                carry = next;
+            }
+            if carry != 0 {
+                return [0xFF; 32];
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn checked_height_needs_depth_and_work() {
+        let (mut t, target) = test_world();
+        let cp = t.checkpoint_height();
+        // Too few blocks: nothing past the checkpoint counts yet.
+        for _ in 0..7 {
+            push(&mut t, 30, target);
+        }
+        assert_eq!(t.checked_height(), cp);
+        assert_eq!(t.checked_id_at(cp + 1), None);
+        for _ in 0..53 {
+            push(&mut t, 30, target);
+        }
+        // Real blocks: the depth decides (8 real blocks carry twice the work needed).
+        let tip = t.tip().height;
+        assert_eq!(t.checked_height(), tip - MIN_CHECKED_DEPTH);
+        assert!(t.checked_id_at(tip - MIN_CHECKED_DEPTH).is_some());
+        assert_eq!(t.checked_id_at(tip - MIN_CHECKED_DEPTH + 1), None);
+        // A cheap tail (each block 2^20 times easier) adds height but almost
+        // no work: only blocks with four real blocks' work above them count,
+        // however long the tail.
+        let last_real = tip;
+        for i in 0..40 {
+            push(&mut t, 30, eased(&target, 20));
+            if i >= 8 {
+                assert_eq!(t.checked_height(), last_real - 4, "after {} cheap blocks", i + 1);
+            }
+        }
+        // Once the tail is longer than the retained headers, nothing counts.
+        for _ in 0..RETAIN {
+            push(&mut t, 30, eased(&target, 20));
+        }
+        assert_eq!(t.checked_height(), cp);
+    }
+
+    /// What mainnet did at block 279,458: a 994 s gap, the next block 41x
+    /// easier, then dozens of fast cheap blocks while ASERT recovers. The
+    /// floor must keep passing, and checked blocks must follow once real
+    /// work is back on top.
+    #[test]
+    fn a_real_gap_is_not_refused() {
+        let (mut t, target) = test_world();
         for _ in 0..240 {
             push(&mut t, 30, target);
             assert!(!t.below_floor(), "honest chain must pass");
         }
-        // The attacker walks the target down as fast as the easing cap allows
-        // (4x per block, which under ASERT means each block stamped 360 s
-        // late) and pays less and less per block. The window floor must
-        // refuse within a few blocks, while the cost is still close to real.
-        let mut cur = target;
-        let mut refused_after = None;
-        for i in 1..=30 {
-            let mut eased = [0u8; 32];
-            let mut carry = 0u8;
-            for b in 0..32 {
-                eased[b] = (cur[b] << 2) | carry;
-                carry = cur[b] >> 6;
-            }
-            cur = eased;
-            push(&mut t, 360, cur);
-            if t.below_floor() {
-                refused_after = Some(i);
-                break;
+        push(&mut t, 994, target);
+        let mut shift: i32 = 5; // about 41x (2^5.36)
+        let mut n = 0;
+        while shift > 0 {
+            push(&mut t, 10, eased(&target, shift as u32));
+            assert!(!t.below_floor(), "recovery must pass");
+            n += 1;
+            // ASERT eases back about 2^(-20/180) per 10 s block: one doubling per 9 blocks.
+            if n % 9 == 0 {
+                shift -= 1;
             }
         }
-        // Seven blocks get through, at about a third of one real block's
-        // cost in all; see MIN_CHECKED_DEPTH for why that is tolerable.
-        assert!(matches!(refused_after, Some(n) if n <= 8), "{refused_after:?}");
-        // And the plain version of the attack (one late block, then the
-        // genesis floor at once) is stopped by the easing cap before any
-        // floor block is accepted.
-        assert!(eases_too_fast(&target, &GENESIS_TARGET));
-    }
-
-    #[test]
-    fn easing_cap() {
-        let mut t = [0u8; 32];
-        t[26] = 0x10; // 2^212
-        let mut four = [0u8; 32];
-        four[26] = 0x40; // 2^214
-        let mut more = four;
-        more[0] = 1;
-        assert!(!eases_too_fast(&t, &t));
-        assert!(!eases_too_fast(&t, &four));
-        assert!(eases_too_fast(&t, &more));
-        assert!(eases_too_fast(&t, &GENESIS_TARGET));
-        assert!(!eases_too_fast(&GENESIS_TARGET, &GENESIS_TARGET));
-        assert!(!eases_too_fast(&[0xFF; 32], &[0xFF; 32]));
+        for _ in 0..8 {
+            push(&mut t, 30, target);
+        }
+        assert!(!t.below_floor());
+        assert_eq!(t.checked_height(), t.tip().height - MIN_CHECKED_DEPTH);
     }
 
     #[test]

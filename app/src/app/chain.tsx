@@ -70,6 +70,12 @@ export default function Chain() {
       <Card>
         <KeyValue label="Server reports" value={chain.serverTip !== null ? `block ${chain.serverTip.toLocaleString()}` : '…'} />
         <KeyValue label="Checked on phone" value={info ? `block ${info.tipHeight.toLocaleString()}` : '…'} />
+        {info ? (
+          <KeyValue
+            label="Counted as checked"
+            value={info.checkedHeight > info.checkpointHeight ? `up to block ${info.checkedHeight.toLocaleString()}` : 'not yet'}
+          />
+        ) : null}
         {behind !== null ? <KeyValue label="Behind the server" value={`${behind.toLocaleString()} ${behind === 1 ? 'block' : 'blocks'}`} /> : null}
         <KeyValue label="Built-in checkpoint" value={info ? `block ${info.checkpointHeight.toLocaleString()}` : 'block 274,821'} />
         {info ? <KeyValue label="Blocks checked since" value={(info.tipHeight - info.checkpointHeight).toLocaleString()} /> : null}
@@ -83,13 +89,14 @@ export default function Chain() {
         <Body>
           Your phone verifies the chain of blocks itself, starting from block 274,821, which is built into this version of the app. For every block
           after it, the phone checks the proof of work, the difficulty rule, the timestamps, the link to the previous block, and that the whole chain
-          carries real mining work. A wallet server cannot invent blocks or a fake chain tip without this check failing.
+          carries real mining work. A wallet server cannot get a block counted as checked without real mining work behind it.
         </Body>
         <Text style={type.title}>What it does not check yet</Text>
         <Body>
           Whether a payment is really inside a block. Your balance and activity still come from the server. A later update will check payments
-          against these blocks once the Parano1d node can provide the proofs. A block only counts as checked once it is 8 blocks deep, because
-          a dishonest server could get a few cheap blocks past the check before it fails.
+          against these blocks once the Parano1d node can provide the proofs. A block only counts as checked once it is at least 8 blocks deep
+          and about four blocks’ worth of real mining work is built on top of it. After a long gap between blocks the network mines cheaper
+          blocks for a while, so this can take longer.
         </Body>
         <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>
           Checking one block takes well under a millisecond. The phone keeps the last 2,048 block ids to match recent payments against.
