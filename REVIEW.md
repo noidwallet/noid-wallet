@@ -1,4 +1,4 @@
-# Security review brief: NOID wallet (main branch, 1.0.3 released Nov 4, 2026)
+# Security review brief: NOID wallet (main branch, 1.2.0 released Nov 5, 2026)
 
 NOID is an Android wallet for Parano1d. Keys stay on the phone; the phone
 builds and proves every transaction itself (the official GKR authorization
@@ -150,7 +150,7 @@ cannot send or trade them yet.
   signed from these screens. State proofs come with verified headers.
 - Tickers are not unique; the token screen says so and shows the token ID.
 
-## Chain check on the phone (1.2, phase 1, not released yet)
+## Chain check on the phone (1.2, phase 1)
 
 The phone verifies the server's chain of block headers itself.
 
@@ -201,7 +201,7 @@ The phone verifies the server's chain of block headers itself.
   checkpoint trust equivalent to the app's own trust (it is shipped in the
   same signed APK)? Anything in the reorg handling a server could abuse?
 
-## Token and NFT sends (1.2, not released yet)
+## Token and NFT sends (1.2)
 
 - `backend/src/native.ts`: `POST /v1/native/prepare` asks the node's
   stateless planner (`paranoid_prepareNativeIntent`, read-only, owner RPC
