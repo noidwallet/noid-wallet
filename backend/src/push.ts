@@ -154,6 +154,24 @@ function formatNoid(micro: number): string {
   return s === "" ? "0" : s;
 }
 
+/**
+ * The notification text. Tokens and NFTs are never named: names and tickers
+ * are chosen by whoever created them (a token can call itself "NOID"), and the
+ * app shows the checked details once opened.
+ */
+export function message(r: NotifyRow): { title: string; body: string } {
+  switch (r.direction) {
+    case "mined":
+      return { title: "Block mined", body: `Mining reward: ${formatNoid(r.amount)} NOID. Confirms in a few minutes.` };
+    case "token_in":
+      return { title: "Token incoming", body: "Someone is sending you a token. Open NOID to see it. Confirms in a few minutes." };
+    case "nft_in":
+      return { title: "NFT incoming", body: "Someone is sending you an NFT. Open NOID to see it. Confirms in a few minutes." };
+    default:
+      return { title: "NOID incoming", body: `Incoming: ${formatNoid(r.amount)} NOID. Confirms in a few minutes.` };
+  }
+}
+
 export class Notifier {
   private queue: { token: string; title: string; body: string; txid: string }[] = [];
   /** When new phones were added per address, to slow down token churn. */
@@ -236,15 +254,16 @@ export class Notifier {
     const tokensFor = this.db.prepare("SELECT token FROM push_subs WHERE address = ?");
     const markSent = this.db.prepare("INSERT OR IGNORE INTO push_sent (address, txid, height) VALUES (?, ?, ?)");
     for (const r of rows) {
-      if (r.direction !== "received" && r.direction !== "mined") continue;
-      if (r.amount < MIN_NOTIFY_MICRO) continue;
+      const arrival = r.direction === "token_in" || r.direction === "nft_in";
+      if (r.direction !== "received" && r.direction !== "mined" && !arrival) continue;
+      // A token or NFT transfer costs its sender a network fee, like a payment.
+      if (!arrival && r.amount < MIN_NOTIFY_MICRO) continue;
       const tokens = tokensFor.all(r.address) as { token: string }[];
       if (tokens.length === 0) continue;
       // Once per (address, tx), even if a reorg makes the indexer store it again.
       if (markSent.run(r.address, r.txid, height).changes === 0) continue;
       // The block can still be replaced for a few minutes, so say "incoming".
-      const title = r.direction === "mined" ? "Block mined" : "NOID incoming";
-      const body = `${r.direction === "mined" ? "Mining reward" : "Incoming"}: ${formatNoid(r.amount)} NOID. Confirms in a few minutes.`;
+      const { title, body } = message(r);
       for (const { token } of tokens) {
         if (this.queue.length >= MAX_QUEUE) break;
         this.queue.push({ token, title, body, txid: r.txid });

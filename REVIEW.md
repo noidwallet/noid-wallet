@@ -239,7 +239,10 @@ The phone verifies the server's chain of block headers itself.
   NOID, and the core refuses any wallet-fee output that differs from the
   built-in address and rule.
 - "NOID received" notifications are displayed by Android with text written by
-  the official backend (only it holds the Firebase credentials).
+  the official backend (only it holds the Firebase credentials). Incoming
+  tokens and NFTs (from 1.2) get a fixed "Token incoming" / "NFT incoming"
+  text that never names the token: names and tickers are chosen by their
+  creators, and a token can call itself "NOID". They are not history rows.
 - Notification subscriptions are not authenticated: the phone has no plain
   signing key (Parano1d uses proofs, not signatures), so anyone who knows an
   address can subscribe to its "incoming" alerts or fill its subscription slots

@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { classify, Indexer } from "../src/indexer.js";
+import { classify, Indexer, nativeArrivals } from "../src/indexer.js";
 import { openDb } from "../src/db.js";
 import type { BlockTx } from "../src/rpc.js";
 
@@ -153,4 +153,52 @@ test("token transfer: the sender sees the NOID that left, not its change", () =>
   );
   assert.deepEqual(rows.find((r) => r.address === A), { address: A, direction: "contract", amount: 17_000, fee: 12_000, walletFee: 5_000, counterparty: B });
   assert.equal(rows.find((r) => r.address === B), undefined);
+});
+
+test("token and NFT arrivals: the recipient is notified, never the sender's change, and gets no history row", () => {
+  const C = "o1s32s5m9ughjv2ktvxm8m7y0gmu0swys5t0ufkdnyhv02nudc23cqg7y34s";
+  const t = tx({
+    input_owner: A,
+    native: { operation: "transfer_token", token_outputs: [{ owner: B, units: "30" }, { owner: A, units: "70" }, { owner: C, units: "0" }], nft_outputs: [] },
+  });
+  assert.deepEqual(nativeArrivals(t), [{ address: B, kind: "token" }]);
+  assert.equal(classify(t).find((r) => r.address === B), undefined);
+  const nft = tx({ input_owner: A, native: { operation: "transfer_nft", token_outputs: [], nft_outputs: [{ owner: C }, { owner: C }] } });
+  assert.deepEqual(nativeArrivals(nft), [{ address: C, kind: "nft" }]);
+  // Anything else (a trade, a mint, a malformed owner, an older node) notifies nobody.
+  for (const native of [
+    { operation: "trade_batch", token_outputs: [{ owner: B, units: "5" }], nft_outputs: [] },
+    { operation: "mint_nft", token_outputs: [], nft_outputs: [{ owner: B }] },
+    { operation: "transfer_token", token_outputs: [{ owner: "not an address", units: "5" }, { owner: 7, units: "5" }], nft_outputs: [] },
+    null,
+    undefined,
+  ]) {
+    assert.deepEqual(nativeArrivals(tx({ input_owner: A, native })), []);
+  }
+  assert.deepEqual(nativeArrivals({ ...t, input_owner: null }), [], "no sender known: nobody");
+});
+
+test("indexer: a token arrival reaches notifications but is not stored as history", () => {
+  const db = openDb(join(mkdtempSync(join(tmpdir(), "noididx-")), "t.sqlite"));
+  const idx = new Indexer(db, { pollMs: 1000, log: () => {} });
+  const rows = idx.store({
+    header: { height: 5, hash: "h5", timestamp: 1_700_000_005 },
+    retained: {
+      transactions: [
+        tx({
+          input_owner: A,
+          fee_micronoid: 12_000,
+          input_sum_micronoid: "1000000",
+          native: { operation: "transfer_token", token_outputs: [{ owner: B, units: "30" }], nft_outputs: [] },
+          outputs: [
+            { slot_index: 1, amount_micronoid: 0, owner: "o1rootrecipient", native: true },
+            { slot_index: 3, amount_micronoid: 988_000, owner: A },
+          ],
+        }),
+      ],
+    },
+  });
+  assert.deepEqual(rows.find((r) => r.address === B), { address: B, txid: "aa".repeat(32), direction: "token_in", amount: 0 });
+  const stored = db.prepare("SELECT COUNT(*) AS n FROM address_txs WHERE address = ?").get(B) as { n: number };
+  assert.equal(stored.n, 0);
 });

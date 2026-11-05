@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
 import { noidUsdFromPaprika, noidUsdFromPeatio, PriceFeed, saneRates } from "../src/price.js";
-import { Notifier, type PushSender } from "../src/push.js";
+import { message, Notifier, type PushSender } from "../src/push.js";
 import { RpcError } from "../src/rpc.js";
 import { buildServer, clientKey } from "../src/server.js";
 
@@ -409,4 +409,36 @@ test("submit: payments and token/NFT transfers are relayed, other intent kinds a
   assert.equal((await send(trade)).statusCode, 400);
   assert.equal((await send("ff00")).statusCode, 400);
   await app.close();
+});
+
+test("notifications: tokens and NFTs are announced without their (creator-chosen) names", async () => {
+  const db = openDb(join(mkdtempSync(join(tmpdir(), "noidpush-")), "t.sqlite"));
+  const sent: string[] = [];
+  const sender: PushSender = {
+    async send(_token, title, body) {
+      sent.push(`${title}|${body}`);
+      return "ok";
+    },
+    async validate() {
+      return "ok";
+    },
+  };
+  const clock = 2_000_000;
+  const n = new Notifier(db, sender, () => {}, () => clock);
+  assert.deepEqual(await n.subscribe(A, TOKEN), { ok: true });
+  n.onRows(20, clock, [
+    { address: A, txid: "1".repeat(64), direction: "token_in", amount: 0 },
+    { address: A, txid: "2".repeat(64), direction: "nft_in", amount: 0 },
+    { address: A, txid: "1".repeat(64), direction: "token_in", amount: 0 },
+    { address: A, txid: "3".repeat(64), direction: "contract", amount: 0 },
+  ]);
+  await n.drain();
+  assert.deepEqual(sent, [
+    "Token incoming|Someone is sending you a token. Open NOID to see it. Confirms in a few minutes.",
+    "NFT incoming|Someone is sending you an NFT. Open NOID to see it. Confirms in a few minutes.",
+  ]);
+  for (const d of ["token_in", "nft_in"]) {
+    const m = message({ address: A, txid: "4".repeat(64), direction: d, amount: 0 });
+    assert.doesNotMatch(`${m.title} ${m.body}`, /\d/, "no amounts or names: nothing a token creator controls");
+  }
 });

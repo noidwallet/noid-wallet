@@ -97,6 +97,36 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
   return rows;
 }
 
+const ADDRESS_RE = /^o1[02-9ac-hj-np-z]{20,100}$/;
+
+/**
+ * Who receives a token or NFT in a plain transfer (not the sender's own
+ * change). Used only to notify them: their history gets no row, since no NOID
+ * reached them (see classify). Pure; unit-tested.
+ */
+export function nativeArrivals(tx: BlockTx): { address: string; kind: "token" | "nft" }[] {
+  const native = tx.native as
+    | { operation?: unknown; token_outputs?: { owner?: unknown; units?: unknown }[]; nft_outputs?: { owner?: unknown }[] }
+    | null
+    | undefined;
+  if (!native || (native.operation !== "transfer_token" && native.operation !== "transfer_nft")) return [];
+  // Without a known sender its own change can't be told apart: notify nobody.
+  const sender = tx.input_owner;
+  if (!sender) return [];
+  const found = new Map<string, "token" | "nft">();
+  const add = (owner: unknown, kind: "token" | "nft") => {
+    if (typeof owner === "string" && owner !== sender && ADDRESS_RE.test(owner) && !found.has(owner)) found.set(owner, kind);
+  };
+  if (native.operation === "transfer_token") {
+    for (const o of native.token_outputs ?? []) {
+      if (typeof o.units === "string" && /^[1-9]\d{0,38}$/.test(o.units)) add(o.owner, "token");
+    }
+  } else {
+    for (const o of native.nft_outputs ?? []) add(o.owner, "nft");
+  }
+  return [...found].map(([address, kind]) => ({ address, kind }));
+}
+
 export class Indexer {
   private running = false;
   private timer: NodeJS.Timeout | undefined;
@@ -204,6 +234,7 @@ export class Indexer {
     })();
   }
 
+  /** Stores the block; returns what to notify about (history rows plus token and NFT arrivals). */
   store(block: BlockDetails): { address: string; txid: string; direction: string; amount: number }[] {
     const stored: { address: string; txid: string; direction: string; amount: number }[] = [];
     const { height, hash, timestamp } = block.header;
@@ -223,6 +254,10 @@ export class Indexer {
         for (const r of classify(tx, this.opts.feeAddresses)) {
           insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.walletFee, r.counterparty);
           stored.push({ address: r.address, txid: tx.txid, direction: r.direction, amount: r.amount });
+        }
+        // Token and NFT recipients: notified, but not stored as history.
+        for (const a of nativeArrivals(tx)) {
+          stored.push({ address: a.address, txid: tx.txid, direction: a.kind === "token" ? "token_in" : "nft_in", amount: 0 });
         }
       }
     })();
