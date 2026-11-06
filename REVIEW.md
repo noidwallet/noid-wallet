@@ -230,19 +230,23 @@ The phone verifies the server's chain of block headers itself.
 ## Token values and received tokens (1.2.1)
 
 - Token value (`core/src/assets.rs`, `check_token` with `units`): what
-  selling the wallet's units into the token's market now would pay, after
-  the market fee, from the official `quote_curve_exact_input` /
-  `quote_exact_input` on the record's idle view (pools with unlocked
-  liquidity use the same constant-product step directly). Unlike
-  units x price it can't exceed the NOID in the market, so a creator's
-  high starting price doesn't make an airdropped token look valuable. Like
-  balances, the market record comes from the server and is not proven yet.
+  selling the wallet's sellable units (not locked, not pending) into the
+  token's market now would pay, before network and request fees, from the
+  official `quote_curve_exact_input` / `quote_exact_input` on the record's
+  idle view. Pools whose liquidity isn't all locked get no value, since
+  their owner can withdraw the NOID. Unlike units x price it can't exceed
+  the locked NOID in the market, so a creator's high starting price doesn't
+  make an airdropped token look valuable. Each wallet's value assumes it
+  sells alone. Like balances, the market record comes from the server and
+  is not proven yet.
 - Received tokens and NFTs: the indexer stores `token_in` / `nft_in` rows
   (no NOID, amount 0) for recipients of plain transfers. History serves
   them only with `?native=1`, since older apps refuse a page holding a kind
-  they don't know. The app shows names and tickers from its own checked
-  metadata only, never one that could pass for NOID, and masks the amount
-  when the balance is hidden.
+  they don't know. At most 8 recipients per transfer get a row and a
+  notification. The app shows names and tickers from its own checked
+  metadata only, never one that could pass for NOID; NFT names are always
+  marked as NFTs, and the amount is masked when the balance is hidden.
+  Only transfers indexed after the server update have rows (no backfill).
 
 ## Known limits
 

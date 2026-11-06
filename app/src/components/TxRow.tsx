@@ -8,7 +8,7 @@ import { colors } from '@/theme';
 import type { IconName } from '@/components/Icon';
 import { sentItem } from '@/lib/sentItems';
 import { itemLookup, useAssets } from '@/lib/assets';
-import { isArrival, receivedLabel } from '@/lib/receivedItems';
+import { arrivalKind, isArrival, receivedLabel } from '@/lib/receivedItems';
 
 export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
@@ -65,7 +65,7 @@ function ArrivalRow({ item, nameOf, hidden }: RowOpts & { item: HistoryItem }) {
     <ListRow
       leading={<Avatar icon="receive" tone="success" />}
       title={who ? `${label} · ${who}` : label}
-      subtitle={when(item.time)}
+      subtitle={`${arrivalKind(item)} · ${when(item.time)}`}
       onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
       accessibilityLabel={`${label}${who ? `, from ${who}` : ''}, ${when(item.time)}`}
     />

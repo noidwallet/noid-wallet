@@ -58,10 +58,13 @@ export function openDb(path: string): Db {
   }
   // Added with received token and NFT rows (direction token_in / nft_in): the
   // token ID and units, or the NFT's collection ID, serial and how many NFTs.
-  if (!cols.some((c) => c.name === "item_id")) {
-    db.exec("ALTER TABLE address_txs ADD COLUMN item_id TEXT");
-    db.exec("ALTER TABLE address_txs ADD COLUMN item_units TEXT");
-    db.exec("ALTER TABLE address_txs ADD COLUMN item_count INTEGER");
+  // Each column on its own, so a crash halfway never leaves one missing.
+  for (const [name, type] of [
+    ["item_id", "TEXT"],
+    ["item_units", "TEXT"],
+    ["item_count", "INTEGER"],
+  ] as const) {
+    if (!cols.some((c) => c.name === name)) db.exec(`ALTER TABLE address_txs ADD COLUMN ${name} ${type}`);
   }
   return db;
 }

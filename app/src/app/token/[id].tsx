@@ -56,8 +56,9 @@ export default function TokenDetail() {
               {formatNoid(worth, { maxDecimals: 4 })} NOID
             </Text>
             <Text style={[type.bodySm, { textAlign: 'center' }]}>
-              About what selling all of it on the {info?.phase === 'dex' ? 'DEX' : 'launchpad'} would pay now, after its fee, by the market your
-              wallet server reports. Not a promise: the price moves.
+              About what selling {locked > 0n || reserved > 0n ? 'the units you can sell now' : 'all of it'} on the{' '}
+              {info?.phase === 'dex' ? 'DEX would pay now, after its fee and' : 'launchpad would pay now,'} before network fees, by the market
+              your wallet server reports. Not a promise: the price moves.
             </Text>
           </>
         ) : null}

@@ -23,8 +23,9 @@ test('received tokens: amount and checked ticker, or nothing that could pass for
 
 test('received NFTs: their checked name, a count, or plainly "an NFT"', () => {
   const row = { direction: 'nft_in' as const, itemId: K, itemUnits: '7', itemCount: 1 };
-  assert.equal(receivedLabel(row, lookup({}, { [`${K}:7`]: 'Night Garden #7' })), 'Received Night Garden #7');
+  assert.equal(receivedLabel(row, lookup({}, { [`${K}:7`]: 'Night Garden #7' })), 'Received NFT: Night Garden #7');
   assert.equal(receivedLabel(row, lookup({})), 'Received an NFT');
   assert.equal(receivedLabel(row, lookup({}, { [`${K}:7`]: '1000 NOID' })), 'Received an NFT', 'a name that reads as NOID is not shown');
   assert.equal(receivedLabel({ ...row, itemCount: 3 }, lookup({})), 'Received 3 NFTs');
+  assert.equal(receivedLabel(row, lookup({}, { [`${K}:7`]: '50,000 USDT' })), 'Received NFT: 50,000 USDT', 'never reads as a payment');
 });

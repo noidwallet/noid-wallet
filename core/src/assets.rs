@@ -20,10 +20,7 @@ use std::path::Path;
 
 use noid_tx::native_assets::{
     launch::{sequential::quote_curve_exact_input, LaunchOpening, LaunchSide},
-    market::{
-        sequential::quote_exact_input, MarketDefinition, MarketOpening, PoolPhase, PoolState, MARKET_FEE_BPS,
-        MARKET_QUANTITY_MAX,
-    },
+    market::{sequential::quote_exact_input, MarketDefinition, MarketOpening, PoolPhase, PoolState},
     native_sequence,
     nft_market::{ListingState, NftMarketOpening},
     NativeOpening, MAX_NATIVE_OPENING_BYTES, TOKEN_DECIMALS,
@@ -259,10 +256,11 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
 /// A token's public definition and market, from the node's market record.
 ///
 /// With `units`, also what selling that many units into the market right now
-/// would pay in μNOID (after the market fee), quoted with the official
-/// sequential trade rules. Unlike units × price, this can never exceed the
-/// NOID actually in the market, so a token whose creator set a high price but
-/// that holds little NOID is not shown as worth much.
+/// would pay in μNOID (after a DEX pool's fee, before network and request
+/// fees), quoted with the official sequential trade rules. Unlike
+/// units × price, this can never exceed the locked NOID in the market, so a
+/// token whose creator set a high price but that holds little NOID is not
+/// shown as worth much.
 pub fn check_token(asset_id: &str, details: &MarketDetails, units: Option<u64>) -> Result<Value, Error> {
     let asset = digest_hex(asset_id)?;
     digest_hex(&details.block_hash)?;
@@ -347,22 +345,12 @@ pub fn check_token(asset_id: &str, details: &MarketDetails, units: Option<u64>) 
     }))
 }
 
-/// μNOID from selling `units` of the quote token into a NOID pool, after the
-/// market fee. The official quote refuses pools whose liquidity isn't all
-/// locked (it is meant for building trades); the value is the same
-/// constant-product step either way, so such pools use that step directly.
+/// μNOID from selling `units` of the token into its NOID pool, after the
+/// pool's fee, by the official quote. None for pools whose liquidity isn't all
+/// locked (the official quote refuses them): their owner can withdraw the
+/// NOID at any time, so it isn't value the wallet can count on.
 fn dex_sell_value(def: MarketDefinition, state: PoolState, units: u64) -> Option<u64> {
-    if let Ok(q) = quote_exact_input(def, state.idle_view(), def.quote, units, 1) {
-        return Some(q.output());
-    }
-    if !def.base_is_noid() || units > MARKET_QUANTITY_MAX {
-        return None;
-    }
-    let fee = (u128::from(units) * u128::from(MARKET_FEE_BPS)).div_ceil(10_000);
-    let effective = u128::from(units).checked_sub(fee).filter(|&n| n != 0)?;
-    let out = u128::from(state.base_reserve) * effective / (u128::from(state.quote_reserve) + effective);
-    // Never the whole reserve: the official step refuses to empty a pool.
-    u64::try_from(out).ok().filter(|&o| o < state.base_reserve)
+    quote_exact_input(def, state.idle_view(), def.quote, units, 1).ok().map(|q| q.output())
 }
 
 /// True when an NFT listing record is still in its first state (nothing pending).
@@ -810,14 +798,11 @@ mod tests {
         let huge = value(&d, 1 << 62).unwrap();
         assert!(huge < pool.base_reserve);
 
-        // The fallback (for pools with unlocked liquidity) is the same step as the official quote.
-        for units in [1_000_000, two, 777_777_777, 1 << 50] {
-            let unlocked = PoolState { locked_shares: pool.total_shares.saturating_sub(1), ..pool };
-            assert!(quote_exact_input(market, unlocked, token.asset, units, 1).is_err(), "takes the fallback path");
-            let manual = dex_sell_value(market, unlocked, units);
-            let official = quote_exact_input(market, pool, token.asset, units, 1).ok().map(|q| q.output());
-            assert_eq!(manual, official, "{units}");
-        }
+        // A pool whose owner can withdraw its NOID (liquidity not all locked) gets no value at all.
+        let unlocked = PoolState { locked_shares: pool.total_shares.saturating_sub(1), ..pool };
+        assert!(quote_exact_input(market, unlocked, token.asset, two, 1).is_err());
+        assert_eq!(dex_sell_value(market, unlocked, two), None);
+        assert_eq!(dex_sell_value(market, pool, two), Some(official));
     }
 
     fn manifest() -> Manifest {

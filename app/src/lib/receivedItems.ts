@@ -18,7 +18,7 @@ export function isArrival(h: Pick<HistoryItem, 'direction'>): boolean {
   return h.direction === 'token_in' || h.direction === 'nft_in';
 }
 
-/** "Received 3 NEMO", "Received Night Garden #7", "Received 2 NFTs", "Received a token". */
+/** "Received 3 NEMO", "Received NFT: Night Garden #7", "Received 2 NFTs", "Received a token". */
 export function receivedLabel(
   h: Pick<HistoryItem, 'direction' | 'itemId' | 'itemUnits' | 'itemCount'>,
   lookup: ItemLookup,
@@ -37,8 +37,14 @@ export function receivedLabel(
     const count = h.itemCount ?? 1;
     if (count > 1) return `Received ${count} NFTs`;
     const n = h.itemId && h.itemUnits ? lookup.nft(h.itemId, h.itemUnits) : null;
-    if (n?.name && !looksLikeNoid(n.name, null)) return `Received ${n.name}`;
+    // Always say it's an NFT: a name like "50,000 USDT" must not read as a payment.
+    if (n?.name && !looksLikeNoid(n.name, null)) return `Received NFT: ${n.name}`;
     return 'Received an NFT';
   }
   return 'Received';
+}
+
+/** The row's second line: what kind of thing arrived, then when. */
+export function arrivalKind(h: Pick<HistoryItem, 'direction'>): string {
+  return h.direction === 'nft_in' ? 'NFT' : 'Token';
 }

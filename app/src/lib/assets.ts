@@ -119,24 +119,30 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) =
   return out;
 }
 
+/** Units the wallet could sell now: not locked for later, not in a pending transaction. */
+function sellableUnits(t: CheckedToken): string {
+  const free = BigInt(t.units) - BigInt(t.lockedUnits) - BigInt(t.reservedUnits);
+  return (free > 0n ? free : 0n).toString();
+}
+
 async function load(api: Api, address: string): Promise<Assets> {
   const page = await api.assets(address);
   const checked: CheckedAssets = await core.checkAssets(address, page);
   const tokens = await mapLimit(checked.tokens, 4, async (t, i): Promise<Token> => {
     const cached = infoCache.get(t.assetId);
-    // The value depends on how many units this wallet holds: a new amount asks again.
-    if (cached && cached.units === t.units && Date.now() - cached.at < INFO_MS) return { ...t, info: cached.info, manifest: cached.manifest };
+    // The value depends on how many units this wallet can sell: a new amount asks again.
+    if (cached && cached.units === sellableUnits(t) && Date.now() - cached.at < INFO_MS) return { ...t, info: cached.info, manifest: cached.manifest };
     if (i >= MAX_TOKEN_LOOKUPS) return { ...t, info: null, manifest: null };
     let info: TokenInfo | null = null;
     try {
-      info = await core.checkToken(t.assetId, await api.asset(t.assetId), t.units);
+      info = await core.checkToken(t.assetId, await api.asset(t.assetId), sellableUnits(t));
     } catch {
       info = null;
     }
     const manifest = info?.known ? await manifestFor(api, info.metadata, 'token') : null;
     if (info) {
       if (infoCache.size > 500) infoCache.clear();
-      infoCache.set(t.assetId, { at: Date.now(), units: t.units, info, manifest });
+      infoCache.set(t.assetId, { at: Date.now(), units: sellableUnits(t), info, manifest });
     }
     return { ...t, info, manifest };
   });

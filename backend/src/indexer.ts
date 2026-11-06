@@ -111,6 +111,11 @@ export interface Arrival {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
+/**
+ * Rows (and notifications) for at most this many recipients of one transfer:
+ * a wallet's transfer has one, and one fee shouldn't buy rows in many wallets.
+ */
+export const MAX_ARRIVALS_PER_TX = 8;
 
 /**
  * Who receives a token or NFT in a plain transfer (not the sender's own
@@ -155,7 +160,7 @@ export function nativeArrivals(tx: BlockTx): Arrival[] {
       else had.count++;
     }
   }
-  return [...found.values()];
+  return [...found.values()].slice(0, MAX_ARRIVALS_PER_TX);
 }
 
 export class Indexer {

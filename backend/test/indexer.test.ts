@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { classify, Indexer, nativeArrivals } from "../src/indexer.js";
+import { classify, Indexer, MAX_ARRIVALS_PER_TX, nativeArrivals } from "../src/indexer.js";
 import { openDb } from "../src/db.js";
 import type { BlockTx } from "../src/rpc.js";
 
@@ -194,6 +194,11 @@ test("token and NFT arrivals: the recipient and what they got, never the sender'
     assert.deepEqual(nativeArrivals(tx({ input_owner: A, native })), []);
   }
   assert.deepEqual(nativeArrivals({ ...t, input_owner: null }), [], "no sender known: nobody");
+  // One fee can't buy rows in many wallets.
+  const abc = "023456789acdefghjklmnpqrstuvwxyz";
+  const many = Array.from({ length: 50 }, (_, k) => ({ owner: `o1${"q".repeat(40)}${abc[k % 32]}${abc[Math.floor(k / 32)]}`, units: "1", asset_id: T }));
+  const spam = nativeArrivals(tx({ input_owner: A, native: { operation: "transfer_token", token_outputs: many, nft_outputs: [] } }));
+  assert.equal(spam.length, MAX_ARRIVALS_PER_TX);
 });
 
 test("indexer: a token arrival is stored as its own row and notified once", () => {
@@ -221,6 +226,6 @@ test("indexer: a token arrival is stored as its own row and notified once", () =
   assert.deepEqual(rows.find((r) => r.address === B), { address: B, txid: "aa".repeat(32), direction: "token_in", amount: 0 });
   const row = db.prepare("SELECT direction, amount, fee, wallet_fee, counterparty, item_id, item_units, item_count FROM address_txs WHERE address = ?").get(B);
   assert.deepEqual({ ...(row as object) }, { direction: "token_in", amount: 0, fee: 0, wallet_fee: 0, counterparty: A, item_id: T, item_units: "30", item_count: 1 });
-  // Stored again (a reorg replaying the block): no second row, nothing new to notify.
+  // Stored again over the same rows (a reorg rolls back first, so this is a repeat store): no second row.
   assert.equal(idx.store(block).find((r) => r.address === B), undefined);
 });

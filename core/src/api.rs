@@ -353,10 +353,8 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                 units: Option<String>,
             }
             let a: A = args(json)?;
-            let units = match a.units {
-                Some(u) => Some(u.parse::<u64>().map_err(|_| Error::msg("Bad request: units must be a whole number."))?),
-                None => None,
-            };
+            // Units that don't fit just leave the value out; the token itself still shows.
+            let units = a.units.and_then(|u| u.parse::<u64>().ok());
             crate::assets::check_token(&a.asset_id, &a.market, units)
         }
 
