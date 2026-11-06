@@ -56,5 +56,12 @@ export function openDb(path: string): Db {
   if (!cols.some((c) => c.name === "wallet_fee")) {
     db.exec("ALTER TABLE address_txs ADD COLUMN wallet_fee INTEGER NOT NULL DEFAULT 0");
   }
+  // Added with received token and NFT rows (direction token_in / nft_in): the
+  // token ID and units, or the NFT's collection ID, serial and how many NFTs.
+  if (!cols.some((c) => c.name === "item_id")) {
+    db.exec("ALTER TABLE address_txs ADD COLUMN item_id TEXT");
+    db.exec("ALTER TABLE address_txs ADD COLUMN item_units TEXT");
+    db.exec("ALTER TABLE address_txs ADD COLUMN item_count INTEGER");
+  }
   return db;
 }

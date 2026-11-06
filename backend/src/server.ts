@@ -390,28 +390,35 @@ export async function buildServer(
     return { txid, status: "unknown" };
   });
 
-  /** History, newest first. Cursor `before` is "<height>:<txid>" from the previous page. */
-  app.get<{ Params: { address: string }; Querystring: { before?: string; limit?: string } }>(
+  /**
+   * History, newest first. Cursor `before` is "<height>:<txid>" from the previous page.
+   * Received token and NFT rows (token_in / nft_in) only with `native=1`: older
+   * apps refuse a page holding a row kind they don't know.
+   */
+  app.get<{ Params: { address: string }; Querystring: { before?: string; limit?: string; native?: string } }>(
     "/v1/address/:address/history",
     async (req) => {
       const a = address(req.params.address);
       const limit = intParam(req.query.limit, 30, 1, 100);
+      const native = req.query.native === "1";
       let rows: { height: number; txid: string }[];
       const select =
         "SELECT a.txid, a.height, a.time, a.direction, a.amount, a.fee, a.wallet_fee AS walletFee, a.counterparty, b.hash AS blockHash" +
+        (native ? ", a.item_id AS itemId, a.item_units AS itemUnits, a.item_count AS itemCount" : "") +
         " FROM address_txs a LEFT JOIN blocks b ON b.height = a.height";
+      const only = native ? "" : " AND a.direction NOT IN ('token_in', 'nft_in')";
       if (req.query.before) {
         const m = /^(\d+):([0-9a-f]{64})$/.exec(req.query.before);
         if (!m) throw badRequest("Invalid history cursor.");
         const h = Number(m[1]);
         rows = db
           .prepare(
-            `${select} WHERE a.address = ? AND (a.height < ? OR (a.height = ? AND a.txid > ?))
+            `${select} WHERE a.address = ?${only} AND (a.height < ? OR (a.height = ? AND a.txid > ?))
              ORDER BY a.height DESC, a.txid ASC LIMIT ?`,
           )
           .all(a, h, h, m[2], limit) as typeof rows;
       } else {
-        rows = db.prepare(`${select} WHERE a.address = ? ORDER BY a.height DESC, a.txid ASC LIMIT ?`).all(a, limit) as typeof rows;
+        rows = db.prepare(`${select} WHERE a.address = ?${only} ORDER BY a.height DESC, a.txid ASC LIMIT ?`).all(a, limit) as typeof rows;
       }
       const last = rows[rows.length - 1];
       const oldest = db.prepare("SELECT MIN(height) AS h FROM blocks").get() as { h: number | null };

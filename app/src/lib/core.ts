@@ -137,6 +137,12 @@ export type TokenInfo =
       priceNumerator: string;
       priceDenominator: string;
       ready: boolean;
+      /**
+       * μNOID that selling the units asked about into the market right now would
+       * pay (after its fee), from the official trade rules. Null without units,
+       * or when that many can't be sold into it.
+       */
+      sellValueMicronoid: string | null;
       height: number;
     };
 
@@ -264,7 +270,7 @@ export const core = {
     call<BuiltNativeSend>('buildNativeSend', { secretHex, keyIndex, request, pendingOutputSlots }),
   /** Decode and check the server's token/NFT records for `owner`. */
   checkAssets: (owner: string, page: AssetsPage) => call<CheckedAssets>('checkAssets', { owner, page }),
-  checkToken: (assetId: string, market: AssetMarket) => call<TokenInfo>('checkToken', { assetId, market }),
+  checkToken: (assetId: string, market: AssetMarket, units?: string) => call<TokenInfo>('checkToken', { assetId, market, units }),
   /** Throws unless `text` is exactly the metadata State committed to (`hash`). */
   checkMetadata: (hash: string, text: string, kind: MediaKind) => call<AssetManifest>('checkMetadata', { hash, text, kind }),
   /** Throws unless the file is exactly the committed picture. */

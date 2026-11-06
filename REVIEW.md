@@ -227,6 +227,23 @@ The phone verifies the server's chain of block headers itself.
   the review does not show? Is editing the planner's pages (change, fee,
   appended output) always admissible?
 
+## Token values and received tokens (1.2.1)
+
+- Token value (`core/src/assets.rs`, `check_token` with `units`): what
+  selling the wallet's units into the token's market now would pay, after
+  the market fee, from the official `quote_curve_exact_input` /
+  `quote_exact_input` on the record's idle view (pools with unlocked
+  liquidity use the same constant-product step directly). Unlike
+  units x price it can't exceed the NOID in the market, so a creator's
+  high starting price doesn't make an airdropped token look valuable. Like
+  balances, the market record comes from the server and is not proven yet.
+- Received tokens and NFTs: the indexer stores `token_in` / `nft_in` rows
+  (no NOID, amount 0) for recipients of plain transfers. History serves
+  them only with `?native=1`, since older apps refuse a page holding a kind
+  they don't know. The app shows names and tickers from its own checked
+  metadata only, never one that could pass for NOID, and masks the amount
+  when the balance is hidden.
+
 ## Known limits
 
 - Privacy: the server sees which addresses a phone asks about and its IP.

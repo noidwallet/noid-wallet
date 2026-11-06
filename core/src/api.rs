@@ -348,9 +348,16 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
             struct A {
                 asset_id: String,
                 market: crate::assets::MarketDetails,
+                /// The wallet's units of this token, to value them (decimal string).
+                #[serde(default)]
+                units: Option<String>,
             }
             let a: A = args(json)?;
-            crate::assets::check_token(&a.asset_id, &a.market)
+            let units = match a.units {
+                Some(u) => Some(u.parse::<u64>().map_err(|_| Error::msg("Bad request: units must be a whole number."))?),
+                None => None,
+            };
+            crate::assets::check_token(&a.asset_id, &a.market, units)
         }
 
         "checkMetadata" => {

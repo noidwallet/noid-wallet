@@ -7,6 +7,8 @@ import type { Currency, PendingTx } from '@/lib/storage';
 import { colors } from '@/theme';
 import type { IconName } from '@/components/Icon';
 import { sentItem } from '@/lib/sentItems';
+import { itemLookup, useAssets } from '@/lib/assets';
+import { isArrival, receivedLabel } from '@/lib/receivedItems';
 
 export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   sent: 'Sent',
@@ -14,6 +16,8 @@ export const TX_LABEL: Record<HistoryItem['direction'], string> = {
   self: 'Combined pieces',
   mined: 'Mined',
   contract: 'Contract',
+  token_in: 'Received a token',
+  nft_in: 'Received an NFT',
 };
 
 const TX_ICON: Record<HistoryItem['direction'], IconName> = {
@@ -22,6 +26,8 @@ const TX_ICON: Record<HistoryItem['direction'], IconName> = {
   self: 'merge',
   mined: 'mined',
   contract: 'shield',
+  token_in: 'receive',
+  nft_in: 'receive',
 };
 
 export function when(unixSeconds: number) {
@@ -47,7 +53,26 @@ interface RowOpts {
   hidden?: boolean;
 }
 
-export function HistoryRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: HistoryItem }) {
+export function HistoryRow(props: RowOpts & { item: HistoryItem }) {
+  return isArrival(props.item) ? <ArrivalRow {...props} /> : <PaymentRow {...props} />;
+}
+
+/** A token or NFT that arrived: no NOID moved, so no amount; the title says what came. */
+function ArrivalRow({ item, nameOf, hidden }: RowOpts & { item: HistoryItem }) {
+  const label = receivedLabel(item, itemLookup(useAssets()), { hidden });
+  const who = item.counterparty ? nameOf(item.counterparty) : null;
+  return (
+    <ListRow
+      leading={<Avatar icon="receive" tone="success" />}
+      title={who ? `${label} · ${who}` : label}
+      subtitle={when(item.time)}
+      onPress={() => go({ pathname: '/tx/[txid]', params: { txid: item.txid } })}
+      accessibilityLabel={`${label}${who ? `, from ${who}` : ''}, ${when(item.time)}`}
+    />
+  );
+}
+
+function PaymentRow({ item, nameOf, fiatOf, hidden }: RowOpts & { item: HistoryItem }) {
   const outgoing = item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract';
   // What left the wallet: amount, network fee and NOID wallet fee.
   const shown = item.direction === 'self' ? item.fee : item.amount + (item.direction === 'sent' ? item.fee + (item.walletFee ?? 0) : 0);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatUnits, looksLikeNoid, noidValue, nftKey, parseUnits, shortId, toBig, unitPrice } from './tokenMath';
+import { formatUnits, looksLikeNoid, noidValue, nftKey, parseUnits, sellWorth, shortId, toBig, unitPrice } from './tokenMath';
 
 test('token amounts format exactly, beyond JavaScript number range', () => {
   assert.equal(formatUnits('1500000'), '1.5');
@@ -59,4 +59,12 @@ test('parseUnits: token amounts to exact base units', () => {
     assert.equal(parseUnits(bad), null, bad);
   }
   assert.equal(parseUnits('18446744073709.551615'), '18446744073709551615');
+});
+
+test('sellWorth: only a plain, safe whole number of μNOID', () => {
+  assert.equal(sellWorth('2071'), 2071);
+  assert.equal(sellWorth('0'), 0);
+  for (const bad of [null, undefined, 5, '', '-1', '1.5', '1e3', ' 7', '99999999999999999', '9007199254740993x']) {
+    assert.equal(sellWorth(bad), null, String(bad));
+  }
 });

@@ -3,13 +3,15 @@ import { RefreshControl, ScrollView, Text, View, useWindowDimensions } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NftTile, TokenRow } from '@/components/AssetRows';
+import { makeFiatOf } from '@/components/TxRow';
 import { Banner, EmptyState, ScreenHeader, Skeleton } from '@/components/ui';
 import { assets, shownAssets, useAssets } from '@/lib/assets';
 import { useWallet } from '@/state/wallet';
 import { colors, space, type } from '@/theme';
 
 export default function AssetsScreen() {
-  const { api, meta, settings } = useWallet();
+  const { api, meta, settings, price } = useWallet();
+  const fiatOf = makeFiatOf(price, settings.currency);
   const s = useAssets();
   const [pulling, setPulling] = useState(false);
   const { width } = useWindowDimensions();
@@ -61,7 +63,7 @@ export default function AssetsScreen() {
           <View style={{ gap: space.xs }}>
             <Text style={type.h2}>Tokens</Text>
             {shown.tokens.map((t) => (
-              <TokenRow key={t.assetId} api={api} token={t} hidden={hidden} />
+              <TokenRow key={t.assetId} api={api} token={t} hidden={hidden} fiatOf={fiatOf} />
             ))}
           </View>
         ) : null}

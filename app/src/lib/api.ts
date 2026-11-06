@@ -44,7 +44,7 @@ export function appText(code: string, status: number): string {
   return `The wallet server could not do this right now (error ${status || shown}).`;
 }
 
-const DIRECTIONS = new Set(['sent', 'received', 'self', 'mined', 'contract']);
+const DIRECTIONS = new Set(['sent', 'received', 'self', 'mined', 'contract', 'token_in', 'nft_in']);
 const ADDRESS_RE = /^o1[02-9ac-hj-np-z]{20,100}$/;
 const VERSION_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 const isCountValue = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
@@ -68,7 +68,24 @@ export function isHistoryItem(i: unknown): i is HistoryItem {
     isCountValue(h.fee) &&
     (h.walletFee === undefined || h.walletFee === null || isCountValue(h.walletFee)) &&
     (h.blockHash === undefined || h.blockHash === null || (typeof h.blockHash === 'string' && /^[0-9a-f]{64}$/.test(h.blockHash))) &&
-    (h.counterparty === null || (typeof h.counterparty === 'string' && ADDRESS_RE.test(h.counterparty)))
+    (h.counterparty === null || (typeof h.counterparty === 'string' && ADDRESS_RE.test(h.counterparty))) &&
+    okReceivedItem(h)
+  );
+}
+
+/** A received token or NFT row names what arrived; other rows name nothing. */
+function okReceivedItem(h: HistoryItem): boolean {
+  const arrival = h.direction === 'token_in' || h.direction === 'nft_in';
+  const none = (v: unknown) => v === undefined || v === null;
+  if (!arrival) return none(h.itemId) && none(h.itemUnits) && none(h.itemCount);
+  return (
+    typeof h.itemId === 'string' &&
+    /^[0-9a-f]{64}$/.test(h.itemId) &&
+    (h.itemUnits === null || (typeof h.itemUnits === 'string' && /^\d{1,20}$/.test(h.itemUnits))) &&
+    typeof h.itemCount === 'number' &&
+    Number.isSafeInteger(h.itemCount) &&
+    h.itemCount >= 1 &&
+    h.amount === 0
   );
 }
 
@@ -164,7 +181,8 @@ export interface HistoryItem {
   txid: string;
   height: number;
   time: number;
-  direction: 'sent' | 'received' | 'self' | 'mined' | 'contract';
+  /** token_in / nft_in: a token or NFT arrived (no NOID; amount 0). */
+  direction: 'sent' | 'received' | 'self' | 'mined' | 'contract' | 'token_in' | 'nft_in';
   amount: number;
   fee: number;
   /** NOID wallet fee paid with this send (servers that know the fee address). */
@@ -172,6 +190,12 @@ export interface HistoryItem {
   counterparty: string | null;
   /** Id of the block it is in, for the phone's own chain check (newer servers). */
   blockHash?: string | null;
+  /** token_in: the token ID; nft_in: the (first) NFT's collection ID. */
+  itemId?: string | null;
+  /** token_in: units received; nft_in: the (first) NFT's serial. Null when not exact. */
+  itemUnits?: string | null;
+  /** How many NFTs arrived (1 for tokens). */
+  itemCount?: number | null;
 }
 
 /** One Parano1d v2.1 State record, passed on as the node sent it (checked by the core). */
@@ -441,7 +465,8 @@ export function createApi(baseUrl: string, _installId = '') {
     },
     history: async (address: string, before?: string) => {
       const r = await request<{ items: HistoryItem[]; nextBefore: string | null; indexedFrom: number | null }>(
-        `/v1/address/${address}/history${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+        // native=1: include received token and NFT rows (servers without them ignore it).
+        `/v1/address/${address}/history?native=1${before ? `&before=${encodeURIComponent(before)}` : ''}`,
       );
       const ok =
         Array.isArray(r.items) &&

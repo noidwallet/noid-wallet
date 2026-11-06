@@ -81,3 +81,24 @@ test("addresses/used: which of a batch have history, validated and capped", asyn
   }
   await app.close();
 });
+
+test("history: received token rows only for apps that ask (older apps refuse unknown kinds)", async () => {
+  const db = openDb(join(mkdtempSync(join(tmpdir(), "noidsrv-")), "t.sqlite"));
+  db.prepare(
+    "INSERT INTO address_txs (address, txid, height, time, direction, amount, fee, counterparty) VALUES (?, ?, 10, 0, 'received', 1, 0, NULL)",
+  ).run(A, "a".repeat(64));
+  db.prepare(
+    "INSERT INTO address_txs (address, txid, height, time, direction, amount, fee, counterparty, item_id, item_units, item_count) VALUES (?, ?, 11, 0, 'token_in', 0, 0, NULL, ?, '30', 1)",
+  ).run(A, "b".repeat(64), "ab".repeat(32));
+  const app = await buildServer(db, new Indexer(db, { pollMs: 1000, log: () => {} }), { trustProxy: false });
+  const old = (await app.inject({ url: `/v1/address/${A}/history` })).json() as { items: Record<string, unknown>[] };
+  assert.deepEqual(old.items.map((i) => i.direction), ["received"]);
+  assert.equal("itemId" in old.items[0]!, false, "older apps get exactly the old fields");
+  const now = (await app.inject({ url: `/v1/address/${A}/history?native=1` })).json() as { items: Record<string, unknown>[] };
+  assert.deepEqual(now.items.map((i) => i.direction), ["token_in", "received"]);
+  assert.deepEqual([now.items[0]!.itemId, now.items[0]!.itemUnits, now.items[0]!.itemCount], ["ab".repeat(32), "30", 1]);
+  // Paging with the cursor keeps the same filter.
+  const next = (await app.inject({ url: `/v1/address/${A}/history?native=0&before=11:${"b".repeat(64)}` })).json() as { items: { direction: string }[] };
+  assert.deepEqual(next.items.map((i) => i.direction), ["received"]);
+  await app.close();
+});

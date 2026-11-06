@@ -9,12 +9,18 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { ApiError, type Api } from './api';
-import { looksLikeNoid } from './tokenMath';
+import type { ItemLookup } from './receivedItems';
+import { looksLikeNoid, sellWorth } from './tokenMath';
 import { core, CoreError, type AssetManifest, type CheckedAssets, type CheckedNft, type CheckedToken, type MediaKind, type TokenInfo } from './core';
 
 export interface Token extends CheckedToken {
   info: TokenInfo | null;
   manifest: AssetManifest | null;
+}
+
+/** What this wallet's units of the token would pay if sold now (see sellWorth), or null. */
+export function tokenWorth(token: Pick<Token, 'info'>): number | null {
+  return sellWorth(token.info?.known ? token.info.sellValueMicronoid : null);
 }
 
 export interface Nft extends CheckedNft {
@@ -53,7 +59,7 @@ let inflightAddress = '';
 const INFO_MS = 10 * 60_000;
 /** Look up names and prices for at most this many tokens (others show their ID). */
 const MAX_TOKEN_LOOKUPS = 50;
-const infoCache = new Map<string, { at: number; info: TokenInfo | null; manifest: AssetManifest | null }>();
+const infoCache = new Map<string, { at: number; units: string; info: TokenInfo | null; manifest: AssetManifest | null }>();
 const PICTURE_TIMEOUT_MS = 30_000;
 const listeners = new Set<() => void>();
 
@@ -118,18 +124,19 @@ async function load(api: Api, address: string): Promise<Assets> {
   const checked: CheckedAssets = await core.checkAssets(address, page);
   const tokens = await mapLimit(checked.tokens, 4, async (t, i): Promise<Token> => {
     const cached = infoCache.get(t.assetId);
-    if (cached && Date.now() - cached.at < INFO_MS) return { ...t, info: cached.info, manifest: cached.manifest };
+    // The value depends on how many units this wallet holds: a new amount asks again.
+    if (cached && cached.units === t.units && Date.now() - cached.at < INFO_MS) return { ...t, info: cached.info, manifest: cached.manifest };
     if (i >= MAX_TOKEN_LOOKUPS) return { ...t, info: null, manifest: null };
     let info: TokenInfo | null = null;
     try {
-      info = await core.checkToken(t.assetId, await api.asset(t.assetId));
+      info = await core.checkToken(t.assetId, await api.asset(t.assetId), t.units);
     } catch {
       info = null;
     }
     const manifest = info?.known ? await manifestFor(api, info.metadata, 'token') : null;
     if (info) {
       if (infoCache.size > 500) infoCache.clear();
-      infoCache.set(t.assetId, { at: Date.now(), info, manifest });
+      infoCache.set(t.assetId, { at: Date.now(), units: t.units, info, manifest });
     }
     return { ...t, info, manifest };
   });
@@ -208,6 +215,26 @@ export const assets = {
 
 export function useAssets(): AssetsState {
   return useSyncExternalStore(assets.subscribe, assets.get);
+}
+
+/**
+ * Names and tickers this phone has checked, for received token and NFT rows:
+ * from the current holdings, then from tokens looked up earlier this session
+ * (a token since sent away keeps its name).
+ */
+export function itemLookup(s: AssetsState): ItemLookup {
+  const a = s.kind === 'ready' ? s.assets : s.kind === 'error' ? s.last : null;
+  return {
+    token(assetId) {
+      const held = a?.tokens.find((t) => t.assetId === assetId);
+      const manifest = held?.manifest ?? infoCache.get(assetId)?.manifest ?? null;
+      return manifest ? { name: manifest.name ?? null, symbol: manifest.symbol ?? null } : null;
+    },
+    nft(collection, serial) {
+      const held = a?.nfts.find((n) => n.collection === collection && String(n.serial) === serial);
+      return held?.manifest ? { name: held.manifest.name ?? null } : null;
+    },
+  };
 }
 
 /** The checked holdings of `address` to show (also while a reload failed). */

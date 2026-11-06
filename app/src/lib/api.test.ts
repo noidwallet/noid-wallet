@@ -98,3 +98,41 @@ test('the phone never takes server data it cannot read: creation ids, headers pa
     await assert.rejects(api.addressesUsed([a]), (e: ApiError) => e.code === 'bad_response');
   });
 });
+
+test('history: received token and NFT rows must name what arrived, and only they may', async () => {
+  const api = createApi('https://example.test');
+  const tx = (c: string) => c.repeat(64);
+  const T = 'ab'.repeat(32);
+  const arrival = { txid: tx('a'), height: 3, time: 1, direction: 'token_in', amount: 0, fee: 0, counterparty: null, itemId: T, itemUnits: '30', itemCount: 1 };
+  let url = '';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (u: string) => {
+    url = u;
+    return new Response(JSON.stringify({ items: [arrival], nextBefore: null, indexedFrom: 0 }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const r = await api.history('o1abc');
+    assert.equal(r.items[0]!.itemUnits, '30');
+    assert.match(url, /\/history\?native=1$/, 'asks for received token rows');
+    await api.history('o1abc', `3:${tx('a')}`);
+    assert.match(url, /\?native=1&before=3%3Aa{64}$/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  for (const bad of [
+    { ...arrival, itemId: 'nothex' },
+    { ...arrival, itemUnits: '1.5' },
+    { ...arrival, itemCount: 0 },
+    { ...arrival, amount: 5, }, // a received token never carries NOID
+    { ...arrival, itemId: undefined },
+    { txid: tx('b'), height: 3, time: 1, direction: 'received', amount: 5, fee: 0, counterparty: null, itemId: T }, // a payment names no item
+  ]) {
+    await withFetch({ items: [bad], nextBefore: null, indexedFrom: 0 }, async () => {
+      await assert.rejects(api.history('o1abc'), (e: unknown) => e instanceof ApiError && e.code === 'bad_response', JSON.stringify(bad));
+    });
+  }
+  // Rows from older servers (no item fields at all) still pass.
+  await withFetch({ items: [{ txid: tx('c'), height: 3, time: 1, direction: 'received', amount: 5, fee: 0, counterparty: null }], nextBefore: null, indexedFrom: 0 }, async () => {
+    assert.equal((await api.history('o1abc')).items.length, 1);
+  });
+});

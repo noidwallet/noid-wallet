@@ -99,32 +99,63 @@ export function classify(tx: BlockTx, feeAddresses: ReadonlySet<string> = new Se
 
 const ADDRESS_RE = /^o1[02-9ac-hj-np-z]{20,100}$/;
 
+export interface Arrival {
+  address: string;
+  kind: "token" | "nft";
+  /** Token ID, or the (first) NFT's collection ID. */
+  itemId: string;
+  /** Token units received, or the (first) NFT's serial; null when not exact. */
+  units: string | null;
+  /** How many NFTs (1 for tokens). */
+  count: number;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
 /**
  * Who receives a token or NFT in a plain transfer (not the sender's own
- * change). Used only to notify them: their history gets no row, since no NOID
- * reached them (see classify). Pure; unit-tested.
+ * change), and what. Pure; unit-tested.
  */
-export function nativeArrivals(tx: BlockTx): { address: string; kind: "token" | "nft" }[] {
+export function nativeArrivals(tx: BlockTx): Arrival[] {
   const native = tx.native as
-    | { operation?: unknown; token_outputs?: { owner?: unknown; units?: unknown }[]; nft_outputs?: { owner?: unknown }[] }
+    | {
+        operation?: unknown;
+        token_outputs?: { owner?: unknown; units?: unknown; asset_id?: unknown }[];
+        nft_outputs?: { owner?: unknown; collection_id?: unknown; serial?: unknown }[];
+      }
     | null
     | undefined;
   if (!native || (native.operation !== "transfer_token" && native.operation !== "transfer_nft")) return [];
-  // Without a known sender its own change can't be told apart: notify nobody.
+  // Without a known sender its own change can't be told apart: nobody.
   const sender = tx.input_owner;
   if (!sender) return [];
-  const found = new Map<string, "token" | "nft">();
-  const add = (owner: unknown, kind: "token" | "nft") => {
-    if (typeof owner === "string" && owner !== sender && ADDRESS_RE.test(owner) && !found.has(owner)) found.set(owner, kind);
-  };
+  const found = new Map<string, Arrival>();
+  const recipient = (owner: unknown): owner is string => typeof owner === "string" && owner !== sender && ADDRESS_RE.test(owner);
   if (native.operation === "transfer_token") {
     for (const o of native.token_outputs ?? []) {
-      if (typeof o.units === "string" && /^[1-9]\d{0,38}$/.test(o.units)) add(o.owner, "token");
+      if (!recipient(o.owner) || typeof o.asset_id !== "string" || !HEX64.test(o.asset_id)) continue;
+      if (typeof o.units !== "string" || !/^[1-9]\d{0,19}$/.test(o.units)) continue;
+      const had = found.get(o.owner);
+      if (!had) found.set(o.owner, { address: o.owner, kind: "token", itemId: o.asset_id, units: o.units, count: 1 });
+      // The same token again: add it up (another token in one transfer: keep the first).
+      else if (had.itemId === o.asset_id && had.units !== null) had.units = (BigInt(had.units) + BigInt(o.units)).toString();
     }
   } else {
-    for (const o of native.nft_outputs ?? []) add(o.owner, "nft");
+    for (const o of native.nft_outputs ?? []) {
+      if (!recipient(o.owner) || typeof o.collection_id !== "string" || !HEX64.test(o.collection_id)) continue;
+      // Big 64-bit numbers arrive as strings (parseNodeJson keeps them exact).
+      const serial =
+        typeof o.serial === "number" && Number.isSafeInteger(o.serial) && o.serial >= 0
+          ? String(o.serial)
+          : typeof o.serial === "string" && /^\d{1,20}$/.test(o.serial)
+            ? BigInt(o.serial).toString()
+            : null;
+      const had = found.get(o.owner);
+      if (!had) found.set(o.owner, { address: o.owner, kind: "nft", itemId: o.collection_id, units: serial, count: 1 });
+      else had.count++;
+    }
   }
-  return [...found].map(([address, kind]) => ({ address, kind }));
+  return [...found.values()];
 }
 
 export class Indexer {
@@ -234,7 +265,7 @@ export class Indexer {
     })();
   }
 
-  /** Stores the block; returns what to notify about (history rows plus token and NFT arrivals). */
+  /** Stores the block; returns its new history rows (what to notify about). */
   store(block: BlockDetails): { address: string; txid: string; direction: string; amount: number }[] {
     const stored: { address: string; txid: string; direction: string; amount: number }[] = [];
     const { height, hash, timestamp } = block.header;
@@ -242,7 +273,12 @@ export class Indexer {
       "INSERT OR REPLACE INTO txs (txid, height, time, fee, kind, input_owner) VALUES (?, ?, ?, ?, ?, ?)",
     );
     const insAddr = this.db.prepare(
-      "INSERT OR REPLACE INTO address_txs (address, txid, height, time, direction, amount, fee, wallet_fee, counterparty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO address_txs (address, txid, height, time, direction, amount, fee, wallet_fee, counterparty, item_id, item_units, item_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+    );
+    // A token or NFT received: no NOID reached the address, so its own row
+    // kind, served only to apps that ask for it (see /v1/address/:a/history).
+    const insArrival = this.db.prepare(
+      "INSERT OR IGNORE INTO address_txs (address, txid, height, time, direction, amount, fee, wallet_fee, counterparty, item_id, item_units, item_count) VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)",
     );
     this.db.transaction(() => {
       this.db
@@ -255,9 +291,11 @@ export class Indexer {
           insAddr.run(r.address, tx.txid, height, timestamp, r.direction, r.amount, r.fee, r.walletFee, r.counterparty);
           stored.push({ address: r.address, txid: tx.txid, direction: r.direction, amount: r.amount });
         }
-        // Token and NFT recipients: notified, but not stored as history.
+        // Token and NFT recipients (never over a row the address already has for this tx).
         for (const a of nativeArrivals(tx)) {
-          stored.push({ address: a.address, txid: tx.txid, direction: a.kind === "token" ? "token_in" : "nft_in", amount: 0 });
+          const direction = a.kind === "token" ? "token_in" : "nft_in";
+          if (insArrival.run(a.address, tx.txid, height, timestamp, direction, tx.input_owner, a.itemId, a.units, a.count).changes === 0) continue;
+          stored.push({ address: a.address, txid: tx.txid, direction, amount: 0 });
         }
       }
     })();

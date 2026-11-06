@@ -6,17 +6,18 @@ import { Text, View } from 'react-native';
 import { TokenIcon } from '@/components/AssetRows';
 import { Banner, Button, Card, IconButton, KeyValue, Link, Pill, Screen, toast } from '@/components/ui';
 import { formatNoid, shortAddress } from '@/lib/amount';
-import { posesAsNoid, shownAssets, tokenName, useAssets } from '@/lib/assets';
+import { posesAsNoid, shownAssets, tokenName, tokenWorth, useAssets } from '@/lib/assets';
 import { useCopied } from '@/lib/clip';
 import { go } from '@/lib/nav';
 import { openProjectWebsite, websiteHost } from '@/lib/openWebsite';
-import { formatUnits, noidValue, unitPrice } from '@/lib/tokenMath';
+import { fiat } from '@/lib/safety';
+import { formatUnits, unitPrice } from '@/lib/tokenMath';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
 
 export default function TokenDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { api, settings, meta, status } = useWallet();
+  const { api, settings, meta, status, price: noidPrice } = useWallet();
   const copied = useCopied();
   const shown = shownAssets(useAssets(), meta?.address);
   const token = shown?.tokens.find((t) => t.assetId === id);
@@ -32,7 +33,8 @@ export default function TokenDetail() {
 
   const m = token.manifest;
   const info = token.info?.known ? token.info : null;
-  const worth = info ? noidValue(token.units, info.priceNumerator, info.priceDenominator) : null;
+  const worth = tokenWorth(token);
+  const worthFiat = worth !== null ? fiat(worth, noidPrice, settings.currency ?? 'none') : null;
   const price = info ? unitPrice(info.priceNumerator, info.priceDenominator) : null;
   const locked = BigInt(token.lockedUnits);
   const reserved = BigInt(token.reservedUnits);
@@ -48,9 +50,16 @@ export default function TokenDetail() {
         </Text>
         {symbol ? <Text style={{ color: colors.accent, fontFamily: fonts.monoBold }}>{symbol}</Text> : null}
         {worth !== null && !hidden ? (
-          <Text style={[type.bodySm, { textAlign: 'center' }]}>
-            About {formatNoid(worth, { maxDecimals: 4 })} NOID at the {info?.phase === 'dex' ? 'DEX' : 'launchpad'} price your wallet server reports
-          </Text>
+          <>
+            <Text style={[type.h2, { textAlign: 'center' }]}>
+              {worthFiat ? `${worthFiat} · ` : ''}
+              {formatNoid(worth, { maxDecimals: 4 })} NOID
+            </Text>
+            <Text style={[type.bodySm, { textAlign: 'center' }]}>
+              About what selling all of it on the {info?.phase === 'dex' ? 'DEX' : 'launchpad'} would pay now, after its fee, by the market your
+              wallet server reports. Not a promise: the price moves.
+            </Text>
+          </>
         ) : null}
         {posesAsNoid(token) ? <Pill text="Not the NOID coin" tone="danger" /> : null}
         {locked > 0n ? <Pill text={hidden ? 'Some locked for now' : `${formatUnits(locked)} locked for now`} tone="warn" /> : null}

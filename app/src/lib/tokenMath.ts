@@ -54,6 +54,18 @@ export function noidValue(units: string, numerator: string, denominator: string)
   return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : null;
 }
 
+/**
+ * The core's sell quote ("sellValueMicronoid": what selling the wallet's units
+ * into the token's market now would pay, after its fee) as μNOID, or null when
+ * missing, malformed or too large to show. An estimate from the market record
+ * the wallet server reports, not a promise.
+ */
+export function sellWorth(v: unknown): number | null {
+  if (typeof v !== 'string' || !/^\d{1,16}$/.test(v)) return null;
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 /** NOID per whole token, for display: "0.003333". */
 export function unitPrice(numerator: string, denominator: string): string | null {
   const n = toBig(numerator);

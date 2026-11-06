@@ -495,7 +495,7 @@ export default function Home() {
               valueSub={hidden ? null : fiatOf(shownBalance)}
             />
             {heldHere.tokens.slice(0, TOKENS_ON_HOME).map((t) => (
-              <TokenRow key={t.assetId} api={w.api} token={t} hidden={hidden} />
+              <TokenRow key={t.assetId} api={w.api} token={t} hidden={hidden} fiatOf={fiatOf} />
             ))}
             {heldHere.tokens.length > TOKENS_ON_HOME ? (
               <Link title={`+${heldHere.tokens.length - TOKENS_ON_HOME} more tokens`} onPress={() => go('/assets')} />

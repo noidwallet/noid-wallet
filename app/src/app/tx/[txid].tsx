@@ -10,6 +10,8 @@ import { formatNoid } from '@/lib/amount';
 import type { TxStatus } from '@/lib/api';
 import { blockChecked, useChain } from '@/lib/chain';
 import { sentItem } from '@/lib/sentItems';
+import { itemLookup, useAssets } from '@/lib/assets';
+import { isArrival, receivedLabel } from '@/lib/receivedItems';
 import { useCopied } from '@/lib/clip';
 import { groupAddress } from '@/lib/safety';
 import { useWallet } from '@/state/wallet';
@@ -47,15 +49,18 @@ export default function TxDetail() {
       ? { text: 'Pending', tone: 'warn' as const }
       : { text: 'Checking…', tone: 'neutral' as const };
 
+  // A token or NFT that arrived: no NOID moved; say what came instead of an amount.
+  const arrival = !!item && isArrival(item);
+  const lookup = itemLookup(useAssets());
   const outgoing = item ? item.direction === 'sent' || item.direction === 'self' || item.direction === 'contract' : pend?.kind !== 'claim';
   // Same total as the activity row: what left the wallet, fee included.
-  const base = item ? (item.direction === 'self' ? 0 : item.amount) : pend ? (pend.kind === 'consolidate' ? 0 : pend.amount) : null;
+  const base = arrival ? null : item ? (item.direction === 'self' ? 0 : item.amount) : pend ? (pend.kind === 'consolidate' ? 0 : pend.amount) : null;
   const feePart = item ? (item.direction === 'sent' || item.direction === 'self' ? item.fee : 0) : pend && pend.kind !== 'claim' ? pend.fee : 0;
   const walletPart = item ? (item.direction === 'sent' ? (item.walletFee ?? 0) : 0) : pend && pend.kind !== 'claim' ? (pend.walletFee ?? 0) : 0;
   const amount = base === null ? null : base + feePart + walletPart;
   const fiatValue = amount !== null ? fiatOf(amount) : null;
   const sentThing = item?.direction === 'contract' ? sentItem(item.txid) : null;
-  const label = sentThing ? `Sent ${sentThing}` : item ? TX_LABEL[item.direction] : pend
+  const label = arrival && item ? receivedLabel(item, lookup, { hidden: !!settings.hideBalance }) : sentThing ? `Sent ${sentThing}` : item ? TX_LABEL[item.direction] : pend
       ? pend.kind === 'claim'
         ? 'Gift claim'
         : pend.kind === 'gift'
@@ -78,7 +83,7 @@ export default function TxDetail() {
   const blockHash = item?.blockHash ?? (status?.status === 'confirmed' ? status.blockHash : null) ?? null;
   const checked = blockHeight !== null && chain.info ? blockChecked(blockHeight, blockHash) : null;
   const counterparty = item?.counterparty && item.direction !== 'self' ? item.counterparty : pend?.to ?? null;
-  const partyLabel = item?.direction === 'received' || pend?.kind === 'claim' ? 'From' : 'To';
+  const partyLabel = item?.direction === 'received' || arrival || pend?.kind === 'claim' ? 'From' : 'To';
 
   return (
     <Screen header={{ title: 'Transaction' }}>
@@ -151,6 +156,21 @@ export default function TxDetail() {
         <Banner tone="danger">
           The server says this payment is in a block that is not on the chain your phone verified. Do not rely on this payment until that is resolved.
         </Banner>
+      ) : null}
+
+      {arrival && item?.itemId ? (
+        <Card>
+          <Text style={type.caption}>{item.direction === 'nft_in' ? 'Collection ID' : 'Token ID'}</Text>
+          <Text selectable style={[type.monoSm, { lineHeight: 20 }]}>
+            {item.itemId}
+          </Text>
+          {item.direction === 'nft_in' && item.itemUnits && (item.itemCount ?? 1) === 1 ? (
+            <KeyValue label="Number" value={`#${item.itemUnits}`} />
+          ) : null}
+          <Text style={[type.bodySm, { fontSize: 13 }]}>
+            Anyone can create a token or NFT with any name. Only this ID tells them apart.
+          </Text>
+        </Card>
       ) : null}
 
       <Card>

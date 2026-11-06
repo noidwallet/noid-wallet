@@ -19,8 +19,11 @@ use std::io::Read;
 use std::path::Path;
 
 use noid_tx::native_assets::{
-    launch::LaunchOpening,
-    market::{MarketOpening, PoolPhase},
+    launch::{sequential::quote_curve_exact_input, LaunchOpening, LaunchSide},
+    market::{
+        sequential::quote_exact_input, MarketDefinition, MarketOpening, PoolPhase, PoolState, MARKET_FEE_BPS,
+        MARKET_QUANTITY_MAX,
+    },
     native_sequence,
     nft_market::{ListingState, NftMarketOpening},
     NativeOpening, MAX_NATIVE_OPENING_BYTES, TOKEN_DECIMALS,
@@ -254,7 +257,13 @@ pub fn check_holdings(owner: &str, page: &HoldingsPage) -> Result<Value, Error> 
 }
 
 /// A token's public definition and market, from the node's market record.
-pub fn check_token(asset_id: &str, details: &MarketDetails) -> Result<Value, Error> {
+///
+/// With `units`, also what selling that many units into the market right now
+/// would pay in μNOID (after the market fee), quoted with the official
+/// sequential trade rules. Unlike units × price, this can never exceed the
+/// NOID actually in the market, so a token whose creator set a high price but
+/// that holds little NOID is not shown as worth much.
+pub fn check_token(asset_id: &str, details: &MarketDetails, units: Option<u64>) -> Result<Value, Error> {
     let asset = digest_hex(asset_id)?;
     digest_hex(&details.block_hash)?;
     digest_hex(&details.state_root)?;
@@ -289,7 +298,7 @@ pub fn check_token(asset_id: &str, details: &MarketDetails) -> Result<Value, Err
         return Err(bad("The server sent a different token."));
     }
     // Price: NOID base units per token base unit = numerator / denominator.
-    let (phase, numerator, denominator, ready) = match (opening, dependency) {
+    let (phase, numerator, denominator, ready, sell) = match (opening, dependency) {
         (
             NativeOpening::Launch(LaunchOpening::State(state)),
             Some(NativeOpening::Launch(LaunchOpening::Definition(def))),
@@ -305,13 +314,19 @@ pub fn check_token(asset_id: &str, details: &MarketDetails) -> Result<Value, Err
                 .checked_sub(state.inventory_units)
                 .ok_or_else(|| bad("The token's launch has invalid numbers."))?;
             let price = def.marginal_price(sold).map_err(|_| bad("The token's launch has invalid numbers."))?;
-            ("curve", price.numerator, price.denominator, state.phase == PoolPhase::Idle)
+            // A pending round doesn't change the curve itself: quote on its idle view.
+            let sell = units
+                .filter(|&u| u > 0)
+                .and_then(|u| quote_curve_exact_input(def, state.idle_view(), LaunchSide::Sell, u, 1).ok())
+                .map(|q| q.output());
+            ("curve", price.numerator, price.denominator, state.phase == PoolPhase::Idle, sell)
         }
         (
             NativeOpening::Market(MarketOpening::Pool(state)),
             Some(NativeOpening::Market(MarketOpening::Definition(def))),
         ) if def.base_is_noid() && def.quote == token.asset => {
-            ("dex", state.base_reserve, state.quote_reserve, state.phase == PoolPhase::Idle)
+            let sell = units.filter(|&u| u > 0).and_then(|u| dex_sell_value(def, state, u));
+            ("dex", state.base_reserve, state.quote_reserve, state.phase == PoolPhase::Idle, sell)
         }
         _ => return Err(bad("The server sent an unsupported token market.")),
     };
@@ -327,8 +342,27 @@ pub fn check_token(asset_id: &str, details: &MarketDetails) -> Result<Value, Err
         "priceNumerator": numerator.to_string(),
         "priceDenominator": denominator.to_string(),
         "ready": ready,
+        "sellValueMicronoid": sell.map(|v| v.to_string()),
         "height": details.height,
     }))
+}
+
+/// μNOID from selling `units` of the quote token into a NOID pool, after the
+/// market fee. The official quote refuses pools whose liquidity isn't all
+/// locked (it is meant for building trades); the value is the same
+/// constant-product step either way, so such pools use that step directly.
+fn dex_sell_value(def: MarketDefinition, state: PoolState, units: u64) -> Option<u64> {
+    if let Ok(q) = quote_exact_input(def, state.idle_view(), def.quote, units, 1) {
+        return Some(q.output());
+    }
+    if !def.base_is_noid() || units > MARKET_QUANTITY_MAX {
+        return None;
+    }
+    let fee = (u128::from(units) * u128::from(MARKET_FEE_BPS)).div_ceil(10_000);
+    let effective = u128::from(units).checked_sub(fee).filter(|&n| n != 0)?;
+    let out = u128::from(state.base_reserve) * effective / (u128::from(state.quote_reserve) + effective);
+    // Never the whole reserve: the official step refuses to empty a pool.
+    u64::try_from(out).ok().filter(|&o| o < state.base_reserve)
 }
 
 /// True when an NFT listing record is still in its first state (nothing pending).
@@ -647,9 +681,9 @@ mod tests {
     #[test]
     fn unknown_token_market_is_reported_as_unknown() {
         let d = MarketDetails { height: 1, block_hash: "11".repeat(32), state_root: "22".repeat(32), item: None };
-        let out = check_token(&"01".repeat(32), &d).unwrap();
+        let out = check_token(&"01".repeat(32), &d, None).unwrap();
         assert_eq!(out["known"], false);
-        assert!(check_token("nothex", &d).is_err());
+        assert!(check_token("nothex", &d, None).is_err());
     }
 
     #[test]
@@ -665,7 +699,7 @@ mod tests {
         let h = holding(def, None, 1, 1);
         let item = CatalogItem { key: format!("8000{}", "01".repeat(32)), primary: h.clone(), related: vec![h.clone(), h] };
         let d = MarketDetails { height: 1, block_hash: "11".repeat(32), state_root: "22".repeat(32), item: Some(item) };
-        assert!(check_token(&"01".repeat(32), &d).is_err());
+        assert!(check_token(&"01".repeat(32), &d, None).is_err());
     }
 
     #[test]
@@ -697,7 +731,7 @@ mod tests {
         };
         let d = MarketDetails { height: 9, block_hash: "11".repeat(32), state_root: "22".repeat(32), item: Some(item) };
         let id = hex::encode(token.asset.0);
-        let out = check_token(&id, &d).unwrap();
+        let out = check_token(&id, &d, None).unwrap();
         assert_eq!(out["known"], true);
         assert_eq!(out["metadata"], "03".repeat(32));
         assert_eq!(out["phase"], "curve");
@@ -707,7 +741,83 @@ mod tests {
         let dd: f64 = out["priceDenominator"].as_str().unwrap().parse().unwrap();
         assert!((n / dd - 1.0 / 300.0).abs() < 1e-6, "{n}/{dd}");
         // Asking about another asset with this record is refused.
-        assert!(check_token(&"01".repeat(32), &d).is_err());
+        assert!(check_token(&"01".repeat(32), &d, None).is_err());
+    }
+
+    fn launch_item(primary: NativeOpening, dependency: NativeOpening, token: FungibleDefinition) -> MarketDetails {
+        use noid_tx::native_assets::TokenReserve;
+        let reserve = TokenReserve::from_definition(&token, 100_000_000).unwrap();
+        let item = CatalogItem {
+            key: format!("8000{}", hex::encode(token.asset.0)),
+            primary: holding(primary, Some(dependency), 1, 1),
+            related: vec![
+                holding(NativeOpening::FungibleDefinition(token), None, 2, 2),
+                holding(NativeOpening::TokenReserve(reserve), None, 3, 3),
+            ],
+        };
+        MarketDetails { height: 9, block_hash: "11".repeat(32), state_root: "22".repeat(32), item: Some(item) }
+    }
+
+    #[test]
+    fn token_value_is_what_selling_would_pay_never_units_times_price() {
+        use noid_tx::native_assets::launch::{curve_cash_for_supply, sequential::TradeState, LaunchDefinition};
+        use noid_tx::native_assets::GenesisAnchor;
+        let anchor = GenesisAnchor {
+            chain: [4; 32],
+            owner: owner(),
+            input: noid_tx::TxInput { slot_index: 77, amount: 200_000_000, creation_id: 12 },
+        };
+        let supply = 100_000 * 1_000_000;
+        let token = FungibleDefinition::from_genesis(&anchor, supply, IssuanceRoute::Launchpad, [3; 32]).unwrap();
+        let launch = LaunchDefinition::from_genesis(&anchor, token).unwrap();
+        let id = hex::encode(token.asset.0);
+        let value = |d: &MarketDetails, units: u64| -> Option<u64> {
+            check_token(&id, d, Some(units)).unwrap()["sellValueMicronoid"].as_str().map(|v| v.parse().unwrap())
+        };
+
+        // On the curve, 10,000 tokens sold: selling 2 tokens pays exactly the curve's cash difference.
+        let sold = 10_000 * 1_000_000;
+        let TradeState::Curve(state) = launch.after_initial_purchase(sold).unwrap() else { panic!() };
+        let d = launch_item(
+            NativeOpening::Launch(LaunchOpening::State(state)),
+            NativeOpening::Launch(LaunchOpening::Definition(launch)),
+            token,
+        );
+        let two = 2 * 1_000_000;
+        let expected = curve_cash_for_supply(supply, sold).unwrap() - curve_cash_for_supply(supply, sold - two).unwrap();
+        assert_eq!(value(&d, two), Some(expected));
+        let out = check_token(&id, &d, Some(two)).unwrap();
+        let (n, dd): (u128, u128) = (out["priceNumerator"].as_str().unwrap().parse().unwrap(), out["priceDenominator"].as_str().unwrap().parse().unwrap());
+        assert!(u128::from(expected) <= u128::from(two) * n / dd + 1, "never more than units x price");
+        // Selling everything that was bought returns all the curve's NOID, no more.
+        assert_eq!(value(&d, sold), Some(curve_cash_for_supply(supply, sold).unwrap()));
+        // More than the curve ever sold can't be sold into it: no value, not a made-up one.
+        assert_eq!(value(&d, sold + 1), None);
+        assert_eq!(value(&d, 0), None);
+        assert!(check_token(&id, &d, None).unwrap()["sellValueMicronoid"].is_null());
+
+        // After graduation, on the DEX: the official constant-product quote, with its fee.
+        let pool = launch.graduation_pool().unwrap();
+        let market = launch.market_definition();
+        let d = launch_item(
+            NativeOpening::Market(MarketOpening::Pool(pool)),
+            NativeOpening::Market(MarketOpening::Definition(market)),
+            token,
+        );
+        let official = quote_exact_input(market, pool, token.asset, two, 1).unwrap().output();
+        assert_eq!(value(&d, two), Some(official));
+        // A huge sale gets less than the pool holds, however large.
+        let huge = value(&d, 1 << 62).unwrap();
+        assert!(huge < pool.base_reserve);
+
+        // The fallback (for pools with unlocked liquidity) is the same step as the official quote.
+        for units in [1_000_000, two, 777_777_777, 1 << 50] {
+            let unlocked = PoolState { locked_shares: pool.total_shares.saturating_sub(1), ..pool };
+            assert!(quote_exact_input(market, unlocked, token.asset, units, 1).is_err(), "takes the fallback path");
+            let manual = dex_sell_value(market, unlocked, units);
+            let official = quote_exact_input(market, pool, token.asset, units, 1).ok().map(|q| q.output());
+            assert_eq!(manual, official, "{units}");
+        }
     }
 
     fn manifest() -> Manifest {
