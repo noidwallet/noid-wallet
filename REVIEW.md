@@ -1,4 +1,4 @@
-# Security review brief: NOID wallet (main branch, 1.2.0 released Nov 5, 2026)
+# Security review brief: NOID wallet (main branch, 1.2.1 released Nov 7, 2026)
 
 NOID is an Android wallet for Parano1d. Keys stay on the phone; the phone
 builds and proves every transaction itself (the official GKR authorization
