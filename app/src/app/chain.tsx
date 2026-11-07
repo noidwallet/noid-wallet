@@ -2,14 +2,19 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Banner, Body, Button, Card, KeyValue, Pill, Screen } from '@/components/ui';
-import { restartChain, STALE_AFTER_MS, syncChain, useChain } from '@/lib/chain';
+import { blockChecked, restartChain, STALE_AFTER_MS, syncChain, useChain } from '@/lib/chain';
+import { summarize } from '@/lib/coinProofs';
+import { useCoinProofs } from '@/lib/coinProofsStore';
 import { ago, useNow } from '@/lib/nav';
 import { useWallet } from '@/state/wallet';
 import { colors, fonts, space, type } from '@/theme';
 
 export default function Chain() {
-  const { api, status } = useWallet();
+  const { api, status, utxos, meta } = useWallet();
   const chain = useChain();
+  const proofs = useCoinProofs();
+  // Recomputed on every render: a coin counts once its block is checked.
+  const coins = proofs.address === meta?.address ? summarize(utxos, proofs.records, blockChecked) : null;
   const now = useNow();
   const [busy, setBusy] = useState(false);
   const info = chain.info;
@@ -82,6 +87,31 @@ export default function Chain() {
         {chain.lastSyncAt ? <KeyValue label="Last check" value={ago(chain.lastSyncAt, now)} mono={false} /> : null}
       </Card>
 
+      <View style={{ gap: space.sm }}>
+        <Text style={type.title}>Your coins</Text>
+        {proofs.problem ? <Banner tone="danger">{proofs.problem.message}</Banner> : null}
+        {proofs.kind === 'off' || !coins ? (
+          <Body>
+            {status?.features?.slotProofs
+              ? 'Your coins are checked after the next refresh.'
+              : 'Not yet: this wallet server can’t prove coins. The Parano1d node gained coin proofs after v2.1.0; they turn on here once the server runs a release with them.'}
+          </Body>
+        ) : (
+          <Card>
+            <KeyValue label="Coins proven" value={`${coins.proven} of ${coins.coins}`} />
+            {coins.waiting > 0 ? <KeyValue label="Waiting for blocks on top" value={String(coins.waiting)} /> : null}
+            {coins.blocks ? (
+              <KeyValue
+                label="Proven in"
+                value={coins.blocks[0] === coins.blocks[1] ? `block ${coins.blocks[0].toLocaleString()}` : `blocks ${coins.blocks[0].toLocaleString()} to ${coins.blocks[1].toLocaleString()}`}
+              />
+            ) : null}
+            {proofs.kind === 'checking' ? <KeyValue label="Status" value="Checking…" mono={false} /> : null}
+            {proofs.lastAt ? <KeyValue label="Last proof" value={ago(proofs.lastAt, now)} mono={false} /> : null}
+          </Card>
+        )}
+      </View>
+
       <Button title={busy || chain.kind === 'syncing' ? 'Checking…' : 'Check again'} kind="secondary" disabled={busy || chain.kind === 'syncing' || !status} onPress={() => void again(false)} />
       {chain.kind === 'problem' ? (
         <>
@@ -101,12 +131,17 @@ export default function Chain() {
           since the checkpoint carries real mining work overall. The newest blocks can be cheap, so a block only counts as checked once real
           mining work is built on top of it: a wallet server cannot get a block counted without paying for that work.
         </Body>
+        <Text style={type.title}>Your coins</Text>
+        <Body>
+          When your wallet server offers coin proofs, the phone checks each of your coins against the record of all coins (the State) in a block
+          it checked itself. A coin counts as proven once that block counts as checked. So the server can’t invent coins or change their
+          amounts. It can’t prove it listed all of your coins, though: one it leaves out simply doesn’t show.
+        </Body>
         <Text style={type.title}>What it does not check yet</Text>
         <Body>
-          Whether a payment is really inside a block. Your balance and activity still come from the server. A later update will check payments
-          against these blocks once the Parano1d node can provide the proofs. A block only counts as checked once it is at least 8 blocks deep
-          and about four blocks’ worth of real mining work is built on top of it. After a long gap between blocks the network mines cheaper
-          blocks for a while, so this can take longer.
+          Whether a payment is really inside a block, and your tokens and NFTs: those still come from the server. A block only counts as checked
+          once it is at least 8 blocks deep and about four blocks’ worth of real mining work is built on top of it. After a long gap between
+          blocks the network mines cheaper blocks for a while, so this can take longer.
         </Body>
         <Text style={{ color: colors.faint, fontFamily: fonts.ui, fontSize: 12 }}>
           Checking one block takes well under a millisecond. The phone keeps the last 2,048 block ids to match recent payments against.

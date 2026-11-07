@@ -7,8 +7,9 @@
 // result is kept on the phone between runs. Screens read it with useChain().
 //
 // What it gives: a wallet server can't get a block counted as checked
-// without real mining work. What it doesn't give yet: proof that a payment
-// is inside a block. The server still reports that; a later update checks it.
+// without real mining work. Coin proofs (lib/coinProofs.ts) build on it:
+// once the server offers them, the phone checks its coins against these
+// headers. Payments inside a block are not proven yet.
 import { useSyncExternalStore } from 'react';
 
 import type { Api } from './api';
@@ -146,6 +147,11 @@ export function restartChain(api: Api, serverTip: number): Promise<void> {
   storage.clearChain();
   set({ info: null, problem: null });
   return syncChain(api, serverTip);
+}
+
+/** The saved chain view, for checks against the phone's own headers (coin proofs). */
+export function chainState(): ChainState | null {
+  return loadState();
 }
 
 /** The block id the phone verified at `height`, if it still remembers it (any depth). */

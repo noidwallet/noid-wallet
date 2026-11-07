@@ -140,7 +140,7 @@ export interface Status extends FeeContext {
   syncStage: string;
   peers: number | null;
   /** Optional server features; missing on older servers. */
-  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean; headers?: boolean; nativeSend?: boolean };
+  features?: { price?: boolean; push?: boolean; assets?: boolean; media?: boolean; headers?: boolean; nativeSend?: boolean; slotProofs?: boolean };
   /** App versions the server announces (see backend config). */
   app?: { latest?: string | null; min?: string | null };
 }
@@ -381,6 +381,20 @@ export function createApi(baseUrl: string, _installId = '') {
         r.slotHints.length <= 16 &&
         r.slotHints.every(isCount) &&
         isCount(r.relayFloor);
+      return check(r, ok);
+    },
+    /**
+     * Coin proofs for sorted, unique slot indices: one proof per node-sized
+     * piece. Only the shape is checked here; the core checks each proof
+     * against a header the phone checked itself (core/src/slot_proof.rs).
+     */
+    slotProofs: async (indices: number[]) => {
+      const r = await request<{ proofs: unknown[] }>('/v1/slots/proof', { method: 'POST', body: JSON.stringify({ indices }) }, 60_000);
+      const ok =
+        Array.isArray(r.proofs) &&
+        r.proofs.length >= 1 &&
+        r.proofs.length <= indices.length &&
+        r.proofs.every((p) => !!p && typeof p === 'object' && Array.isArray((p as { slots?: unknown }).slots));
       return check(r, ok);
     },
     /** Raw headers from `from`, for the core to check (never trusted as given). */

@@ -177,6 +177,22 @@ export interface ChainInfo {
   checkedHeight: number;
 }
 
+/** A slot a coin proof showed, as the phone can rely on it (core/src/slot_proof.rs). */
+export interface ProvenSlot {
+  slotIndex: number;
+  value: number;
+  /** Decimal string: creation ids pass 2^53. */
+  creationId: string;
+  owner: string;
+  empty: boolean;
+}
+
+export type SlotProofResult =
+  /** Checked against the phone's own header at `height`. `checked`: that block counts as checked yet. */
+  | { status: 'proven'; height: number; blockId: string; checked: boolean; slots: ProvenSlot[] }
+  /** The phone doesn't hold that block (yet, or any more): no verdict. */
+  | { status: 'unknown_block'; height: number; phoneTip: number };
+
 export interface SyncResult {
   state: ChainState;
   info: ChainInfo;
@@ -278,6 +294,12 @@ export const core = {
     call<{ ok: true }>('checkImage', { path, ...image }),
   /** Where the phone's own chain check stands (`state` null: the built-in checkpoint). */
   chainInfo: (state: ChainState | null) => call<ChainInfo>('chainInfo', { state }),
+  /**
+   * Check a coin proof against the phone's own header. Throws (proof_invalid,
+   * proof_other_chain) when it doesn't check out.
+   */
+  verifySlotProof: (state: ChainState, proof: unknown, indices: number[]) =>
+    call<SlotProofResult>('verifySlotProof', { state, proof, indices }),
   /** Check raw headers (hex, contiguous, oldest first) and adopt the ones that pass. */
   syncHeaders: (state: ChainState | null, headersHex: string[], now: number) =>
     call<SyncResult>('syncHeaders', { state, headersHex, now }),
