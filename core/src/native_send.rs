@@ -781,7 +781,13 @@ mod fee_output_experiment {
         let height = plan["candidate_height"].as_u64().unwrap();
         let parent = Header::from_hex(plan["parent_header_hex"].as_str().unwrap()).unwrap();
         let mut intent = NativeIntent::from_bytes(&hex::decode(plan["unsigned_intent_hex"].as_str().unwrap()).unwrap()).unwrap();
-        let facts = intent.checked(chain, height).unwrap();
+        // NFT market operations are checked against the round (height, parent id, parent counter).
+        let round = noid_tx::native_assets::nft_market::NftRoundContext::new(height, crate::headers::block_id(&parent), parent.alloc_counter).unwrap();
+        let check = |i: &NativeIntent| match i.checked(chain, height) {
+            Ok(f) => Ok(f),
+            Err(_) => i.checked_financial_owner(chain, round),
+        };
+        let facts = check(&intent).unwrap();
         println!("operation: {:?}", facts.pages.operation);
         println!("inputs {} outputs {} fee {}", facts.inputs.len(), facts.outputs.len(), facts.pages.fee);
         for o in &facts.outputs {
@@ -817,9 +823,9 @@ mod fee_output_experiment {
         intent.pages[0].body.fee = new_fee;
         append_plain_output(&mut intent, TxOutput { slot_index: slot, amount: NATIVE_WALLET_FEE, owner: parse_address(WALLET_FEE_ADDRESS).unwrap() }).unwrap();
         intent.output_openings.push(None);
-        let after = intent.checked(chain, height).expect("still valid with the fee output");
+        let after = check(&intent).expect("still valid with the fee output");
         let back = NativeIntent::from_bytes(&intent.to_bytes().unwrap()).unwrap();
-        back.checked(chain, height).expect("valid after encoding");
+        check(&back).expect("valid after encoding");
         println!("OK: operation {:?}, outputs {} -> {}, network fee {} -> {}", after.pages.operation, n_out, after.outputs.len(), facts.pages.fee, new_fee);
     }
 }
