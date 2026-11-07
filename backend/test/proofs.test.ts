@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { openDb } from "../src/db.js";
 import { Indexer } from "../src/indexer.js";
 import { RpcError, type RpcMethod } from "../src/rpc.js";
-import { MAX_REQUEST_INDICES, proofIndices, splitForNode } from "../src/proofs.js";
+import { MAX_PIECES, MAX_REQUEST_INDICES, proofIndices, splitForNode } from "../src/proofs.js";
 import { buildServer } from "../src/server.js";
 
 test("proof requests: sorted unique whole numbers, bounded", () => {
@@ -64,6 +64,24 @@ test("proofs: off until the node offers getSlotProof, then one proof per node-si
   assert.equal(r.json().proofs.length, 2);
   assert.deepEqual(calls.map((c) => c.length), [128, 72], "split, and the busy answer was retried");
   assert.equal(r.json().proofs[0].slots.length, 128);
+  await app.close();
+});
+
+test("proofs: one request makes at most MAX_PIECES node calls and names the slots left", async () => {
+  let calls = 0;
+  const app = await server(async (_m, params) => {
+    calls++;
+    return { slots: (params as number[][])[0] };
+  });
+  await (app as unknown as { proofs: { probeNow(): Promise<void> } }).proofs.probeNow();
+  calls = 0;
+  const spread = Array.from({ length: 50 }, (_, i) => i * 65_536); // 50 segments: 7 pieces
+  const r = await app.inject({ method: "POST", url: "/v1/slots/proof", payload: { indices: spread } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.equal(calls, MAX_PIECES);
+  const body = r.json() as { proofs: { slots: number[] }[]; rest: number[] };
+  assert.deepEqual([...body.proofs.flatMap((p) => p.slots), ...body.rest], spread);
+  assert.equal(body.proofs.flatMap((p) => p.slots).length, MAX_PIECES * 8);
   await app.close();
 });
 

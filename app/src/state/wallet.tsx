@@ -415,6 +415,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (meta && settings.pushToken) await disablePush(api, meta.address, settings.pushToken);
         await storage.wipe();
         clearSentItems();
+        coinProofsOff(null);
         assets.clear();
         setContacts([]);
         setRecipients([]);

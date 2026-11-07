@@ -21,6 +21,7 @@ import { inbox } from '@/lib/inbox';
 import { parseLink } from '@/lib/links';
 import { useCopied } from '@/lib/clip';
 import { useChain } from '@/lib/chain';
+import { useCoinProofs } from '@/lib/coinProofsStore';
 import { ago, go, goHandoff, useNow } from '@/lib/nav';
 import { fiat } from '@/lib/safety';
 import { nextRoute, scanResult } from '@/lib/scan';
@@ -39,6 +40,7 @@ export default function Home() {
   const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const now = useNow();
   const chain = useChain();
+  const coinProofs = useCoinProofs();
   const copied = useCopied();
 
   // A gift or payment link (or a code scanned from here) takes the user straight to it.
@@ -158,6 +160,17 @@ export default function Home() {
       node: (
         <Banner tone="danger" icon="warning" onPress={() => go('/chain')}>
           Chain check failed: {chain.problem.message} Tap for details.
+        </Banner>
+      ),
+    });
+  }
+  // A coin proof contradicted the server (lib/coinProofs): its balance can't be trusted.
+  if (coinProofs.problem && coinProofs.address === meta.address) {
+    banners.unshift({
+      key: 'proofs',
+      node: (
+        <Banner tone="danger" icon="warning" onPress={() => go('/chain')}>
+          {coinProofs.problem.message} Tap for details.
         </Banner>
       ),
     });

@@ -435,7 +435,7 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
                     "height": header.height,
                     "blockId": hex::encode(id),
                     // Deep enough, with enough work on top, to count (chain.rs).
-                    "checked": header.height <= t.checked_height(),
+                    "checked": t.checked_id_at(header.height).is_some(),
                     "slots": slots,
                 })),
                 Err(V::OtherBlock) => Err(Error::coded("proof_other_chain", "The proof is for a different block than the one this phone checked.")),

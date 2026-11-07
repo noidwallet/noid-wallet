@@ -20,16 +20,20 @@ export interface ProofRecord {
 }
 
 /**
- * A proof shows the coin existed in one block. Ask again after this long, so
- * a coin spent since can't keep showing as proven.
+ * A proof shows the coin existed in one block: it stops counting after
+ * PROOF_TTL_MS, so a coin spent since can't keep showing as proven. It is
+ * asked for again a little earlier (REPROVE_MS), so a working server never
+ * leaves a gap.
  */
-export const REPROVE_MS = 30 * 60_000;
+export const REPROVE_MS = 20 * 60_000;
+export const PROOF_TTL_MS = 30 * 60_000;
 
 /** Slot index → what was proven there. */
 export type Records = Map<number, ProofRecord>;
 
 export interface ProveDeps {
-  slotProofs: (indices: number[]) => Promise<{ proofs: unknown[] }>;
+  /** Proofs for the first slots asked about; `rest`: the ones left for a later request. */
+  slotProofs: (indices: number[]) => Promise<{ proofs: unknown[]; rest?: number[] }>;
   /** Check one proof against the phone's own header (throws when it doesn't check out). */
   verify: (proof: unknown, indices: number[]) => Promise<SlotProofResult>;
   /** Bring the phone's chain check up to the server's tip. */
@@ -37,6 +41,13 @@ export interface ProveDeps {
   /** The server's coin list again, to tell a lie from a coin spent meanwhile. */
   utxos: () => Promise<Utxo[]>;
 }
+
+/**
+ * Coins a proof contradicted that then vanished from the server's list:
+ * slot → creation id. Listing one again is treated as a lie (a server can't
+ * dodge the check by hiding a coin only while it is being checked).
+ */
+export type Suspects = Map<number, string>;
 
 /** Most slots asked about per round (the server's limit); the rest wait for the next. */
 export const MAX_PER_ROUND = 256;
@@ -85,7 +96,16 @@ function pieceIndices(p: unknown): number[] {
  * doesn't match the question, and the core's error for a proof that doesn't
  * check out.
  */
-export async function proveCoins(deps: ProveDeps, address: string, utxos: Utxo[], known: Records, now = Date.now()): Promise<Records> {
+export async function proveCoins(
+  deps: ProveDeps,
+  address: string,
+  utxos: Utxo[],
+  known: Records,
+  suspects: Suspects = new Map(),
+  now = Date.now(),
+): Promise<Records> {
+  const back = utxos.filter((u) => suspects.get(u.slotIndex) === u.creationId);
+  if (back.length > 0) throw new CoinMismatch(back);
   const listed = new Map(utxos.map((u) => [u.slotIndex, u]));
   const records: Records = new Map(
     [...known].filter(([slot, r]) => {
@@ -96,11 +116,15 @@ export async function proveCoins(deps: ProveDeps, address: string, utxos: Utxo[]
   const indices = toProve(utxos, records, now);
   if (indices.length === 0) return records;
 
-  const { proofs } = await deps.slotProofs(indices);
-  // The pieces must cover exactly the slots asked about, in order.
+  const { proofs, rest } = await deps.slotProofs(indices);
+  // The pieces cover the first slots asked about, in order; `rest` the others.
   const pieces = proofs.map(pieceIndices);
   const flat = pieces.flat();
-  if (flat.length !== indices.length || flat.some((v, k) => v !== indices[k])) throw new ProofShapeError('The proofs are not for the coins asked about.');
+  const left = indices.slice(flat.length);
+  if (flat.length === 0 || flat.length > indices.length || flat.some((v, k) => v !== indices[k])) throw new ProofShapeError('The proofs are not for the coins asked about.');
+  if (left.length > 0 ? !rest || rest.length !== left.length || rest.some((v, k) => v !== left[k]) : rest !== undefined && rest.length > 0) {
+    throw new ProofShapeError('The proofs are not for the coins asked about.');
+  }
 
   const mismatched: Utxo[] = [];
   for (let k = 0; k < proofs.length; k++) {
@@ -127,6 +151,8 @@ export async function proveCoins(deps: ProveDeps, address: string, utxos: Utxo[]
       return !!f && f.creationId === u.creationId && f.value === u.value;
     });
     if (lies.length > 0) throw new CoinMismatch(lies);
+    // Gone now (spent, or hidden): remember them, in case they come back.
+    for (const u of mismatched) suspects.set(u.slotIndex, u.creationId);
   }
   return records;
 }
@@ -149,11 +175,19 @@ export interface CoinSummary {
  * check's verdict on a block: true (that block, counted as checked), false
  * (a different block there), null (not counted yet, or not remembered).
  */
-export function summarize(utxos: Utxo[], records: Records, checked: (height: number, blockId: string) => boolean | null): CoinSummary {
+export function summarize(
+  utxos: Utxo[],
+  records: Records,
+  checked: (height: number, blockId: string) => boolean | null,
+  now = Date.now(),
+): CoinSummary {
   const out: CoinSummary = { coins: utxos.length, proven: 0, provenValue: 0, waiting: 0, unproven: 0, blocks: null };
   for (const u of utxos) {
     const r = records.get(u.slotIndex);
-    const verdict = r && same(r, u) ? checked(r.height, r.blockId) : undefined;
+    // An old proof only says the coin existed back then: it no longer counts
+    // (a re-proof the server refuses must not leave it counting).
+    const fresh = !!r && same(r, u) && now - r.at <= PROOF_TTL_MS;
+    const verdict = fresh ? checked(r!.height, r!.blockId) : undefined;
     if (verdict === true) {
       out.proven++;
       out.provenValue += u.value;

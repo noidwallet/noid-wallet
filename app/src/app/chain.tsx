@@ -14,8 +14,8 @@ export default function Chain() {
   const chain = useChain();
   const proofs = useCoinProofs();
   // Recomputed on every render: a coin counts once its block is checked.
-  const coins = proofs.address === meta?.address ? summarize(utxos, proofs.records, blockChecked) : null;
   const now = useNow();
+  const coins = proofs.address === meta?.address ? summarize(utxos, proofs.records, blockChecked, now) : null;
   const [busy, setBusy] = useState(false);
   const info = chain.info;
   const behind = info && chain.serverTip !== null ? Math.max(0, chain.serverTip - info.tipHeight) : null;
@@ -134,8 +134,9 @@ export default function Chain() {
         <Text style={type.title}>Your coins</Text>
         <Body>
           When your wallet server offers coin proofs, the phone checks each of your coins against the record of all coins (the State) in a block
-          it checked itself. A coin counts as proven once that block counts as checked. So the server can’t invent coins or change their
-          amounts. It can’t prove it listed all of your coins, though: one it leaves out simply doesn’t show.
+          it checked itself. A coin counts as proven once that block counts as checked, for 30 minutes at a time. So if the server lists a
+          coin that isn’t there, or changes an amount, the phone notices and warns you. It can’t tell whether the server listed all of
+          your coins, though: one it leaves out simply doesn’t show. Your balance and Send still use the server’s list.
         </Body>
         <Text style={type.title}>What it does not check yet</Text>
         <Body>

@@ -389,11 +389,12 @@ export function createApi(baseUrl: string, _installId = '') {
      * against a header the phone checked itself (core/src/slot_proof.rs).
      */
     slotProofs: async (indices: number[]) => {
-      const r = await request<{ proofs: unknown[] }>('/v1/slots/proof', { method: 'POST', body: JSON.stringify({ indices }) }, 60_000);
+      const r = await request<{ proofs: unknown[]; rest?: number[] }>('/v1/slots/proof', { method: 'POST', body: JSON.stringify({ indices }) }, 60_000);
       const ok =
         Array.isArray(r.proofs) &&
         r.proofs.length >= 1 &&
         r.proofs.length <= indices.length &&
+        (r.rest === undefined || (Array.isArray(r.rest) && r.rest.length < indices.length && r.rest.every(isCount))) &&
         r.proofs.every((p) => !!p && typeof p === 'object' && Array.isArray((p as { slots?: unknown }).slots));
       return check(r, ok);
     },

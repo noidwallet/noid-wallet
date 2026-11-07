@@ -269,17 +269,25 @@ pub fn verify(proof: &SlotProof, header: &Header, header_id: &[u8; 32], wanted: 
     if proof.slots.iter().map(|s| s.slot_index).ne(wanted.iter().copied()) {
         return Err(VerifyError::OtherSlots);
     }
+    // Shape first, so an oversized sibling list is refused before any work.
+    let expected = expected_sibling_count(wanted, proof.log_slots).map_err(VerifyError::Shape)?;
+    if proof.siblings.len() != expected {
+        return Err(VerifyError::Shape(ProofError::SiblingCount { expected, actual: proof.siblings.len() }));
+    }
     let mut leaves = Vec::with_capacity(proof.slots.len());
+    let mut owners = Vec::with_capacity(proof.slots.len());
     for slot in &proof.slots {
         let owner = if slot.empty {
             if slot.value != 0 || slot.creation_id != 0 || !slot.owner.is_empty() {
                 return Err(VerifyError::BadSlot("an empty slot has fields set".into()));
             }
+            owners.push(String::new());
             [Block128(0), Block128(0)]
         } else {
-            Address::parse(&slot.owner)
-                .map_err(|_| VerifyError::BadSlot(format!("slot {} owner is not an address", slot.slot_index)))?
-                .as_fields()
+            let a = Address::parse(&slot.owner).map_err(|_| VerifyError::BadSlot(format!("slot {} owner is not an address", slot.slot_index)))?;
+            // The canonical spelling, whatever the server sent (case, spaces).
+            owners.push(a.to_bech32());
+            a.as_fields()
         };
         let value = SlotValue::with_owner_fields(slot.value, slot.creation_id, owner);
         if (value == SlotValue::EMPTY) != slot.empty {
@@ -295,13 +303,8 @@ pub fn verify(proof: &SlotProof, header: &Header, header_id: &[u8; 32], wanted: 
     Ok(proof
         .slots
         .iter()
-        .map(|s| ProvenSlot {
-            slot_index: s.slot_index,
-            value: s.value,
-            creation_id: s.creation_id.to_string(),
-            owner: s.owner.clone(),
-            empty: s.empty,
-        })
+        .zip(owners)
+        .map(|(s, owner)| ProvenSlot { slot_index: s.slot_index, value: s.value, creation_id: s.creation_id.to_string(), owner, empty: s.empty })
         .collect())
 }
 
@@ -441,6 +444,12 @@ mod tests {
         let proof = json_proof(&header, &id, &slots, &sibs);
         let proven = verify(&proof, &header, &id, &wanted).unwrap();
         assert_eq!(proven[0].creation_id, big_id.to_string(), "exact past 2^53");
+        assert_eq!(proven[0].owner, owner, "canonical owner");
+        let mut upper = proof.clone();
+        upper.slots[0].owner = owner.to_uppercase();
+        if let Ok(p) = verify(&upper, &header, &id, &wanted) {
+            assert_eq!(p[0].owner, owner, "a different spelling comes back canonical");
+        }
         assert_eq!(proven[0].value, 1_250_000);
         assert!(proven[1].empty);
 

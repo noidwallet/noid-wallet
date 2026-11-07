@@ -26,6 +26,13 @@ const NODE_MAX_INDICES = 128;
 const NODE_MAX_SEGMENTS = 8;
 /** Mainnet segments hold 2^16 slots (`LOG_SEGMENT_SIZE`); the node may use smaller ones. */
 const LOG_SEGMENT = 16;
+/**
+ * Node calls per request: each may load 8 cold segments, so a request covers
+ * at most this many pieces and says which slots it left for the next one.
+ */
+export const MAX_PIECES = 4;
+/** Node calls queued for all clients; more get "busy" instead of waiting. */
+const MAX_QUEUED = 6;
 const PROBE_MS = 5 * 60_000;
 const BUSY_RETRIES = 3;
 
@@ -83,8 +90,10 @@ export function registerProofRoutes(app: FastifyInstance, deps: ProofDeps = {}) 
   let enabled = false;
   // One node call at a time, for all clients (the node has one proof worker).
   let chain: Promise<unknown> = Promise.resolve();
+  let queued = 0;
   const serial = <T>(f: () => Promise<T>): Promise<T> => {
-    const p = chain.then(f, f);
+    queued++;
+    const p = chain.then(f, f).finally(() => queued--);
     chain = p.catch(() => undefined);
     return p;
   };
@@ -135,10 +144,20 @@ export function registerProofRoutes(app: FastifyInstance, deps: ProofDeps = {}) 
         reply.code(503);
         return { error: { code: "proofs_unavailable", message: "The wallet server can't prove coins yet." } };
       }
+      if (queued >= MAX_QUEUED) {
+        reply.code(503);
+        return { error: { code: "busy", message: "The wallet server is busy. Try again in a moment.", retryable: true } };
+      }
       try {
+        const pieces = splitForNode(indices);
         const proofs: unknown[] = [];
-        for (const piece of splitForNode(indices)) proofs.push(...(await prove(piece)));
-        return { proofs };
+        for (const piece of pieces.slice(0, MAX_PIECES)) {
+          // The phone gave up: don't keep the node's one proof worker busy for nobody.
+          if (req.raw.destroyed) return reply.code(499).send();
+          proofs.push(...(await prove(piece)));
+        }
+        // Slots left for the phone's next request (they come after these, in order).
+        return { proofs, rest: pieces.slice(MAX_PIECES).flat() };
       } catch (e) {
         if (isUnknownMethod(e)) enabled = false;
         if (e instanceof RpcError && !e.transport) {

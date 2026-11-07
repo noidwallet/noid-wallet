@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 
 import type { Api } from './api';
 import { blockChecked, chainState, syncChain } from './chain';
-import { CoinMismatch, dropReplaced, ProofShapeError, proveCoins, toProve, type Records } from './coinProofs';
+import { CoinMismatch, dropReplaced, ProofShapeError, proveCoins, toProve, type Records, type Suspects } from './coinProofs';
 import { core, CoreError, type Utxo } from './core';
 
 export interface CoinProofStatus {
@@ -19,7 +19,9 @@ export interface CoinProofStatus {
 
 let status: CoinProofStatus = { kind: 'off', address: null, records: new Map(), problem: null, lastAt: null };
 const listeners = new Set<() => void>();
-let inFlight: Promise<void> | null = null;
+let inFlight: { address: string; p: Promise<void> } | null = null;
+/** For the current address only (see Suspects). */
+let suspects: Suspects = new Map();
 
 function set(next: Partial<CoinProofStatus>) {
   status = { ...status, ...next };
@@ -34,9 +36,10 @@ const TEXT = {
   bad_response: 'Your wallet server sent proofs for other coins than the ones asked about. Do not trust its balance until this clears.',
 };
 
-/** The server stopped offering proofs (or never did). */
+/** The server stopped offering proofs (or never did), or the wallet changed (null: no wallet). */
 export function coinProofsOff(address: string | null) {
-  if (status.kind !== 'off' || status.address !== address) set({ kind: 'off', address, records: new Map(), problem: null });
+  if (status.address !== address) suspects = new Map();
+  if (status.kind !== 'off' || status.address !== address) set({ kind: 'off', address, records: new Map(), problem: null, lastAt: null });
 }
 
 /**
@@ -44,14 +47,21 @@ export function coinProofsOff(address: string | null) {
  * chain check's sync for the same refresh. One round at a time.
  */
 export function refreshCoinProofs(api: Api, address: string, utxos: Utxo[], serverTip: number): Promise<void> {
-  if (inFlight) return inFlight;
-  inFlight = run(api, address, utxos, serverTip).finally(() => {
-    inFlight = null;
+  if (inFlight?.address === address) return inFlight.p;
+  // Another wallet's round may still be running: it writes nothing once it ends (see run).
+  const p = run(api, address, utxos, serverTip).finally(() => {
+    if (inFlight?.p === p) inFlight = null;
   });
-  return inFlight;
+  inFlight = { address, p };
+  return p;
 }
 
 async function run(api: Api, address: string, utxos: Utxo[], serverTip: number) {
+  if (status.address !== address) {
+    suspects = new Map();
+    status = { ...status, records: new Map(), problem: null, lastAt: null, kind: 'off' };
+  }
+  const mine = suspects;
   const known: Records = status.address === address ? dropReplaced(status.records, blockChecked) : new Map();
   // Nothing new to prove: no request, no "Checking…" flicker.
   const quiet = toProve(utxos, known, Date.now()).length === 0 && status.address === address && status.kind !== 'off';
@@ -71,9 +81,13 @@ async function run(api: Api, address: string, utxos: Utxo[], serverTip: number) 
       address,
       utxos,
       known,
+      mine,
     );
+    // The wallet changed meanwhile: these records are not its records.
+    if (status.address !== address) return;
     set({ kind: 'ready', records, problem: null, lastAt: Date.now() });
   } catch (e) {
+    if (status.address !== address) return;
     const code =
       e instanceof CoinMismatch
         ? 'mismatch'
