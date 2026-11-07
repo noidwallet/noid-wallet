@@ -12,6 +12,7 @@ pub mod fees;
 pub mod headers;
 pub mod keys;
 pub mod native_send;
+pub mod slot_proof;
 pub mod tx;
 
 #[cfg(target_os = "android")]

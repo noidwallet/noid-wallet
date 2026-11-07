@@ -412,6 +412,37 @@ fn dispatch(method: &str, json: &str) -> Result<Value, Error> {
             Ok(serde_json::to_value(crate::chain::ChainInfo::from(&t)).map_err(|e| Error::msg(e.to_string()))?)
         }
 
+        // A getSlotProof response, checked against a header this phone
+        // checked itself (see slot_proof.rs).
+        "verifySlotProof" => {
+            #[derive(Deserialize)]
+            struct A {
+                state: crate::chain::ChainState,
+                proof: crate::slot_proof::SlotProof,
+                /// The slots the phone asked about, sorted and unique.
+                indices: Vec<u32>,
+            }
+            let a: A = args(json)?;
+            let t = crate::chain::Tracker::load(&a.state)?;
+            let Some((header, id)) = t.header_at(a.proof.height) else {
+                // Not a block the phone holds (yet, or any more): no verdict.
+                return Ok(json!({ "status": "unknown_block", "height": a.proof.height, "phoneTip": t.tip().height }));
+            };
+            use crate::slot_proof::VerifyError as V;
+            match crate::slot_proof::verify(&a.proof, &header, &id, &a.indices) {
+                Ok(slots) => Ok(json!({
+                    "status": "proven",
+                    "height": header.height,
+                    "blockId": hex::encode(id),
+                    // Deep enough, with enough work on top, to count (chain.rs).
+                    "checked": header.height <= t.checked_height(),
+                    "slots": slots,
+                })),
+                Err(V::OtherBlock) => Err(Error::coded("proof_other_chain", "The proof is for a different block than the one this phone checked.")),
+                Err(e) => Err(Error::coded("proof_invalid", format!("The coin proof doesn't check out ({e:?})."))),
+            }
+        }
+
         "syncHeaders" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -526,5 +557,31 @@ mod tests {
         assert!(out["error"]["message"].as_str().unwrap().contains("64 hexadecimal"));
         let out: Value = serde_json::from_str(&call("nope", "")).unwrap();
         assert!(out["error"].is_object());
+    }
+}
+
+#[cfg(test)]
+mod slot_proof_api {
+    use super::*;
+
+    fn proof_at(height: u64, block_hash: &str) -> Value {
+        json!({ "height": height, "block_hash": block_hash, "state_root": "00".repeat(32), "log_slots": 24,
+                "slots": [{ "slot_index": 1, "value": 5, "creation_id": "7", "owner": "o1wrznmh6td3mgg9mu0a3kkxxn2lnfu827uykrnpaa90mex8su9zcs5sjxrk", "empty": false }],
+                "siblings": [] })
+    }
+
+    #[test]
+    fn verify_slot_proof_gives_no_verdict_off_the_phones_chain_and_refuses_lies_on_it() {
+        let t = crate::chain::Tracker::new();
+        let state = serde_json::to_value(t.state()).unwrap();
+        let tip = t.tip().height;
+        let out: Value = serde_json::from_str(&call("verifySlotProof", &json!({ "state": state, "proof": proof_at(tip + 5, &"ab".repeat(32)), "indices": [1] }).to_string())).unwrap();
+        assert_eq!(out["ok"]["status"], "unknown_block", "{out}");
+        // On a block the phone holds: a different block id, then a made-up proof.
+        let out: Value = serde_json::from_str(&call("verifySlotProof", &json!({ "state": state, "proof": proof_at(tip, &"ab".repeat(32)), "indices": [1] }).to_string())).unwrap();
+        assert_eq!(out["error"]["code"], "proof_other_chain", "{out}");
+        let id = hex::encode(t.tip_id());
+        let out: Value = serde_json::from_str(&call("verifySlotProof", &json!({ "state": state, "proof": proof_at(tip, &id), "indices": [1] }).to_string())).unwrap();
+        assert_eq!(out["error"]["code"], "proof_invalid", "{out}");
     }
 }

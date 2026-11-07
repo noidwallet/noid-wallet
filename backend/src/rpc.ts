@@ -31,6 +31,9 @@ const ALLOWED = new Set([
   // wallet or keys, and it signs nothing (docs/reference/client-native-rpc.md).
   // Only plain transfers are ever requested (native.ts builds the request).
   "prepareNativeIntent",
+  // Coin proofs (Parano1d main 757f8d8, not yet released): read-only Merkle
+  // proofs of current State slots, checked by the phone (proofs.ts).
+  "getSlotProof",
 ] as const);
 
 export type RpcMethod = typeof ALLOWED extends Set<infer T> ? T : never;

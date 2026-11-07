@@ -331,6 +331,12 @@ impl Tracker {
         self.checked_floor
     }
 
+    /// The full header (and id) the phone checked at `height`, while it is
+    /// among the retained headers (about the last [`RETAIN`] blocks).
+    pub fn header_at(&self, height: u64) -> Option<(Header, [u8; 32])> {
+        self.retained.iter().find(|e| e.header.height == height).map(|e| (e.header, e.id))
+    }
+
     /// The block id the phone has at `height`, if it still remembers it.
     pub fn id_at(&self, height: u64) -> Option<[u8; 32]> {
         if let Some(e) = self.retained.iter().find(|e| e.header.height == height) {
