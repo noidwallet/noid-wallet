@@ -762,3 +762,64 @@ mod tests {
         assert!(check_native_send(&me().to_bech32(), &request(&plan, nft("4"))).is_err());
     }
 }
+
+/// Experiment (not part of the app): does a real node plan for another
+/// operation still pass the official checks with the wallet fee output added?
+/// Run: PLAN_FILE=path/to/plan-out.json cargo test --release fee_output_on_a_real_plan -- --ignored --nocapture
+#[cfg(test)]
+mod fee_output_experiment {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn fee_output_on_a_real_plan() {
+        let path = std::env::var("PLAN_FILE").expect("PLAN_FILE");
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let plan = &v["result"];
+        let owner = parse_address(plan["owner"].as_str().unwrap()).unwrap();
+        let chain = hex32(plan["chain_id"].as_str().unwrap(), "chain").unwrap();
+        let height = plan["candidate_height"].as_u64().unwrap();
+        let parent = Header::from_hex(plan["parent_header_hex"].as_str().unwrap()).unwrap();
+        let mut intent = NativeIntent::from_bytes(&hex::decode(plan["unsigned_intent_hex"].as_str().unwrap()).unwrap()).unwrap();
+        let facts = intent.checked(chain, height).unwrap();
+        println!("operation: {:?}", facts.pages.operation);
+        println!("inputs {} outputs {} fee {}", facts.inputs.len(), facts.outputs.len(), facts.pages.fee);
+        for o in &facts.outputs {
+            println!("  out slot {} amount {} plain {} mine {}", o.output.slot_index, o.output.amount, o.opening.is_none(), o.output.owner == owner);
+        }
+        // NOID change: a plain output back to the owner.
+        let change_index = facts
+            .outputs
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.opening.is_none() && o.output.owner == owner)
+            .max_by_key(|(_, o)| o.output.amount)
+            .map(|(i, _)| i)
+            .expect("NOID change");
+        let (n_in, n_out) = (facts.inputs.len() as u64, facts.outputs.len() as u64);
+        let (asc, ls) = (parent.active_slot_count, parent.log_slots);
+        let new_fee = facts.pages.fee + fee_breakdown(n_in, n_out + 1, asc, ls).required_total - fee_breakdown(n_in, n_out, asc, ls).required_total;
+        let cost = new_fee - facts.pages.fee + NATIVE_WALLET_FEE;
+        let used: BTreeSet<u32> = facts.inputs.iter().map(|c| c.input.slot_index).chain(facts.outputs.iter().map(|c| c.output.slot_index)).collect();
+        let slot = (1u32..).find(|s| !used.contains(s)).unwrap();
+        let mut seen = 0usize;
+        'outer: for page in intent.pages.iter_mut().skip(1) {
+            for i in 0..TX_OUTPUTS {
+                if page.body.output_is_live(i) {
+                    if seen == change_index {
+                        page.body.outputs[i].amount -= cost;
+                        break 'outer;
+                    }
+                    seen += 1;
+                }
+            }
+        }
+        intent.pages[0].body.fee = new_fee;
+        append_plain_output(&mut intent, TxOutput { slot_index: slot, amount: NATIVE_WALLET_FEE, owner: parse_address(WALLET_FEE_ADDRESS).unwrap() }).unwrap();
+        intent.output_openings.push(None);
+        let after = intent.checked(chain, height).expect("still valid with the fee output");
+        let back = NativeIntent::from_bytes(&intent.to_bytes().unwrap()).unwrap();
+        back.checked(chain, height).expect("valid after encoding");
+        println!("OK: operation {:?}, outputs {} -> {}, network fee {} -> {}", after.pages.operation, n_out, after.outputs.len(), facts.pages.fee, new_fee);
+    }
+}
